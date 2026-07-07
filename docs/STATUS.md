@@ -4,25 +4,22 @@ Where the project stands, at a glance. Kept current: update this file in the
 same commit as any change that lands or retires a milestone-sized piece of
 work (see the documentation policy in [DEVELOPMENT.md](DEVELOPMENT.md)).
 
-_Last updated: 2026-07-07 — **Extended BASIC runs on the clean-room
-firmware** (the XB substrate: five census-pinned ROM helpers;
-[XB-CENSUS](../original-content/system-roms/XB-CENSUS.md)) and **TI PYTHON
-grew to v1**, the spec'd Python-like mini-language ([spec](TI-PYTHON.md):
-full-size names, Python floor division, `print(…)`, a scrolling terminal —
-and the fast-typing/backspace input bugs fixed). Same date: save states
-finished for 0.1.0: the automatic
-**resume state** (`resume.ti99`) plus user-named **snapshots** (native
-dialogs), fresh-start delete (`Shift`+`F5`), atomic writes, and a portable
-format (v3 adds the cartridge's host identity); live disk
-mount/eject (no reboot) and the disk persistence model landed (host `.dsk`
-never written; in-memory images + `F4` export/unload; save-state format v2).
-2026-07-06: **this repository is the
-IP-clean fork**: born from a snapshot of the (discontinued) private
-predecessor's tree, history clean from commit 1. Same date: the project
-rebranded **Libre99** throughout (crates `libre99-*`, binaries
-`libre99`/`libre99asm`/`libre99gpl`, data dir `~/.libre99/` with automatic
-migration); documentation reorganization; clean-room firmware boots by
-default._
+_Last updated: 2026-07-07 — **0.1.0 is ready to tag**: the workspace is at
+version **0.1.0** (one number for the emulator, the firmware markers, and TI
+PYTHON's banner; [CHANGELOG](../CHANGELOG.md)), the `Esc`/`F1` help was
+revamped with a first-run **`PRESS ESC FOR HELP`** banner and a `--version`
+flag, and the docs swept for release. Earlier the same day: **Extended BASIC
+runs on the clean-room firmware** (the XB substrate: five census-pinned ROM
+helpers; [XB-CENSUS](../original-content/system-roms/XB-CENSUS.md)), **TI
+PYTHON grew to v1** ([spec](TI-PYTHON.md)), the 137-cart health panel reached
+**zero waivers**, save states finished (the automatic **resume state**
+`resume.ti99` + user-named **snapshots**, `Shift`+`F5` fresh start, atomic
+writes, portable format v3), and live disk mount/eject + the disk-persistence
+model landed (host `.dsk` never written; in-memory images + `F4`
+export/unload). 2026-07-06: **this repository is the IP-clean fork** — born
+from a snapshot of the (discontinued) private predecessor's tree, history
+clean from commit 1 — the project rebranded **Libre99** throughout, and the
+clean-room firmware boots by default._
 
 ## The emulator
 
@@ -86,16 +83,17 @@ and [rom/README.md](../original-content/system-roms/rom/README.md).
 
 ## What's next
 
-Feature direction lives in [ROADMAP.md](ROADMAP.md). The current priority is the
-**[Road to 0.1.0](ROADMAP.md#road-to-010--the-first-public-release-early-testing)**
-release gate — decide TI PYTHON's 0.1.0 shape, revamp the `F1` help and
-first-run docs, and package the release (the IP purge, rename/fork, on-demand
-media, clean-room DSR default, live disk mounting, disk persistence, and the
-save-state finish — resume state + snapshots, atomic + portable — have all
-landed). Other
-near-term **[next]** items are the macOS `.app` bundle, key/joystick remapping, and
-the alpha-lock host toggle. User-visible quirks and open issues are tracked in
-[KNOWN-ISSUES.md](KNOWN-ISSUES.md); firmware-rewrite limitations in
+Feature direction lives in [ROADMAP.md](ROADMAP.md). **Every engineering row
+of the
+[Road to 0.1.0](ROADMAP.md#road-to-010--the-first-public-release-early-testing)
+has landed** — what remains is the owner's ship sequence: the hands-on
+testing pass (plus the two pending gameplay eyeballs — Parsec's small-caps
+prompt, a Video Vegas play-through), `git tag v0.1.0`, and prebuilt
+Windows/macOS binaries on a GitHub Release. Post-0.1.0, the near-term
+**[next]** items are the macOS `.app` bundle, key/joystick remapping, the
+authentic lowercase keytab (then the alpha-lock host toggle). User-visible
+quirks and open issues are tracked in [KNOWN-ISSUES.md](KNOWN-ISSUES.md);
+firmware-rewrite limitations in
 [LIMITATIONS.md](../original-content/system-roms/LIMITATIONS.md).
 
 ## The record

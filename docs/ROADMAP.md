@@ -21,197 +21,54 @@ them so the codebase stays clean and each capability is independent.
 
 ## Road to 0.1.0 — the first public release (early testing)
 
-**0.1.0 is the first source-available public drop, for early testers.** Its governing
-constraint is simple: **ship only what the project owns** — the pure-Rust emulator, the
-clean-room **libre99** firmware (ROM + GROM), the `libre99asm`/`libre99gpl` toolchain, and our
-original cartridges (Titris, Sokoban), with **zero TI or third-party bytes** anywhere in
-the tree, the binary, or the published history. The machine already boots and runs
-*fully* on the clean-room firmware by default, so a TI-IP-free build is a working
-product, not a stub. (Since 2026-07-06 that includes the disk: the clean-room
-disk DSR reads *and writes* by default — formerly a row of this table.)
+**Status: the engineering is done — 0.1.0 awaits the owner's final hands-on
+pass, the tag, and prebuilt binaries.** 0.1.0 is the first source-available
+public drop, for early testers, and its governing constraint is met: **ship
+only what the project owns** — the pure-Rust emulator, the clean-room
+**Libre99** firmware (ROM + GROM + disk DSR), the `libre99asm`/`libre99gpl`
+toolchain, and our original cartridges (Titris, Sokoban), with **zero TI or
+third-party bytes** in the tree, the binary, or the published history (this
+repository was born as the IP-clean fork; its history is clean from
+commit 1).
 
-**Phase 1 is done** — three further rows completed 2026-07-06 and
-left the table: **media loads on demand** (zero embedded media; the console
-boots bare; `--cartridge`/`--disk` take file paths and `F9` opens the
-**OS-native file chooser** — owner call: system chooser, not a custom
-browser); **the public/local test split** (~90 files now load authentic
-images at run time from the git-ignored `third-party/` directory via
-`libre99_core::third_party`, skipping green when absent — the book's bench tool
-included); and **the purge** (`roms/`, `cartridges/`, `disks/` moved out of
-version control into `third-party/`; the gallery generator renders only our
-titles; the two third-party README screenshots stay as static images per the
-owner decision). The last row — the **verification gate** below — has cleared
-too: this fork builds and tests green from a clean checkout, and its public CI
-(GitHub Actions — `test` + `clippy` on Windows and macOS, on every push) passes with
-**zero proprietary bytes** on the runners' fresh checkouts (owner-confirmed green,
-2026-07-07). Everything left for 0.1.0 is Phase 3 polish.
+Every release-gating row has landed: the IP severance and public/local test
+split, the rename & fork, on-demand media (nothing embedded; CLI paths + the
+`F9` system chooser), the clean-room disk DSR by default, live disk mounting
++ the never-touch-your-files persistence model (`F4` export), atomic and
+portable save states with snapshots, TI PYTHON v1 + the XB substrate
+(Extended BASIC end-to-end on the clean-room pair), the legal-notices
+consolidation ([NOTICE.md](../NOTICE.md)), the `Esc`/`F1` help revamp + the
+first-run **`PRESS ESC FOR HELP`** banner, the **0.1.0** version bump (with
+`--version`), and the [CHANGELOG](../CHANGELOG.md). The full phase-by-phase
+record — including every decision of record (save-slot shape, disk-delta
+shape, data-dir migration, no-bundled-content, TI PYTHON's target, the
+system-roms README wording) — is archived at
+[history/ROAD-TO-0.1.0.md](history/ROAD-TO-0.1.0.md).
 
-**Order of battle — the sequence is deliberate.** All blocking IP must leave the working
-tree **first**; *then* the rename to **Libre99**; and *immediately after the rename* the
-project **forks to a brand-new `libre99` repository whose history has never contained
-anyone's IP.** That fork is the decided answer to the git-history problem — a public repo
-has to be clean all the way back to its first commit, which scrubbing `HEAD` alone cannot
-achieve. So the work falls into three phases:
+**What remains — the owner's ship steps:**
 
-- **Phase 1 · Sever all IP** (in the predecessor repo) — make the tree build and test
-  green with zero proprietary bytes. **Done 2026-07-06.**
-- **Phase 2 · Rename & fork** — rename to Libre99, then snapshot into the fresh repo.
-  **Done 2026-07-06.**
-- **Phase 3 · Polish & ship 0.1.0** (this repo) — the remaining, IP-free work.
-
-**Phases 1 and 2 completed 2026-07-06.** The rename made the project **Libre99**
-everywhere — the crates (`libre99-core`/`-app`/`-asm`/`-gpl`), the binaries
-(`libre99`, `libre99asm`, `libre99gpl`), the license's `Software:` line, the
-data directory (`~/.libre99/`, adopted from `~/.ti-99-emulator/` by a one-time
-automatic migration; the savestate kept its machine-named `savestate.ti99`
-file and `TI99SAVE` magic, so old saves still load — the file was later renamed
-`resume.ti99` on 2026-07-07, adopted the same way), all docs, and the book's
-toolchain references — while the machine is still called the **TI-99/4A**
-wherever the hardware is meant. The fork followed the same day: **this
-repository** was created fresh and seeded with a snapshot of the predecessor's
-IP-free tree (at its rebrand commit `b3db72f`, minus TI's Editor/Assembler
-manual PDF, which moved to the git-ignored `third-party/`), so its history has
-never contained a proprietary byte. The old private `ti-99-emulator`
-repository is discontinued and must never be published — its *history* still
-holds the firmware and media its tree shed.
-
-Gate tags below: **[blocker]** must land before 0.1.0 · **[target]** a 0.1.0 goal, not
-release-gating · **[decide]** an owner decision gates it.
-
-| # | Phase | Work item | What it involves — and why it sits here | Gate |
-|:--:|---|---|---|:--:|
-| 1 | **3 · Polish & ship** | **Docs, in-app help & first-run** | **Revamp the `F1` help (`help.rs`) — explicitly still required before 0.1.0** (the 2026-07-06 media rework and rename made only accuracy edits to it — Joel; the 2026-07-07 disk-persistence and save-state work likewise touched only its media/hotkey/state facts); first-run onboarding on an empty console — including a **`PRESS ESC FOR HELP` banner** shown whenever there is no resume state (first launch, or after a `Shift`+`F5` fresh start / complete reset), drawn like the other on-screen banners via the `text::Canvas` overlay framework (reconcile the prompt's key with the current `F1` help binding — Joel, 2026-07-07); README + USER-GUIDE pass; state plainly that **TI BASIC needs user-supplied authentic ROMs** (Extended BASIC runs on the clean-room pair since 2026-07-07) and note the Video Vegas GROM-2 exception. | [blocker] |
-| 2 | **3 · Polish & ship** | **Package & release** | Set the workspace to **0.1.0**, add a `CHANGELOG`, tag; ship prebuilt Windows + macOS binaries via GitHub Releases (incl. the macOS `.app` bundle); final crash/robustness pass (first run, missing dir, bad input, no media). | [blocker] |
-
-**Landed 2026-07-07 — TI PYTHON v1 + Extended BASIC on the clean-room firmware
-(the former TI PYTHON row left the table).** The v1 spec
-([docs/TI-PYTHON.md](TI-PYTHON.md)) was implemented in full the day it was
-written: the input-bug fixes (fast typing dropped keys, backspace was ignored —
-the KSCAN new-key protocol replaced the v0 wait-for-release loop), the four-row
-banner + `>>> ` prompt, a scrolling terminal screen with a blinking cursor,
-full-size variable names (32 VRAM slots), Python floor `/`·`//`·`%` and a real
-unary minus (v0 silently mis-evaluated `2*-3`), `print(…)` with string
-literals, `#` comments, and `exit()`/`quit()` — twelve gates. **The spec's §6
-feasibility study also paid off immediately**: its census-first plan (F0) found
-Extended BASIC needs just **five small console-ROM helpers** — not the feared
-interpreter's worth — and the **XB substrate** implements them at their
-authentic addresses, so a user-supplied XB cartridge now runs end-to-end
-(PRINT, floats, RUN, LIST) on the default clean-room boot, differentially
-gated. TI BASIC proper stays deferred by policy. Dossier:
-[XB-CENSUS.md](../original-content/system-roms/XB-CENSUS.md); ledger:
-[LIMITATIONS](../original-content/system-roms/LIMITATIONS.md) L3 (resolved) +
-L9 (XB resolved).
-
-**Landed 2026-07-07 — save states: atomic, portable, snapshots (the former row 1
-[blocker] left the table).** Every state file is now written **atomically**
-(temp file + rename, `config::write_atomic` — the preferences use it too), so a
-crash or full disk mid-save can never destroy the previous save. The
-**portability** half: the state file was already self-contained and
-little-endian; format **v3** adds the *cartridge's* host identity alongside the
-disks' (v2), so a loaded state names its own media — the frontend no longer
-re-reads the cartridge file on resume, and `last_cartridge`/`last_disk` in the
-preferences are just the fallback identities for pre-v3 files. Identities are
-opaque labels, never re-opened as paths; a regression test loads Windows- and
-POSIX-keyed states regardless of host. The UX (Joel's spec, 2026-07-07): the
-automatic save is named the **resume state** (`~/.libre99/resume.ti99`, adopted
-once from the old `savestate.ti99` name) — auto-saved on exit, auto-loaded at
-launch, saved/loaded live with `F6`/`F8`; **snapshots** are user-named `.ti99`
-files through the OS-native dialogs (`Shift`+`F6` save, `Shift`+`F8` load, with
-a native warning that loading replaces the resume state — which is rewritten
-immediately after a successful load); and **`Shift`+`F5` is the fresh start** —
-it deletes the resume state after a native warning that counts the in-memory
-disk images (and unexported changes) it unloads, then restarts bare like a
-first run. `F8` also warns first when loading would roll back unexported disk
-changes.
-
-**Landed 2026-07-07 — live disk mounting + disk persistence (two rows left the
-table).** The former **"mount a disk without rebooting"** blocker (*bug, Joel
-2026-07-07*) and the **"disk persistence — original untouched · tracked delta ·
-export"** target landed together. Disks now mount (`F9`) and eject (`F3`)
-**live** into the running machine, like a real floppy; only a *cartridge*
-change still cold-boots (the console scans cartridge ROM at power-up), and even
-that reboot carries the whole disk subsystem across intact. The persistence
-model: the host `.dsk` is **never written** — writes mutate the machine's
-in-memory image (a whole mutated copy, keyed by the file's canonical path); an
-ejected image moves to an in-memory **shelf** and reattaches, edits intact,
-when the same file is remounted; save states (format v2 — v1 still loads)
-serialize drives *and* shelf, so changed disks survive quit-and-resume. The new
-**`F4` disk-memory overlay** lists every in-memory image (`CHANGED`/`CLEAN`),
-**exports** one through the OS-native save dialog — whose own replace-prompt is
-the guarantee that **no host `.dsk` is ever overwritten unprompted** — and
-**unloads** one (native save-first/discard/cancel dialog when dirty) so the
-next mount re-reads the host file. The `F1` help's stale "warm reset" wording
-went with it.
-
-**Landed 2026-07-07 — the Legal-notices blocker (left the table):** a single root
-[`NOTICE.md`](../NOTICE.md) now consolidates all legal notices, kept distinct from
-`LICENSE.md` (the project's own grant): the **"Not affiliated with or endorsed by Texas
-Instruments"** trademark disclaimer (TI marks used nominatively only); the **Silkscreen**
-and **IBM Plex Mono** attributions under the SIL **Open Font License 1.1** (pointing to the
-full texts already shipped beside the fonts, not duplicating them); and the **Microban**
-level credit (David W. Skinner) that the Sokoban cartridge already shows on screen.
-
-**Open decisions (owner)** — each rides on the row noted:
-- **system-roms README "no TI bytes" headline wording** — still open from earlier.
-
-> **Decided 2026-07-07 (owner):** TI PYTHON's 0.1.0 target — **grow it** into the small
-> Python-like language specified in **[docs/TI-PYTHON.md](TI-PYTHON.md)** (v1: full-size
-> variable names, `print(…)` with string literals, comments, `exit()`, Python floor
-> division/modulo, a proper multi-row banner), fixing the fast-typing dropped-keys and
-> backspace input bugs on the way; the TI PYTHON name stays. The spec doubles as the
-> implementation plan (its §5) and carries the **TI Extended BASIC feasibility study**
-> (its §6): grow the console primitives behind TI PYTHON's own milestones, census-first,
-> as the long road to closing the M6/L9 BASIC gap — post-0.1.0 by construction. This
-> retired the former "TI PYTHON — what does complete mean" [decide] row.
-
-> **Decided 2026-07-07 (owner, via the save-state requirements):** the save-slot
-> shape. **One automatic slot — the resume state** (auto-save on exit /
-> auto-load at startup, `F6`/`F8` live) — plus **user-named snapshot files**
-> through the OS-native save/open dialogs, rather than multiple internal slots:
-> the file name *is* the slot name, which makes naming cross-platform-safe by
-> construction. Loading a snapshot replaces the resume state (native warning
-> first), and `Shift`+`F5` deletes the resume state for a first-run fresh start
-> (warning spells out what is lost). This retired the former "save-slot split"
-> open decision.
-
-> **Decided 2026-07-07 (owner, via the disk-persistence requirements):** the disk
-> delta's shape. The machine keeps a **whole mutated copy** of each disk image in
-> memory (not a sparse sector map — simpler, and the images are ≤ ~1.4 MB); an
-> image is **keyed by its source file's canonical path**, which is how an export
-> or a remount associates back to the original `.dsk`. Persistence is **the live
-> session plus its save states** (the exit auto-save already covers a plain
-> quit-and-relaunch); there is **no separate write-through** under `~/.libre99/`
-> and no opt-in write-through to the source — export is **on-demand only**
-> (`F4`), through the OS-native save dialog, whose replace-prompt enforces the
-> never-overwrite-unprompted rule.
-
-> **Decided 2026-07-06 (owner, via "rebrand everything"):** the data directory is
-> `~/.libre99/` with the `libre99.toml` / `libre99.log` names; startup adopts an
-> existing `~/.ti-99-emulator/` automatically (one-time rename), and the
-> savestate kept its machine-named `savestate.ti99` file, so nothing was lost in
-> the move (renamed once more to `resume.ti99` on 2026-07-07, adopted the same
-> way). This retired the former "data-dir rename & migration" open decision.
-
-> **Decided 2026-07-06 (owner):** *no* content is bundled with the application —
-> not even our own cartridges. Media enters only via the command line or the
-> system file chooser. (This retired the former "default bundled content"
-> decision; Titris and Sokoban stay in the repo as sources + built `.ctg`s to
-> mount by hand.)
-
-> The git-history question is **resolved and executed**: rather than scrub or squash
-> the old repository, the project forked — this repo's history starts at its own
-> commit 1 and has never contained a proprietary byte. That is why IP removal had to
-> fully precede the fork.
+1. **Hands-on testing pass** (first run, fresh start, missing dir, bad
+   input, no media — the crash/robustness eyeball), plus the two pending
+   gameplay eyeballs noted in [KNOWN-ISSUES](KNOWN-ISSUES.md) /
+   [LIMITATIONS](../original-content/system-roms/LIMITATIONS.md): Parsec's
+   small-caps in-game prompt, and a Video Vegas play-through (L8).
+2. **Tag `v0.1.0`** and publish the **GitHub Release** with prebuilt
+   Windows + macOS binaries (`cargo build --release` artifacts; the macOS
+   `.app` bundle stays a §7 **[next]** item — a plain binary is the 0.1.0
+   vehicle).
 
 ### Definition of done for 0.1.0
-The fresh **libre99** repository — history clean back to commit 1 — builds from a clean
-checkout a binary named **libre99** that contains **no TI or third-party bytes**, boots
-the clean-room firmware, loads cartridges and disks from user-supplied files (command
-line + the system file chooser; nothing bundled), reads *and writes* disks on the
-clean-room DSR (mounting a disk **without rebooting** the running console), saves and
-restores state portably across macOS and Windows, passes a public CI with no proprietary
-inventory (green as of 2026-07-07), ships refreshed docs and in-app help, and is
-downloadable as a prebuilt binary for both platforms.
+
+Met, except the last clause — the tag ships it. The fresh **libre99**
+repository — history clean back to commit 1 — builds from a clean checkout a
+binary named **libre99** that contains **no TI or third-party bytes**, boots
+the clean-room firmware, loads cartridges and disks from user-supplied files
+(command line + the system file chooser; nothing bundled), reads *and writes*
+disks on the clean-room DSR (mounting a disk **without rebooting** the running
+console), saves and restores state portably across macOS and Windows, passes a
+public CI with no proprietary inventory (green as of 2026-07-07), ships
+refreshed docs and in-app help — **and is downloadable as a prebuilt binary
+for both platforms (the remaining step)**.
 
 ---
 
@@ -442,7 +299,7 @@ that lands a feature.
 |---|---|---|
 | Roadmap (this document) | `docs/ROADMAP.md` | `a81148c` |
 | Host keyboard layout translation (Dvorak/QWERTY) | `input` (`KeyLayout`), `config` | `e698ff8` |
-| In-app media browser + metadata | `menu` | `22a644d` |
+| ~~In-app media browser + metadata~~ (removed with the media embeds — superseded by the `F9` system chooser below) | `menu` (deleted) | `22a644d` |
 | Variable speed (turbo / pause / frame-advance) | `speed` | `4bfba1d` |
 | Screenshot (built-in PNG encoder) | `screenshot` | `980550b` |
 | Save state (single; auto-save on exit + resume at launch) | `app`, `config` | `2ad3d05` |
@@ -456,6 +313,8 @@ that lands a feature.
 | Extended BASIC on the clean-room firmware — the XB substrate (census instrument + five pinned ROM helpers + differential gates) | `cpu` (PC coverage, core); `rom/console.asm`; `xb_census`, `xb_substrate`, `xb_smoke` | `0e692eb` |
 | TI PYTHON P1 — the new-key input engine (fixes dropped keys, backspace, junk echo, unbounded input) | `grom/console.gpl`; `ti_python.rs` | `cbbcdb2` |
 | TI PYTHON v1 — the spec'd Python-like mini-language (names, floor math, `print`, comments, `exit()`, scroll, cursor) | `grom/console.gpl`; `ti_python.rs`; spec `docs/TI-PYTHON.md` | `7c2cae9` |
+| First-run `PRESS ESC FOR HELP` banner + Esc-first help revamp + `--version` | `app`, `help`, `cli`, `main` | `a1f16b4` |
+| Version 0.1.0 across the workspace (firmware markers + TI PYTHON banner track it) + `CHANGELOG.md` | workspace `Cargo.toml`; firmware artifacts | `1dd5c0d` |
 
 > The list above is the *committed* slice of the roadmap; everything tagged
 > **[next]/[later]/[stretch]** is future work, captured here so the design intent
