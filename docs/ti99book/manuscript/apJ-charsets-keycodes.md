@@ -50,7 +50,7 @@ so a plain 8-byte-per-glyph `MOVE` of an expanded block reproduces the loader's
 output. To place the standard set, `MOVE` the 512-byte block into the pattern
 table at `pattern_base + >20 × 8` (Ch. 13). The complete bit patterns for all
 three sets live in the project's `font.rs` (and assemble into the clean-room GROM);
-this card teaches the format rather than reprinting 155 glyphs.
+this card teaches the format rather than reprinting all 159 glyphs.
 
 ## J.2 KSCAN, the mode cell, and the four code blocks
 
