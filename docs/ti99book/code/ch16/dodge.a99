@@ -1,0 +1,199 @@
+* DODGE.A99 — our first game: dodge the falling meteors.              (Ch. 16)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* Lab 16. A player ball at the bottom and four meteor balls falling from the
+* top; each meteor that reaches the floor respawns at a new (pseudo-random)
+* column; a meteor whose bounding box overlaps the player's costs a life. This
+* file is DODGE's ENGINE — setup, the per-tick update (fall / wrap / collide /
+* respawn), score and lives — the part that is deterministic and bench-provable.
+* The interactive layer that steers the player belongs to Chapter 21 (input) and
+* the frame-timed loop to Chapter 17; here the player holds still at column 120
+* and meteor 0 starts directly above it, so a collision is guaranteed and the
+* self-test can prove the collision logic fired.
+*
+* Verify: load, pc START, x 200000, then  vdp  (R7=>02 = a collision was
+* detected) and  m 834C 2  (DHITS > 0).
+*
+* Build:  libre99asm code/ch16/dodge.a99 ...
+
+       COPY '../ch11/equates.inc'
+       COPY '../ch12/vdplib.inc'
+       COPY 'spritelib.inc'
+
+WS     EQU  >8300
+STKTOP EQU  >8340
+* game state (scratchpad, above the stack)
+DPX    EQU  >8342            player x
+DHITS  EQU  >834C            collisions detected (lives lost)
+DSCORE EQU  >834E            ticks survived
+DSEED  EQU  >8350            LFSR state
+MYS    EQU  >8352            four meteor y (>8352,54,56,58)
+MXS    EQU  >835A            four meteor x (>835A,5C,5E,60)
+
+PLYRY  EQU  176             the player's fixed row
+SPEED  EQU  6               meteor fall per tick
+NTICK  EQU  60              ticks to run in this bench self-test
+
+START  LWPI WS
+       LI   R10,STKTOP
+* --- blank Graphics I background, black backdrop ---
+       LI   R0,1
+       LI   R1,>E000
+       BL   @VWTR
+       LI   R0,0
+       LI   R1,0
+       BL   @VWTR
+       LI   R0,2
+       LI   R1,0
+       BL   @VWTR
+       LI   R0,4
+       LI   R1,>0100
+       BL   @VWTR
+       LI   R0,7
+       LI   R1,>0100
+       BL   @VWTR
+       BL   @SINIT
+       CLR  R0
+       LI   R1,BALL
+       BL   @SPAT
+
+* --- initialise state ---
+       LI   R0,120
+       MOV  R0,@DPX          player at column 120
+       CLR  @DHITS
+       CLR  @DSCORE
+       LI   R0,>ACE1
+       MOV  R0,@DSEED        LFSR seed (nonzero)
+* meteors: index 0 aimed at the player (x=120), the rest spread out
+       LI   R0,MYS
+       CLR  *R0+            MY0 = 0
+       CLR  *R0+            MY1
+       CLR  *R0+            MY2
+       CLR  *R0             MY3
+       LI   R0,MXS
+       LI   R1,120
+       MOV  R1,*R0+         MX0 = 120 (over the player)
+       LI   R1,40
+       MOV  R1,*R0+         MX1
+       LI   R1,200
+       MOV  R1,*R0+         MX2
+       LI   R1,80
+       MOV  R1,*R0         MX3
+* place the player sprite (0) and the four meteor sprites (1..4) — each meteor
+* must be SPUT once to set its shape and colour; TICK then only SMOVs positions.
+       CLR  R0
+       LI   R1,PLYRY
+       MOV  @DPX,R2
+       CLR  R3
+       LI   R4,15
+       BL   @SPUT           player, white
+       LI   R0,1
+       CLR  R1
+       LI   R2,120
+       CLR  R3
+       LI   R4,8
+       BL   @SPUT           meteor 0 -> sprite 1, red
+       LI   R0,2
+       CLR  R1
+       LI   R2,40
+       CLR  R3
+       LI   R4,10
+       BL   @SPUT           meteor 1 -> sprite 2, dark yellow
+       LI   R0,3
+       CLR  R1
+       LI   R2,200
+       CLR  R3
+       LI   R4,10
+       BL   @SPUT           meteor 2 -> sprite 3
+       LI   R0,4
+       CLR  R1
+       LI   R2,80
+       CLR  R3
+       LI   R4,10
+       BL   @SPUT           meteor 3 -> sprite 4
+       LI   R0,SATTR+20     end the active list after sprite 4 ...
+       LI   R1,>D000        ... sprite 5 Y = >D0
+       BL   @VSBW
+
+* --- the game loop: NTICK ticks ---
+       LI   R9,NTICK        R9 = ticks remaining (preserved across calls)
+GLOOP  BL   @TICK
+       INC  @DSCORE
+       DEC  R9
+       JNE  GLOOP
+
+* verdict: a collision must have been detected (meteor 0 fell onto the player)
+       MOV  @DHITS,R0
+       JEQ  BAD
+       LI   R0,7
+       LI   R1,GREEN
+       BL   @VWTR
+       JMP  HALT
+BAD    LI   R0,7
+       LI   R1,RED
+       BL   @VWTR
+HALT   JMP  HALT
+
+* ===================================================================
+* TICK — advance every meteor one step: fall, wrap or collide, redraw.
+* Uses R8 as the meteor index (0..3); SMOV preserves R8/R9. Non-leaf.
+TICK   DECT R10
+       MOV  R11,*R10
+       CLR  R8
+TMET   MOV  R8,R7           R7 = byte offset = index*2
+       SLA  R7,1
+* MY += SPEED
+       MOV  @MYS(R7),R1
+       AI   R1,SPEED
+* off the bottom? respawn at the top with a new column
+       CI   R1,184
+       JL   TNOWRAP
+       BL   @RANDX          R0 = new x (0..247)
+       MOV  R0,@MXS(R7)
+       CLR  R1             y = 0
+TNOWRAP MOV  R1,@MYS(R7)
+* collision with the player? bounding box, 8x8
+       LI   R2,PLYRY
+       S    R1,R2          R2 = PLYRY - MY
+       ABS  R2
+       CI   R2,8
+       JHE  TNOHIT          |dy| >= 8 -> miss
+       MOV  @MXS(R7),R2
+       S    @DPX,R2        R2 = MX - PX
+       ABS  R2
+       CI   R2,8
+       JHE  TNOHIT          |dx| >= 8 -> miss
+* hit: count it and respawn the meteor at the top
+       INC  @DHITS
+       BL   @RANDX
+       MOV  R0,@MXS(R7)
+       CLR  @MYS(R7)
+TNOHIT
+* redraw meteor sprite (index+1) at its position
+       MOV  R8,R0
+       INC  R0             sprite number = meteor index + 1
+       MOV  @MYS(R7),R1
+       MOV  @MXS(R7),R2
+       BL   @SMOV
+       INC  R8
+       CI   R8,4
+       JNE  TMET
+       MOV  *R10+,R11
+       RT
+
+* RANDX — a 16-bit LFSR step; returns a column 0..247 in R0. Leaf-ish (clobbers
+* R0,R1). The canonical LFSR is mathlib's (Ch. 8); DODGE inlines a small one.
+RANDX  MOV  @DSEED,R1
+       SRL  R1,1
+       MOV  @DSEED,R0
+       ANDI R0,1
+       JEQ  RXOK
+       XOR  @RXTAP,R1       tap polynomial
+RXOK   MOV  R1,@DSEED
+       ANDI R1,>00F8        0..248, byte-column-ish
+       MOV  R1,R0
+       RT
+RXTAP  DATA >B400
+
+BALL   DATA >3C7E,>FFFF,>FFFF,>7E3C
+       END  START

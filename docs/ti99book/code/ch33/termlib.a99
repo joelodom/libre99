@@ -1,0 +1,15 @@
+* TERMLIB.A99 — assembles lib99's serial primitives.                  (Ch. 33)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+* NOT runnable on this project's emulator or BENCH99: the TMS9902 is UNEMULATED
+* (R-12). Runs on Classic99/MAME/hardware. Proves termlib.inc assembles.
+       COPY '../ch11/equates.inc'
+       COPY 'termlib.inc'
+WS     EQU  >8300
+START  LWPI WS
+       LI   R12,R9902B       the 9902's CRU base
+       BL   @TINIT
+       LI   R1,>4100         'A'
+       BL   @TPUTC           send it
+       BL   @TGETC           receive one -> R1
+HALT   JMP  HALT
+       END  START

@@ -1,0 +1,28 @@
+* BANKCART.A99 — bank 0 of a 2-bank cartridge: proves bank-switching.  (Ch. 35)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+* START copies a small PROBE to scratchpad RAM and runs it there (a resident
+* trampoline, S35.3) so switching the >6000 window does not pull the code out
+* from under the PC. The probe reads the bank marker (@TAG), switches to bank 1
+* (a WRITE to >6002), reads it again, switches back (WRITE to >6000), reads once
+* more — publishing the three markers to >8320/>8322/>8324. Bank 1 is the same
+* source with TAG = >B1B1. Load the 16K image and run: expect B0B0 / B1B1 / B0B0.
+START  LWPI >8300
+       LI   R10,>8340
+       LI   R0,PROBE           copy the probe...
+       LI   R1,>8360           ...into scratchpad RAM...
+       LI   R2,PEND-PROBE      ...its byte length
+CPY    MOV  *R0+,*R1+
+       DECT R2
+       JNE  CPY
+       B    @>8360             run the probe from RAM
+PROBE  MOV  @TAG,@>8320        marker of the CURRENT bank (bank 0)
+       LI   R3,>6002
+       MOV  R3,*R3             WRITE >6002 -> select bank 1
+       MOV  @TAG,@>8322        marker now (bank 1)
+       LI   R3,>6000
+       MOV  R3,*R3             WRITE >6000 -> select bank 0
+       MOV  @TAG,@>8324        marker now (bank 0 again)
+HALT   JMP  HALT
+PEND   DATA >0000              (marks the end of the probe copy region)
+TAG    DATA >B1B1              bank-1 marker (bank 1 = >B1B1)
+       END  START

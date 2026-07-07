@@ -1,0 +1,116 @@
+* TASK99 — a cooperative multitasker in one page of code.              (Ch. 9)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* The whole idea in one sentence: BLWP/RTWP already IS a context switch, so a
+* scheduler is just BLWP/RTWP pointed at a table of saved contexts.
+*
+* Each task owns a workspace (its registers survive across a yield, for free —
+* that is what "its own workspace" buys you). A task gives up the CPU with
+*     BLWP @YVEC          ; "yield": run someone else for a while
+* and wakes up on the instruction after it, exactly as it left off.
+*
+* A task's saved state is a 3-word CONTROL BLOCK: {WP, PC, ST} — precisely the
+* three things RTWP restores. The scheduler keeps two pointers, CURPTR (the
+* running task's block) and NXTPTR (the one to run next); yielding saves into
+* CURPTR, swaps the two, and loads from CURPTR. Two tasks => a swap; for N you
+* would thread a ring link through the blocks instead (noted below).
+*
+* SELF-TEST: task A writes >AA and task B writes >BB into a shared log, each
+* yielding after its write. If the switch is real and fair, the log must come
+* out strictly interleaved: AA BB AA BB AA BB AA BB. The checker proves that
+* byte-for-byte and paints the border green (>02) or red (>06).
+
+WSM    EQU  >8300            boot workspace (fast island)
+WSY    EQU  >8320            the yield service's own workspace
+WSA    EQU  >8340            task A's workspace
+WSB    EQU  >8360            task B's workspace
+* --- scheduler globals (shared pad, colliding with no workspace) ---
+CURPTR EQU  >8380            -> the running task's control block
+NXTPTR EQU  >8382            -> the block to switch to on the next yield
+LOGP   EQU  >8384            shared write cursor into LOG
+LOG    EQU  >8386            8-byte interleave log (>8386-838D)
+CBA    EQU  >8390            task A control block {WP,PC,ST}  (>8390-8395)
+CBB    EQU  >8396            task B control block {WP,PC,ST}  (>8396-839B)
+VDPWA  EQU  >8C02
+GREEN  EQU  >0200
+RED    EQU  >0600
+
+* ===================== the scheduler =============================
+* YSVC runs under WSY. BLWP handed us the yielding task's context in our
+* R13/R14/R15 (old WP / resume PC / old ST). Save it, rotate, restore, RTWP.
+YSVC   MOV  @CURPTR,R3       R3 -> running task's control block
+       MOV  R13,*R3          save WP  (CB+0)
+       MOV  R14,@2(R3)       save PC  (CB+2) — the resume point
+       MOV  R15,@4(R3)       save ST  (CB+4)
+* rotate: swap CURPTR <-> NXTPTR  (for N tasks, follow a ring link instead)
+       MOV  @CURPTR,R1
+       MOV  @NXTPTR,R2
+       MOV  R2,@CURPTR
+       MOV  R1,@NXTPTR
+* load the newly-current task's context back into the linkage registers
+       MOV  @CURPTR,R3
+       MOV  *R3,R13          WP  -> R13
+       MOV  @2(R3),R14       PC  -> R14
+       MOV  @4(R3),R15       ST  -> R15
+       RTWP                  ; becomes the other task, mid-stride
+
+YVEC   DATA WSY,YSVC         the yield vector: {new WP, new PC}
+
+* ===================== the two tasks ============================
+* Each task's body runs in its OWN workspace, so R2/R3 here are private and
+* survive across the yield. The log cursor LOGP is shared, so it lives in pad.
+PA     LI   R3,4             task A: four rounds, then end the demo
+ALOOP  LI   R2,>AA00         signature byte in the high half
+       MOV  @LOGP,R1         shared cursor
+       MOVB R2,*R1+          stamp the log, bump the cursor
+       MOV  R1,@LOGP         publish the advanced cursor
+       BLWP @YVEC            yield -> task B runs
+       DEC  R3               (private to WSA; intact across the switch)
+       JNE  ALOOP
+       B    @CHECK           A is the one that stops the world
+
+PB     LI   R2,>BB00         task B: yield forever (A ends the run)
+BLOOP  MOV  @LOGP,R1
+       MOVB R2,*R1+
+       MOV  R1,@LOGP
+       BLWP @YVEC            yield -> task A runs
+       JMP  BLOOP
+
+* ===================== the self-test ===========================
+* Boot: wire the pointers, seed task B's block, launch task A by loading our
+* OWN linkage registers and RTWP-ing straight into it (no yield needed to start).
+START  LWPI WSM
+       LI   R0,CBA
+       MOV  R0,@CURPTR       current = A (its block is filled on A's 1st yield)
+       LI   R0,CBB
+       MOV  R0,@NXTPTR       next = B
+       LI   R0,WSB           seed B's control block: {WSB, PB, 0}
+       MOV  R0,@CBB
+       LI   R0,PB
+       MOV  R0,@CBB+2
+       CLR  @CBB+4
+       LI   R0,LOG           the shared cursor starts at the log head
+       MOV  R0,@LOGP
+       LI   R13,WSA          launch A: WP=WSA, PC=PA, ST=0 ...
+       LI   R14,PA
+       CLR  R15
+       RTWP                  ; ... and we ARE task A now
+
+* CHECK — task A lands here after four rounds. Prove the log interleaved.
+CHECK  LI   R1,LOG
+       LI   R3,WANT          expected pattern: AA BB AA BB AA BB AA BB
+       LI   R4,8
+CLOOP  MOVB *R1+,R5
+       CB   R5,*R3+          compare log byte to expected byte
+       JNE  FAIL
+       DEC  R4
+       JNE  CLOOP
+PASS   LI   R0,GREEN
+       B    @VRDCT
+FAIL   LI   R0,RED
+VRDCT  MOVB R0,@VDPWA        border color first ...
+       LI   R0,>8700         ... then select VDP register 7
+       MOVB R0,@VDPWA
+SPIN   JMP  SPIN
+WANT   DATA >AABB,>AABB,>AABB,>AABB
+       END  START

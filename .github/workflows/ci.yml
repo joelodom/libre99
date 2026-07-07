@@ -1,0 +1,69 @@
+# CI for Libre99 (a TI-99/4A emulator).
+#
+# NO PROPRIETARY BYTES: the repository tracks no TI firmware or third-party
+# media, and nothing embeds any (the binary carries only the clean-room
+# firmware). Tests that need authentic images load them at run time from the
+# git-ignored `third-party/` directory (see docs/DEVELOPMENT.md) and SKIP —
+# green, with a printed notice — when it is absent, as it is on these runners.
+# So this workflow exercises the public suite exactly as a fresh checkout
+# would; the full differential suite runs on maintainer machines that have
+# `third-party/` populated. (This repository's history is clean from commit 1
+# — it was born as the IP-clean fork of the private predecessor; see ROADMAP.)
+#
+# The runners need nothing beyond a Rust toolchain (no downloads, no secrets).
+#
+# Two deliberately simple jobs — `test` and `clippy` — each on the two dev
+# platforms (windows-latest, macos-latest).
+#
+# `cargo fmt --check` is intentionally OMITTED: the tree does not currently
+# satisfy rustfmt (`cargo fmt --check` reports diffs as of 2026-07-05), and this
+# workflow must not reformat the codebase. Add a fmt job once the tree is
+# formatted.
+#
+# Clippy runs WITHOUT `--all-targets`: the default target set (lib + bins) is
+# clippy-clean under `-D warnings`, but tests/examples across several crates
+# currently trip lints (doc_lazy_continuation, nonminimal_bool, etc.). Gating on
+# those is out of scope here; re-add `--all-targets` after that cleanup.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# Colorized cargo output in the runner logs.
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo test
+        run: cargo test --workspace
+
+  clippy:
+    name: clippy (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo clippy
+        run: cargo clippy --workspace -- -D warnings

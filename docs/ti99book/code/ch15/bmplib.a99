@@ -1,0 +1,71 @@
+* BMPLIB.A99 — self-test harness for lib99's bitmap engine.           (Ch. 15)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* Proves bmplib on BENCH99. Brings up Graphics II, draws a full-screen box
+* outline and an X of diagonals through BLINE/BPSET, then checks that pixel
+* (0,0) is set (pattern[0] bit >80) and paints the border verdict: GREEN (>02)
+* pass / RED (>06) fail. View the picture with  pixels 4 .
+*
+* Build:  libre99asm code/ch15/bmplib.a99 ...
+* Verify: load, pc START, x 400000, then  vdp  (R7=>02) /  pixels 4
+
+       COPY '../ch11/equates.inc'
+       COPY '../ch12/vdplib.inc'
+       COPY 'bmplib.inc'
+
+WS     EQU  >8300
+STKTOP EQU  >8340
+
+START  LWPI WS
+       LI   R10,STKTOP
+       BL   @BMODE           Graphics II, linear map, cleared white-on-blue
+
+* box outline
+       CLR  R0
+       CLR  R1
+       LI   R2,255
+       CLR  R3
+       BL   @BLINE           top    (0,0)-(255,0)
+       CLR  R0
+       LI   R1,191
+       LI   R2,255
+       LI   R3,191
+       BL   @BLINE           bottom (0,191)-(255,191)
+       CLR  R0
+       CLR  R1
+       CLR  R2
+       LI   R3,191
+       BL   @BLINE           left   (0,0)-(0,191)
+       LI   R0,255
+       CLR  R1
+       LI   R2,255
+       LI   R3,191
+       BL   @BLINE           right  (255,0)-(255,191)
+* an X across the field
+       CLR  R0
+       CLR  R1
+       LI   R2,255
+       LI   R3,191
+       BL   @BLINE           (0,0)-(255,191)
+       LI   R0,255
+       CLR  R1
+       CLR  R2
+       LI   R3,191
+       BL   @BLINE           (255,0)-(0,191)
+
+* self-check: pattern[0] must have bit >80 (pixel (0,0) lit by the top edge)
+       CLR  R0
+       BL   @VSBR            R1 high = pattern[0]
+       MOV  R1,R5
+       ANDI R5,>8000
+       JEQ  BAD
+
+       LI   R0,7             PASS
+       LI   R1,GREEN
+       BL   @VWTR
+       JMP  HALT
+BAD    LI   R0,7             FAIL
+       LI   R1,RED
+       BL   @VWTR
+HALT   JMP  HALT
+       END  START

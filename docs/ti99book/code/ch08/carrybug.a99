@@ -1,0 +1,51 @@
+* CARRYBUG — the INCT-in-the-carry-chain bug, committed then fixed.  (Ch. 8)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* Both routines add the 32-bit values 0000:FFFF + 0000:0001, whose true
+* sum is 0001:0000 — the low word wraps and must carry into the high word.
+* BUGADD slips a pointer bump (INCT) between the low A and the carry test;
+* INCT files its own report and CLEARS the carry, so the JNC skips the
+* high-word INC and the sum comes out 0000:0000. FIXADD does the same
+* pointer work AFTER the carry is consumed. Results land in the pad.
+
+WS     EQU  >8300
+BUGHI  EQU  >8340            buggy sum, high word  (comes out 0000 — wrong)
+BUGLO  EQU  >8342            buggy sum, low word
+FIXHI  EQU  >8344            fixed sum, high word  (comes out 0001 — right)
+FIXLO  EQU  >8346            fixed sum, low word
+
+START  LWPI WS
+       BL   @BUGADD
+       BL   @FIXADD
+HALT   JMP  HALT
+
+* BUGADD — the crime. An innocent INCT between A and JNC buries the carry.
+BUGADD LI   R1,>0000         augend high
+       LI   R2,>FFFF         augend low
+       LI   R3,>0000         addend high
+       LI   R4,>0001         addend low
+       LI   R5,>8380         some pointer we "helpfully" advance
+       A    R4,R2            low words: FFFF + 1 -> 0000, C = 1 (carry)
+       INCT R5               the bug: bumps the pointer AND overwrites C -> 0
+       JNC  BUGH             C is now clear, so we skip the carry ...
+       INC  R1               ... this never runs
+BUGH   A    R3,R1            high words: 0000 + 0000 = 0000 (carry lost)
+       MOV  R1,@BUGHI        store the wrong high word
+       MOV  R2,@BUGLO
+       RT
+
+* FIXADD — the same pointer bump, but placed after the carry is spent.
+FIXADD LI   R1,>0000
+       LI   R2,>FFFF
+       LI   R3,>0000
+       LI   R4,>0001
+       LI   R5,>8380
+       A    R4,R2            low words: C = 1 (carry)
+       JNC  FIXH            consume the carry FIRST ...
+       INC  R1              ... fold it into the high word
+FIXH   A    R3,R1            high words: 0000 + 0000 + carry = 0001
+       INCT R5              only now advance the pointer (carry already used)
+       MOV  R1,@FIXHI        store the correct high word
+       MOV  R2,@FIXLO
+       RT
+       END  START

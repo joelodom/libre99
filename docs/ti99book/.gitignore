@@ -1,0 +1,14 @@
+# Build products of the book's companion code. The toolchain itself (libre99asm,
+# bench99, the emulator) builds from the enclosing repo's sources — nothing is
+# vendored here.
+build/
+code/bench/target/
+code/bench/Cargo.lock
+tools/
+assets/*
+!assets/.gitkeep
+*.obj
+*.lst
+*.map.json
+*.ctg
+*.bin

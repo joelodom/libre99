@@ -1,0 +1,49 @@
+* GROMLIB.A99 — self-test harness for lib99's GROM reader.            (Ch. 25)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* Proves gromlib on BENCH99. Reads the first sixteen bytes of the console GROM
+* (address 0) into BUF, checks the GROM header signature (byte 0 = >AA, the mark
+* of a valid GROM) and the version (byte 1 = >02), and paints the verdict. The
+* whole header streams from ONE address write, proving the prefetch/auto-
+* increment. Cross-check on the bench: `m 8320 16` must read
+*   AA 02 00 00 00 00 00 00 13 10 13 20 ...
+* the same bytes `od roms/994AGROM.Bin` shows.
+*
+* Build:  libre99asm code/ch25/gromlib.a99 ...
+* Verify: load, pc START, x 400, then  vdp  (R7=>02) and  m 8320 16
+
+       COPY '../ch11/equates.inc'
+       COPY '../ch12/vdplib.inc'
+       COPY 'gromlib.inc'
+
+WS     EQU  >8300
+STKTOP EQU  >8340
+BUF    EQU  >8320            16 bytes of GROM header land here (peekable)
+
+START  LWPI WS
+       LI   R10,STKTOP
+* aim the GROM counter at address 0, then stream sixteen bytes
+       CLR  R0
+       BL   @GRDADR
+       LI   R1,BUF
+       LI   R2,16
+       BL   @GRDBLK
+* check the header: byte 0 = >AA (valid GROM), byte 1 = >02 (version)
+       MOVB @BUF,R3
+       LI   R4,>AA00
+       CB   R3,R4
+       JNE  BAD
+       MOVB @BUF+1,R3
+       LI   R4,>0200
+       CB   R3,R4
+       JNE  BAD
+
+       LI   R0,7
+       LI   R1,GREEN
+       BL   @VWTR
+       JMP  HALT
+BAD    LI   R0,7
+       LI   R1,RED
+       BL   @VWTR
+HALT   JMP  HALT
+       END  START

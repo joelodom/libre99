@@ -1,0 +1,59 @@
+* FIELDS — packed status word for a game actor: test, set, clear, toggle,
+* extract, insert.                                                  (Ch. 8)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* Layout of the status word (bit 15 = MSB):
+*   bit 15  ALIVE          bit 14  VISIBLE        bit 13  HOSTILE
+*   bits 12-9  HP     (4-bit field, mask >1E00, shift 9)
+*   bits  8-4  COLUMN (5-bit field, mask >01F0, shift 4)
+*   bits  3-0  spare
+* Each operation snapshots the working word into the pad so the bench can
+* read the whole history with one `m` dump.
+
+WS     EQU  >8300
+ALIVE  EQU  >8000
+VISBL  EQU  >4000
+HOSTL  EQU  >2000
+HPMASK EQU  >1E00            HP field mask
+HPCLR  EQU  >E1FF            everything BUT the HP field
+COLMSK EQU  >01F0            COLUMN field mask
+SNAP   EQU  >8360            snapshot area (pad)
+
+START  LWPI WS
+* start: ALIVE + HOSTILE set, HP = 3 (<<9 = >0600), COLUMN = 10 (<<4 = >00A0)
+       LI   R0,>A6A0         1010 0110 1010 0000
+       MOV  R0,@SNAP         snap 0: the initial word
+
+* test ALIVE with COC — all mask bits set in R0?  (reports through EQ)
+       LI   R1,ALIVE
+       COC  R1,R0            EQ set  => ALIVE is on
+* test HOSTILE clear with CZC — all mask bits clear in R0?
+       LI   R1,VISBL
+       CZC  R1,R0            EQ set  => VISIBLE is off
+
+* set VISIBLE with SOC (OR the bit in)
+       LI   R1,VISBL
+       SOC  R1,R0
+       MOV  R0,@SNAP+2       snap 1: VISIBLE now set  => >E6A0
+* clear ALIVE with SZC (clear where the mask has ones)
+       LI   R1,ALIVE
+       SZC  R1,R0
+       MOV  R0,@SNAP+4       snap 2: ALIVE now clear  => >66A0
+* toggle HOSTILE with XOR
+       LI   R1,HOSTL
+       XOR  R1,R0
+       MOV  R0,@SNAP+6       snap 3: HOSTILE flipped off => >46A0
+
+* extract the HP field into R2 (mask, then shift down)
+       MOV  R0,R2
+       ANDI R2,HPMASK        keep only the HP bits
+       SRL  R2,9             R2 = HP value (was 3)
+       MOV  R2,@SNAP+8       snap 4: extracted HP => >0003
+* insert HP = 5: clear the field, shift the value up, OR it back
+       ANDI R0,HPCLR         clear the old HP field
+       LI   R1,5
+       SLA  R1,9             align 5 into the HP field  => >0A00
+       SOC  R1,R0            drop it in
+       MOV  R0,@SNAP+10      snap 5: HP now 5 => >4AA0
+HALT   JMP  HALT
+       END  START

@@ -1,0 +1,100 @@
+* SMOOTH.A99 — smooth (sub-cell) scrolling by pattern-shift.           (Ch. 17)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* The 9918A has NO hardware scroll register, and TERRAIN measured the cost of
+* the brute-force alternative: rewriting the 768-cell name table is ~163,000
+* cycles, over three frames — too slow for 60 Hz. The professional answer
+* (S17.5, the "Parsec method") scrolls by redrawing character DEFINITIONS, not
+* the name table: a band of cells all name ONE character, and each frame that
+* character's 8 pattern bytes are shifted one pixel. Redrawing 8 bytes is a
+* handful of port writes, so the whole band slides one pixel per frame — smooth,
+* and cheap. This demo shifts a vertical-line pattern across a row-12 band;
+* `pixels 2` at successive ticks shows the lines move one pixel each. STEP holds
+* the current sub-pixel phase (0..7) at >8342.
+*
+* Verify: load, pc START; then repeatedly  x 1 / u SNAP / pixels 2  to watch the
+* band slide; measure one shift with  u SNAP / cycles / x 1 / u SNAP / cycles.
+*
+* Build:  libre99asm code/ch17/smooth.a99 ...
+
+       COPY '../ch11/equates.inc'
+       COPY '../ch12/vdplib.inc'
+
+WS     EQU  >8300
+STKTOP EQU  >8340
+STEP   EQU  >8342            sub-pixel phase 0..7
+NAME   EQU  >0000
+COLTAB EQU  >0380
+PATGEN EQU  >0800
+CHAR1  EQU  >0808            pattern of character 1 = >0800 + 1*8
+
+START  LWPI WS
+       LI   R10,STKTOP
+       LI   R0,1
+       LI   R1,>E000
+       BL   @VWTR
+       LI   R0,0
+       LI   R1,0
+       BL   @VWTR
+       LI   R0,2
+       LI   R1,0
+       BL   @VWTR
+       LI   R0,3
+       LI   R1,>0E00
+       BL   @VWTR
+       LI   R0,4
+       LI   R1,>0100
+       BL   @VWTR
+       LI   R0,7
+       LI   R1,>0400        blue backdrop
+       BL   @VWTR
+* colour group 0 = white on blue (character 1 is in group 0)
+       LI   R0,COLTAB
+       LI   R1,>F400
+       BL   @VSBW
+* clear the name table to char 0 (blank), then band row 12 = char 1
+       LI   R0,NAME
+       BL   @VWA
+       CLR  R1
+       LI   R2,768
+SCLR   MOVB R1,@VDPWD
+       DEC  R2
+       JNE  SCLR
+       LI   R0,384          row 12 * 32
+       BL   @VWA
+       LI   R1,>0100        character 1, high half
+       LI   R2,32
+SBAND  MOVB R1,@VDPWD
+       DEC  R2
+       JNE  SBAND
+       CLR  @STEP
+
+* --- the smooth-scroll loop: redraw character 1 shifted by STEP pixels ---
+DRAWCH BL   @SHIFT
+SNAP   INC  @STEP           (breakpoint: the band shows phase STEP)
+       MOV  @STEP,R0
+       ANDI R0,7
+       MOV  R0,@STEP
+       JMP  DRAWCH
+
+* SHIFT — write character 1's 8 rows as a vertical line at column STEP.
+* Row byte = >80 >> STEP (a single lit pixel), so all band cells show a line
+* that walks across the 8-pixel cell as STEP advances. Non-leaf.
+SHIFT  DECT R10
+       MOV  R11,*R10
+       LI   R0,CHAR1
+       BL   @VWA
+       LI   R1,>0080        the lit pixel ...
+       MOV  @STEP,R2       ... shifted right by STEP
+       JEQ  SHDONE
+SHSH   SRL  R1,1
+       DEC  R2
+       JNE  SHSH
+SHDONE SWPB R1             into the high half for MOVB
+       LI   R2,8           eight identical rows -> a vertical line
+SHROW  MOVB R1,@VDPWD
+       DEC  R2
+       JNE  SHROW
+       MOV  *R10+,R11
+       RT
+       END  START

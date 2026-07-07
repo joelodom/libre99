@@ -1,0 +1,79 @@
+* LINK — BL links the return address in R11; RT is B *R11 (>045B); and
+* a non-leaf that fails to save R11 first destroys its own way home. (Ch. 9)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* Three things proven and painted green:
+*   1. BL sets R11 to the address of the NEXT instruction (the leaf reads it).
+*   2. The clobber, shown as DATA: a non-leaf records R11 before and after an
+*      unguarded inner BL; the two differ, so its return link is gone.
+*   3. The fix: save R11 on the R10 stack across the inner call, restore it,
+*      and RT lands correctly (a breadcrumb after the call site is reached).
+* Breadcrumbs are left in the pad for `m` as well. START/END for verify.sh.
+
+WS     EQU  >8300            workspace (fast island)
+STKTOP EQU  >8380            software-stack top (grows down)
+VDPWA  EQU  >8C02
+GREEN  EQU  >0200
+RED    EQU  >0600
+LEAFR  EQU  >8340            R11 the leaf actually saw
+BADB4  EQU  >8342            bad non-leaf: R11 before its inner BL
+BADAF  EQU  >8344            bad non-leaf: R11 after  its inner BL (clobbered)
+GOODOK EQU  >8346            set to >600D only if the good non-leaf returned right
+
+START  LWPI WS
+       LI   R10,STKTOP       R10 = stack pointer (book convention)
+
+* --- 1. BL linkage: the leaf saves the R11 it was handed ---
+       BL   @LEAF
+BLRET  EQU  $                the exact return address BL should have linked
+       MOV  @LEAFR,R2        R2 = R11 as the leaf saw it
+       LI   R3,BLRET
+       C    R2,R3            leaf's R11 == the true return address?
+       JNE  FAIL
+
+* --- 2. the clobber, as data: BADNL leaves before/after R11 in the pad ---
+       BL   @BADNL
+       MOV  @BADB4,R2
+       MOV  @BADAF,R3
+       C    R2,R3            they MUST differ (inner BL overwrote R11)
+       JEQ  FAIL             equal -> no clobber happened -> test is toothless
+
+* --- 3. the fix: a guarded non-leaf returns correctly ---
+       CLR  @GOODOK
+       BL   @GOODNL          if this returns to the RIGHT place ...
+       MOV  @GOODOK,R2       ... the breadcrumb below was written
+       CI   R2,>600D
+       JNE  FAIL
+
+PASS   LI   R0,GREEN
+       B    @VRDCT
+FAIL   LI   R0,RED
+VRDCT  MOVB R0,@VDPWA
+       LI   R0,>8700
+       MOVB R0,@VDPWA
+SPIN   JMP  SPIN
+
+* LEAF — a leaf: calls nothing, so it may keep its return in R11 and RT.
+LEAF   MOV  R11,@LEAFR       record the link we were handed
+       RT
+
+* BADNL — the bug every beginner writes: a NON-leaf that does not save R11.
+* It records R11 before and after an inner BL to make the clobber visible,
+* then returns via an explicit branch (we no longer trust R11).
+BADNL  MOV  R11,@BADB4       link as received (return to the caller)
+       BL   @LEAF            <-- clobbers R11 (now points inside BADNL)
+       MOV  R11,@BADAF       link now: no longer the caller's address
+       B    @BADRTN          get home WITHOUT the wrecked R11
+BADRTN MOV  @BADB4,R11       (demo only) restore what we saved and RT
+       RT
+
+* GOODNL — the discipline: PUSH R11, make the inner call, POP R11, RT.
+* PUSH x = DECT R10 / MOV x,*R10 ; POP x = MOV *R10+,x  (book convention).
+GOODNL DECT R10              PUSH R11
+       MOV  R11,*R10
+       BL   @LEAF            inner call clobbers R11 harmlessly
+       LI   R1,>600D         leave the breadcrumb the caller checks
+       MOV  R1,@GOODOK
+       MOV  *R10+,R11        POP R11 (restore the true return link)
+       RT                    ; lands correctly
+       END  START

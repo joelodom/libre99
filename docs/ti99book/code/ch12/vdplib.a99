@@ -1,0 +1,69 @@
+* VDPLIB.A99 — self-test harness for vdplib.inc.                       (Ch. 12)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* This is the lib99 module PATTERN (Ch. 11, R-17), refined in Ch. 13 for
+* composition: the routines live in vdplib.inc (COPY-includable by any
+* consumer); this .a99 is the STANDALONE self-test — it COPYs the shared
+* equates and the module, then drives them. `sh verify.sh` assembles this
+* (the .inc is skipped by the *.a99 sweep and pulled in here).
+*
+* Include order matters: equates.inc FIRST (vdplib.inc needs VDPWA/VDPWD/VDPRD),
+* then the module. Cross-directory COPY works because libre99asm resolves a COPY
+* path relative to the SOURCE FILE's directory (Ch. 11).
+*
+* The self-test: round-trip an 8-byte pattern through VRAM with VMBW/VMBR,
+* check one byte with VSBW/VSBR, then paint the border via VWTR itself — GREEN
+* >02 pass / RED >06 fail — and stash the read-back to the pad. Confirm on the
+* bench:  vram 0100 8  (independent oracle) and  vdp  (R7).
+
+       COPY '../ch11/equates.inc'      the named ports + GREEN/RED (lib99 §11.3)
+       COPY 'vdplib.inc'               the module under test
+
+WS     EQU  >8300            self-test workspace (fast island)
+STKTOP EQU  >8370            software stack top (grows down)
+RDBUF  EQU  >8340            self-test: VMBR read-back buffer (8 bytes)
+DONEMK EQU  >8320            self-test: completion marker (>C0DE)
+
+START  LWPI WS
+       LI   R10,STKTOP        establish the software stack
+
+* (1) VMBW: write an 8-byte pattern to VRAM >0100
+       LI   R0,>0100
+       LI   R1,PATT
+       LI   R2,8
+       BL   @VMBW
+* (2) VMBR: read it back into the pad
+       LI   R0,>0100
+       LI   R1,RDBUF
+       LI   R2,8
+       BL   @VMBR
+* (3) compare source vs read-back, byte for byte
+       LI   R1,PATT
+       LI   R3,RDBUF
+       LI   R4,8
+CMPL   MOVB *R1+,R5
+       CB   R5,*R3+
+       JNE  FAIL
+       DEC  R4
+       JNE  CMPL
+* (4) VSBW/VSBR single-byte round trip at >0200
+       LI   R0,>0200
+       LI   R1,>5A00         the test byte (>5A in the high half)
+       BL   @VSBW
+       LI   R0,>0200
+       BL   @VSBR            R1 high <- VRAM[>0200]
+       CI   R1,>5A00
+       JNE  FAIL
+
+PASS   LI   R0,7             paint the verdict with VWTR itself (dogfood):
+       LI   R1,GREEN         register 7 backdrop = >02 (green)
+       JMP  PAINT
+FAIL   LI   R0,7
+       LI   R1,RED           register 7 backdrop = >06 (red)
+PAINT  BL   @VWTR
+       LI   R0,>C0DE
+       MOV  R0,@DONEMK       completion marker for the bench script
+SPIN   JMP  SPIN
+
+PATT   DATA >0123,>4567,>89AB,>CDEF    the 8-byte test pattern
+       END  START

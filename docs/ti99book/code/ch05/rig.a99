@@ -1,0 +1,38 @@
+* RIG — Lab 5: one probe, four neighborhoods                    (Ch. 5)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* A timing rig. The probe (below) is a few position-independent
+* instructions that do no useful work; PLANT copies it into the
+* scratchpad, low expansion, and high expansion so BENCH99 can race
+* identical bytes in every wait class. Runs as a cartridge; the probe
+* stays resident at >6000 to serve as the cartridge lane itself.
+
+WS     EQU  >8300            measurement workspace (the fast pad)
+PADLP  EQU  >8340            planted copy: scratchpad    (fast island)
+LOWLP  EQU  >2000            planted copy: low expansion  (funnel)
+HIGHLP EQU  >A000            planted copy: high expansion (funnel)
+
+START  LWPI WS               a workspace of our own
+       LI   R1,PADLP         plant into the pad ...
+       BL   @PLANT
+       LI   R1,LOWLP         ... into low expansion ...
+       BL   @PLANT
+       LI   R1,HIGHLP        ... and into high expansion
+       BL   @PLANT
+DONE   JMP  DONE             planted; spin (the bench breakpoints here)
+
+* PLANT — copy PLEN bytes from PROBE to the address in R1.
+PLANT  LI   R0,PROBE         source = the resident probe
+       LI   R2,PLEN          byte count
+PL1    MOVB *R0+,*R1+        one byte, both pointers step
+       DEC  R2
+       JNE  PL1
+       RT                    ; back to caller (B *R11)
+
+* PROBE — the raced instructions. Register operands and a self-relative
+* spin only: identical bytes mean the same thing in every neighborhood.
+PROBE  MOV  R0,R1            fetch + read source + write dest
+       A    R0,R1            fetch + read source + read dest + write dest
+PSPIN  JMP  PSPIN            fetch only
+PLEN   EQU  $-PROBE          probe length, in bytes
+       END  START

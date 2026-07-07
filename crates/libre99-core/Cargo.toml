@@ -1,0 +1,23 @@
+# libre99-core — the TI-99/4A emulator core.
+#
+# DEPENDENCIES: NONE, BY DESIGN.
+#
+# This crate is pure `std`. The CPU, VDP, PSG, GROM, CRU, cartridge, and disk
+# emulation are implemented from first principles with no third-party crates, so
+# the emulation is auditable end to end and the build is trivial and offline.
+# (The desktop frontend's dependencies live in the separate `libre99-app` crate.)
+
+[package]
+name = "libre99-core"
+version.workspace = true
+description = "Cycle-aware TI-99/4A emulator core (TMS9900, TMS9918A, SN76489, GROM, CRU, FD1771 disk) — pure std, zero dependencies."
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Intentionally empty. See the note above.
+
+[lib]
+name = "libre99_core"
+path = "src/lib.rs"

@@ -1,0 +1,63 @@
+* PROBE — cycle costs of the control-flow instructions, and the BLWP
+* linkage, read straight off the bench.                            (Ch. 9)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* Code lives in the cartridge (>6000+); workspace and stack in the pad.
+* Step with `s` and read the cycle column; read R7/R8/R9 in the new
+* workspace to see the BLWP linkage it copied out of R13/R14/R15.
+* START/END so verify.sh assembles it.
+
+WS     EQU  >8300            main workspace (fast island)
+NWS    EQU  >8360            a second workspace (for the BLWP service)
+STKTOP EQU  >8380            software-stack top (grows down)
+
+START  LWPI WS
+       LI   R10,STKTOP       R10 = the stack pointer (book convention)
+* --- conditional jump: taken vs not taken ---
+       LI   R1,>0001         EQ clear
+       JNE  P1               JNE taken
+P1     LI   R1,>0000         EQ set
+       JNE  P2               JNE NOT taken -> fall through
+       INC  R2               (runs: proof the branch fell through)
+P2     JMP  P3               unconditional short jump (taken)
+* --- B @LABEL: go anywhere ---
+P3     B    @P4
+* --- BL / RT: the light call ---
+P4     BL   @LEAF            link the return in R11, jump
+       INC  R4               (back from LEAF)
+* --- BLWP / RTWP: the context-switch call ---
+       BLWP @VEC             new workspace; old WP/PC/ST -> new R13/R14/R15
+       INC  R6               (back from RTWP)
+* --- X: execute an instruction held elsewhere ---
+       LI   R5,>0000
+       X    @XTGT            executes "INC R5" from the stream at XTGT
+* --- address-table dispatch: MOV @TAB(Rn),Rx ; B *Rx  (x2 scaling) ---
+       LI   R3,2             selector 1 -> word offset 1*2 = 2
+       MOV  @DTAB(R3),R4     R4 = target address for case 1
+       B    *R4             dispatch
+DBACK  INC  R7
+HALT   JMP  HALT
+
+* leaf routine: return via RT (= B *R11 = >045B)
+LEAF   RT
+
+* the BLWP service: runs under NWS. Copy the linkage out where we can see
+* it, then invert the call.
+SVC    MOV  R13,R7           R7(new) = old WP  (should be >8300)
+       MOV  R14,R8           R8(new) = old PC  (the BLWP's return addr)
+       MOV  R15,R9           R9(new) = old ST
+       RTWP
+
+* the instruction X reaches out and executes:
+XTGT   INC  R5
+
+* address table: DATA words holding case targets; index by selector*2
+DTAB   DATA D0,D1
+D0     LI   R0,>00D0
+       B    @DBACK
+D1     LI   R0,>00D1         selector 1 lands here
+       B    @DBACK
+
+* BLWP vector: {new WP, new PC}
+VEC    DATA NWS,SVC
+       END  START

@@ -1,0 +1,67 @@
+* SKELETON99.A99 — the project's game template.                       (Ch. 36)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* The chassis every Part IX game instantiates: a phase STATE MACHINE (title ->
+* play -> over), a FIXED-SLOT entity table (Ch. 36.4), 8.8 FIXED-POINT positions
+* (Ch. 36.5), and DATA-DRIVEN hooks (Ch. 36.6), over lib99. Each phase writes its
+* signature to STATE+? so the dispatch is provable on BENCH99: drive STATE and
+* step, and the right phase runs.
+*
+* Verify: load, pc START, s a few -> phase TITLE runs (SIG=>7171). Then poke
+* STATE=1 and re-run the dispatch -> phase PLAY (SIG=>5050).
+
+WS     EQU  >8300            workspace (the fast island, Ch. 24)
+STKTOP EQU  >8340
+STATE  EQU  >8320            current phase (0=title 1=play 2=over)
+SIG    EQU  >8322            the running phase's signature (proof of dispatch)
+ENTS   EQU  >8360            fixed-slot entity table base (8 slots x 8 bytes)
+NENT   EQU  8                number of entity slots
+ESIZE  EQU  8                bytes per slot: x.hi x.lo y.hi y.lo dx dy type live
+
+START  LWPI WS
+       LI   R10,STKTOP
+       CLR  @STATE           begin in phase TITLE
+* ---- the main loop: dispatch on STATE through the phase table ----------------
+LOOP   MOV  @STATE,R1        R1 = phase index
+       SLA  R1,1             *2 -> word offset
+       MOV  @PTAB(R1),R2     R2 = phase routine
+       BL   *R2              run this frame's phase
+       JMP  LOOP             (a real game waits for vblank here, Ch. 17)
+
+PTAB   DATA PHTITL,PHPLAY,PHOVER   the state-machine dispatch table
+
+* ---- phase routines (each stamps its signature; real bodies in Part IX) ------
+PHTITL LI   R0,>7171         'qq' = TITLE signature
+       MOV  R0,@SIG
+       RT
+PHPLAY LI   R0,>5050         'PP' = PLAY signature
+       MOV  R0,@SIG
+       BL   @STEP            advance the entities (data-driven motion)
+       RT
+PHOVER LI   R0,>2A2A         '**' = OVER signature
+       MOV  R0,@SIG
+       RT
+
+* ---- STEP: iterate the fixed-slot entity table, advancing live entities ------
+* Each live entity's 8.8 position (x,y) += its velocity (dx,dy) — the core of a
+* fixed-slot object loop (Ch. 36.4) with 8.8 fixed-point (Ch. 36.5).
+STEP   LI   R4,ENTS          R4 -> slot 0
+       LI   R5,NENT          slot counter
+SLOT   MOVB @6(R4),R6        type/live byte? (byte 7 = live flag)
+       MOVB @7(R4),R6
+       JEQ  NEXT             live flag 0 -> skip
+       MOV  @0(R4),R0        x (8.8)
+       MOVB @4(R4),R1        dx (signed, high byte)
+       SRA  R1,8
+       A    R1,R0            x += dx
+       MOV  R0,@0(R4)
+       MOV  @2(R4),R0        y (8.8)
+       MOVB @5(R4),R1        dy
+       SRA  R1,8
+       A    R1,R0            y += dy
+       MOV  R0,@2(R4)
+NEXT   AI   R4,ESIZE         next slot
+       DEC  R5
+       JNE  SLOT
+       RT
+       END  START

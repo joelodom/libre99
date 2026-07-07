@@ -1,0 +1,115 @@
+* STACK99 — the book's software stack on R10, the calling convention it
+* anchors, and the error-return policy — proven by recursion.        (Ch. 9)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* THE STACK (book-wide, from here on):
+*   R10 is the stack pointer. The stack is FULL-DESCENDING: it grows DOWN
+*   and R10 points AT the top item.
+*      PUSH x :  DECT R10  /  MOV x,*R10
+*      POP  x :  MOV *R10+,x
+*   Initialize R10 to the top of a reserved pad region (STKTOP here).
+*
+* THE CALLING CONVENTION (book-wide):
+*   - Arguments and results ride R0-R2 (byte cargo in the high half).
+*   - R0-R2 are CALLER-saved scratch: a callee may clobber them freely.
+*   - A LEAF (calls nothing) may keep its return in R11 and RT.
+*   - A NON-LEAF must PUSH R11 first, and PUSH any register it must keep
+*     across an inner call, POPping them in reverse before RT.
+*   - R10 (SP), R13-R15 (BLWP linkage) are never used as scratch.
+*
+* ERROR POLICY (book-wide): a routine reports success/failure in R0 —
+*   R0 = >0000 means success, nonzero is an error code (extends ch08's
+*   DIVSAF). The caller tests with "MOV R0,R0 / JNE error" (a move is a
+*   test). Where a routine's last act is already a compare, the caller may
+*   read carry/EQ/OV directly instead (the fast-path variant).
+*
+* START (below) is the self-test: it checks five vectors and the balanced-
+* stack invariant, paints the border green/red, and stashes proofs to pad.
+
+WS     EQU  >8300            workspace (fast island): >8300-831F
+STKTOP EQU  >8380            stack top; grows down toward >8320
+VDPWA  EQU  >8C02
+GREEN  EQU  >0200
+RED    EQU  >0600
+P8     EQU  >8320            proof: FACTSF(8) result
+PR10   EQU  >8322            proof: R10 after everything (must equal STKTOP)
+
+* ===================== the library ==============================
+
+* FACT — R1 = n!  (recursion REQUIRES the stack: each level must keep its
+* own n and return link across the recursive call). Clobbers R2,R3.
+FACT   CI   R1,2              n < 2 ?
+       JL   FACT1             n = 0 or 1 -> 1
+       DECT R10               PUSH R11 (our return link)
+       MOV  R11,*R10
+       DECT R10               PUSH n (must survive the recursive call)
+       MOV  R1,*R10
+       DEC  R1                n-1
+       BL   @FACT             R1 = (n-1)!
+       MOV  *R10+,R3          POP n -> R3
+       MPY  R3,R1             R1*R3 -> R1:R2 ; the 16-bit product is in R2
+       MOV  R2,R1             result -> R1
+       MOV  *R10+,R11         POP R11 (restore the true return link)
+       RT
+FACT1  LI   R1,1              base case
+       RT
+
+* FACTSF — guarded factorial. n in R1. n>8 would overflow 16 bits, so
+* refuse: R0 = >0001 (error), R1 untouched. Else R0 = >0000, R1 = n!.
+* NON-LEAF (it calls FACT), so it saves R11 on the stack first.
+FACTSF DECT R10               PUSH R11
+       MOV  R11,*R10
+       CI   R1,8              n > 8 ?
+       JH   FSFERR
+       BL   @FACT             R1 = n!
+       CLR  R0               R0 = 0: success
+       JMP  FSFRT
+FSFERR LI   R0,1             R0 = 1: overflow refused
+FSFRT  MOV  *R10+,R11         POP R11
+       RT
+
+* ===================== the self-test ===========================
+START  LWPI WS
+       LI   R10,STKTOP        establish the stack pointer
+
+* v1: FACT(5) = 120 = >0078
+       LI   R1,5
+       BL   @FACT
+       CI   R1,>0078
+       JNE  FAIL
+* v2: FACT(7) = 5040 = >13B0  (recursion depth 7)
+       LI   R1,7
+       BL   @FACT
+       CI   R1,>13B0
+       JNE  FAIL
+* v3: FACT(1) = 1  (base case, no recursion)
+       LI   R1,1
+       BL   @FACT
+       CI   R1,>0001
+       JNE  FAIL
+* v4: FACTSF(8) -> R0 = 0, R1 = 40320 = >9D80
+       LI   R1,8
+       BL   @FACTSF
+       MOV  R0,R0            success?
+       JNE  FAIL
+       MOV  R1,@P8           stash the deepest result
+       CI   R1,>9D80
+       JNE  FAIL
+* v5: FACTSF(9) -> R0 = 1 (refused overflow)
+       LI   R1,9
+       BL   @FACTSF
+       CI   R0,>0001
+       JNE  FAIL
+* invariant: every PUSH was matched by a POP, so R10 is back at the top
+       MOV  R10,@PR10
+       CI   R10,STKTOP
+       JNE  FAIL
+
+PASS   LI   R0,GREEN
+       B    @VRDCT
+FAIL   LI   R0,RED
+VRDCT  MOVB R0,@VDPWA
+       LI   R0,>8700
+       MOVB R0,@VDPWA
+SPIN   JMP  SPIN
+       END  START

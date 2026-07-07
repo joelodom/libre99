@@ -1,0 +1,114 @@
+* CRUSCAN — walk the peripheral-card CRU bases >1000..>1F00 and report which
+* answer: which present a DSR ROM (>AA header at >4000), and which merely
+* latch a CRU control bit.                                          (Ch. 10)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* HOW TO RUN (from docs/ti99book/):
+*   ../../target/release/libre99asm code/ch10/cruscan.a99 --name 'CRUSCAN' \
+*       --format bin -o build/cruscanc.bin --symbols build/cruscan.map.json
+*   code/bench/target/release/bench99.exe <script>
+*     load build/cruscanc.bin / pc <START> / u <HALT>
+*     vdp                 (R7 = >02 green PASS / >06 red FAIL)
+*     m 8320 30           (SIGBUF + the six result words)
+*
+* THE PERIPHERAL CRU MAP. Cards in the expansion system decode a 256-bit
+* CRU window each, on 12-bit boundaries: R12 = >1000, >1100, >1200, ... The
+* ->2 rule applies as always -- R12 = base means bit address base>>1, so
+* >1000 -> bit >0800, >1100 -> bit >0880, >1F00 -> bit >0F80. By firmware
+* convention a card's CRU bit 0 pages its DEVICE SERVICE ROUTINE (DSR) ROM
+* into the >4000..>5FFF window; a valid DSR ROM opens with the byte >AA at
+* >4000 (the same "valid header" flag a cartridge uses at >6000).
+*
+* THE SCAN, per base: SBO 0 (page the card's ROM in), read >4000 and test it
+* for >AA, then SBZ 0 (page it back out). We record, to the pad:
+*   * SIGBUF  -- the raw byte read at >4000 for every base (16 bytes)
+*   * NRESP / SBMAP / FIRST -- count, bitmap, and first base of DSR responders
+*   * NLAT  / LBMAP        -- count and bitmap of bases whose CRU bit 0 is a
+*                            genuine read/write LATCH (reads 1 when set, 0 when
+*                            cleared) rather than an unwired line that just
+*                            idles high. This is the positive control: it
+*                            proves our SBO/SBZ actually reach a modeled card.
+* Bitmap bit numbering: the MSB (>8000) is base >1000, next (>4000) is >1100,
+* and so on down to >1F00 (>0002)... i.e. weight = >8000 >> ((base->>1000)/>100).
+*
+* VERDICT: GREEN iff the scan toggled at least one real CRU-card latch (so the
+* scan mechanism is proven against a modeled card). The DSR-signature count is
+* reported as DATA -- see the report for what THIS emulator/bench presents.
+
+WS     EQU  >8300            harness workspace (fast pad)
+VDPWA  EQU  >8C02            VDP address/register port
+GREEN  EQU  >0200            border: medium green (high byte)
+RED    EQU  >0600            border: dark red (high byte)
+DSRHDR EQU  >4000            the DSR ROM window base (paged by CRU bit 0)
+SIG    EQU  >AA00            valid-DSR header byte >AA, in the high half
+
+* --- proof readouts (BENCH99 peeks these) ---
+SIGBUF EQU  >8320            16 bytes: the >4000 byte read at each base
+NRESP  EQU  >8330            DSR-signature responder count
+FIRST  EQU  >8332            first responding base (>0000 if none)
+SBMAP  EQU  >8334            signature-responder bitmap
+NLAT   EQU  >8336            CRU-latch responder count (positive control)
+LBMAP  EQU  >8338            CRU-latch responder bitmap
+DONE   EQU  >833A            done-marker = >C0DE
+FAILS  EQU  >833C            failure count (>0000 = green)
+
+START  LWPI WS               registers on the fast island
+       CLR  @DONE
+       CLR  @FAILS
+       CLR  @FIRST
+       LI   R5,>1000         R5 = current base (R12 value)
+       LI   R6,SIGBUF        R6 -> signature buffer
+       CLR  R7               R7 = DSR-signature responder count
+       CLR  R8               R8 = CRU-latch responder count
+       LI   R9,>8000         R9 = bitmap weight (MSB = base >1000)
+       CLR  R4               R4 = signature bitmap
+       CLR  R3               R3 = latch bitmap
+
+SCANL  MOV  R5,R12           R12 = base -> addresses CRU bit (base >> 1)
+       SBO  0                page this card's DSR ROM in (CRU bit 0 <- 1)
+       CLR  R0
+       MOVB @DSRHDR,R0       read the would-be >AA header byte -> R0 high
+       MOVB R0,*R6+          stash the raw signature byte to SIGBUF
+* --- positive control / latch discriminator ---
+* Bit 0 was just driven HIGH. Drive it LOW and read it: a genuine read/write
+* latch now returns 0; an UNWIRED base idles high and still returns 1.
+       SBZ  0               page the ROM back out (CRU bit 0 <- 0)
+       TB   0               sample bit 0 -> EQ (TB copies the bit into EQ)
+       JEQ  SCANSIG         EQ set -> bit read 1 -> unwired idles high, no card
+       INC  R8              EQ clear -> bit read 0 -> a genuine CRU latch responds
+       SOC  R9,R3           set this base's bit in the latch bitmap
+* --- DSR-signature test (R0 still holds the >4000 byte) ---
+SCANSIG CI  R0,SIG          the >AA valid-DSR header?
+       JNE  SCANNX
+       INC  R7              a DSR ROM answered at this base
+       SOC  R9,R4           set its bit in the signature bitmap
+       MOV  @FIRST,R1       first responder already recorded?
+       JNE  SCANNX
+       MOV  R5,@FIRST       no -> record this base as the first
+SCANNX SRL  R9,1            advance the bitmap weight to the next base
+       AI   R5,>0100        next base
+       CI   R5,>2000        past >1F00 ? (>1F00 + >0100 = >2000)
+       JL   SCANL
+
+* --- publish the tallies ---
+       MOV  R7,@NRESP
+       MOV  R4,@SBMAP
+       MOV  R8,@NLAT
+       MOV  R3,@LBMAP
+       LI   R0,>C0DE
+       MOV  R0,@DONE
+
+* --- verdict: at least one real CRU-card latch must have answered ---
+       MOV  R8,R8           NLAT > 0 ?
+       JNE  PASS
+       INC  @FAILS          the scan reached no modeled CRU card
+PASS   MOV  @FAILS,R0
+       JNE  FAIL
+       LI   R0,GREEN
+       JMP  VRDCT
+FAIL   LI   R0,RED
+VRDCT  MOVB R0,@VDPWA       color byte -> VDP register 7 (backdrop)
+       LI   R0,>8700
+       MOVB R0,@VDPWA
+HALT   JMP  HALT
+       END  START

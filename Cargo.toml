@@ -1,0 +1,39 @@
+# Libre99 — a TI-99/4A emulator and its toolchain. Cargo workspace.
+#
+# The project is split into crates so that the "core emulation has zero
+# third-party dependencies" rule is *structural* rather than a promise:
+#
+#   crates/libre99-core   the emulator itself (TMS9900 CPU, TMS9918A VDP, SN76489
+#                      PSG, TMC0430 GROMs, TMS9901/CRU, cartridge, disk). Pure
+#                      `std`. No dependencies. Fully unit-tested.
+#
+#   crates/libre99-app    the desktop frontend (window, audio, input, config,
+#                      logging, asset embedding). Depends on libre99-core plus a
+#                      small, justified set of well-maintained crates.
+#
+#   crates/libre99-asm    the TMS9900 assembler + cartridge packager (`libre99asm`).
+#                      Pure `std`; depends only on libre99-core (for the shared
+#                      `.ctg` writer and round-trip/boot tests).
+
+[workspace]
+resolver = "2"
+members = ["crates/libre99-core", "crates/libre99-app", "crates/libre99-asm", "crates/libre99-gpl"]
+
+[workspace.package]
+# The single source of truth for the project version. Everything that reports a
+# version — the emulator, the rewritten console ROM/GROM, TI PYTHON's banner —
+# inherits this one number (the system information screen displays them all).
+version = "0.0.1"
+edition = "2021"
+# Licensed under the Modified MIT License with Commons Clause — see LICENSE.md.
+license-file = "LICENSE.md"
+authors = ["Joel Odom"]
+repository = "https://github.com/joelodom/libre99"
+
+# A release profile tuned for an emulator main loop: optimize hard, keep overflow
+# checks off in release (the CPU core relies on wrapping arithmetic, which it
+# performs explicitly via wrapping_* — see cpu.rs).
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1

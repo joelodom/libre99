@@ -1,0 +1,39 @@
+* HIBYTE — the high-byte law, demonstrated                      (Ch. 7)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* Byte operations on a register touch its HIGH half (its own even
+* address, big end first). Result cells are pre-set to >FFFF so a byte
+* write's effect on the high half — and its mercy toward the low — are
+* both visible.
+
+WS     EQU  >8300            workspace (fast pad)
+D1     EQU  >8340            demo 1 result
+D2     EQU  >8342            demo 2 result
+D3     EQU  >8344            demo 3 result
+ODDCEL EQU  >8351            an ODD address; the aligned word is >8350
+
+START  LWPI WS
+       LI   R0,>FFFF         paint the result cells so byte writes show
+       MOV  R0,@D1
+       MOV  R0,@D2
+       MOV  R0,@D3
+       MOV  R0,@>8350        clear the odd-address target word
+* (1) a low-half constant ships the HIGH half: >00
+       LI   R1,>0041         'A' in the low half
+       MOVB R1,@D1           D1 high <- >00, low stays >FF  => >00FF
+* (2) a pre-shifted constant ships >41
+       LI   R2,>4100
+       MOVB R2,@D2           => >41FF
+* (3) SWPB is the wrench: load low, flip, ship
+       LI   R3,>0041
+       SWPB R3               R3 => >4100
+       MOVB R3,@D3           => >41FF
+* (4) register-to-register byte move: high to high, low preserved
+       LI   R4,>41AA
+       LI   R5,>BBCC
+       MOVB R4,R5            R5 high <- >41, low stays >CC => >41CC
+* (6) a word op at an odd address acts on the aligned word (A15 ignored)
+       LI   R6,>1234
+       MOV  R6,@ODDCEL       writes the word at >8350, not >8351
+HALT   JMP  HALT
+       END  START

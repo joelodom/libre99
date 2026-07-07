@@ -1,0 +1,22 @@
+* FLDNOTE — the shape every 1983 screen-writer wore             (Ch. 7)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* Not a specific magazine listing (none was in reach to verify against
+* its source), but the archetype the period ran on: push a message to
+* the VDP one byte at a time. Assembles under libre99asm. The VDP address
+* must be aimed first (the >8C02 dance of Ch. 5's map, taught in full in
+* Ch. 12); here we show only the mover, which is this chapter's subject.
+
+WS     EQU  >8300            workspace (fast pad)
+VDPWD  EQU  >8C00            VDP write-data port
+MSG    TEXT 'HELLO'
+MLEN   EQU  $-MSG            length by subtraction: the assembler counts
+
+START  LWPI WS
+       LI   R0,MLEN          how many bytes
+       LI   R1,MSG           source: the message in ROM
+FEED   MOVB *R1+,@VDPWD      push one byte to the VDP, step the pointer
+       DEC  R0
+       JNE  FEED
+HALT   JMP  HALT
+       END  START

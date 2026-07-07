@@ -1,0 +1,1308 @@
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
+*
+* ============================================================================
+* console.gpl — the rewritten TI-99/4A console GROM (original content)
+*
+* Assembled by this repo's libre99-gpl toolchain and executed by the genuine
+* console ROM's GPL interpreter (which we keep). Replaces 994AGROM.Bin with a
+* firmware that contains no TI copyrighted bytes yet boots on the real machine.
+*
+* The font data (label FONT, at GROM >1000) is spliced in at build time from
+* crates/libre99-gpl/src/font.rs by system_grom::console_gpl_source(); this file
+* holds the code, the header, and the on-screen content.
+*
+* Layout:
+*   GROM 0  >0000  header, >0020 entry code, menu, data; >0484 original beep,
+*                  >04B4 std font + >06B4 thin font + >0874 lower-case font
+*                  (authentic homes, B1), >1000 font (FONT), >1600 logo,
+*                  >1700 keytab
+*   GROM 1  >2000  TI PYTHON program header + REPL (M4; M2 ships a stub)
+*   GROM 2  >4000  thin "small" character-set loader block (FONT2, B4),
+*                  >4200 lower-case loader block (FONT3, B4)
+* The >0484/>04B4/>06B4/>0874 data homes and the FONT/LOGO/KEYTAB/FONT2/FONT3
+* blocks are spliced by system_grom::console_gpl_source(); each carries its own
+* GROM directive. See grom/SURFACE-MAP.md for the full authentic-image
+* classification.
+*
+* Milestones: M1 = title screen; M2 = the selection list (this file). It scans
+* console GROM 1 (>2000) and every cartridge GROM/ROM base for >AA program
+* headers, renders "n FOR NAME", and launches the chosen program — GPL programs
+* via the GPL sub-stack trampoline, ML programs via XML >F0 (see RECON.md
+* "VERIFIED MECHANISMS").
+*
+* Scratchpad map (menu working set; all outside the interpreter workspace
+* >83E0-83FF and the ISR/sound cells >83C0-83DF):
+*   >8340 PLP   (w) program-list / current-entry GROM pointer
+*   >8342 NEXT  (w) next-entry pointer
+*   >8344 ENTRY (w) program entry address
+*   >8346 WP    (w) window read pointer (VDP)
+*   >8348 SP    (w) screen write pointer (VDP)
+*   >834A MTP   (w) menu-table pointer (VDP)
+*   >834C ADJ   (w) GROM/ROM base - window base (>1000)
+*   >834E SPBAS (w) current entry's screen-line start (VDP)
+*   >8350 CNT   (b) entry count / current number
+*   >8351 LEN   (b) current name length
+*   >8352 KIND  (b) 0 = GPL (GROM), 1 = ML (ROM)
+*   >8353 DIGIT (b) rendered digit char
+*   >8354 KEY   (b) copied keypress
+*   >8355 MAXK  (b) '0' + CNT (largest valid key)
+*   >8356 T     (w) selection arithmetic scratch
+*   >835A WBND  (w) menu-scan walk bound (>11E0 small / >2FE0 full-slot window)
+*   >835C FARF  (b) far-list flag (>FF = program list lies past the 512-byte window)
+*   >835E SVCB  (b) loud-stub breadcrumb (>EE = an unimplemented GPLLNK service was called)
+* ============================================================================
+
+* ---- GROM 0 header (the >AA contract; see the review §2.1) -----------------
+        GROM >0000
+        BYTE >AA,>02,>00,>00      ; valid, version 2, 0 programs, reserved
+        DATA >0000               ; power-up list  = none
+        DATA >0000               ; program list   = none (console menu is code)
+        DATA >0000               ; DSR list       = none
+        DATA >0000               ; subprogram list= none
+        DATA >0000               ; interrupt link
+        DATA >0000               ; reserved
+
+* ---- the fixed GPL entry (RECON.md R1: the ROM jumps here) ------------------
+* The ROM jumps to >0020; we branch straight to the real code (its >0020 is also a
+* branch, RECON R1). The interconnect table >0010-0037 is twenty executable BR
+* stubs (DSRLNK, the two char-set loaders, START, the rest -> ILRTN), and the
+* fixed GPLLNK/XMLLNK service entries >0038-005F are B SVCBAD -> a graceful RTN,
+* except >004A: the lower-case character-set loader, which carts really use
+* (the sweep counts 26 callers; Parsec's in-game small-caps text needs it). We
+* ship none of the GROM-2 console GPL library the other utilities reach, but a
+* stray service call just no-ops and returns, so the cart carries on -- the
+* coverage sweep proves 137/137 carts run and none reboot (LIMITATIONS L6).
+        GROM >0010
+* Interconnect (GPLLNK) vector table: twenty 2-byte slots at >0010-0037, each
+* executed as a BR stub when a cartridge CALLs it. Slot 0 (>0010) is the
+* device-I/O link (DSRLNK) that file loaders CALL to open/read a file -> our
+* original routine below. Slots 3/4 (>0016/>0018) are the console's two
+* character-set loaders: a cartridge points >834A at a VDP pattern-table
+* address and CALLs >0016 (standard set) or >0018 (thin/"small" set) to have
+* the console fill 64 glyphs there -- TI Invaders uses both to draw its text
+* (without them the text glyphs stay blank while sprites still show). Slot 8 IS
+* the fixed boot entry >0020 (the ROM jumps here after reset, RECON R1) ->
+* START. Every other slot returns cleanly, so a stray GPLLNK call no longer
+* runs off into zeroed table bytes -- that was the Tunnels-of-Doom disk-load
+* crash (LIMITATIONS L6).
+        BR   DSRLNK                  ; >0010  slot 0: device service link (DSRLNK)
+        BR   ILRTN                   ; >0012  slot 1
+        BR   ILRTN                   ; >0014  slot 2
+        BR   LDCSET                  ; >0016  slot 3: load standard character set
+        BR   LDTSET                  ; >0018  slot 4: load thin/"small" character set
+        BR   ILRTN                   ; >001A  slot 5
+        BR   ILRTN                   ; >001C  slot 6
+        BR   ILRTN                   ; >001E  slot 7
+        BR   START                   ; >0020  slot 8 = the ROM's fixed GPL entry
+        BR   ILRTN                   ; >0022  slot 9
+        BR   ILRTN                   ; >0024  slot 10
+        BR   ILRTN                   ; >0026  slot 11
+        BR   ILRTN                   ; >0028  slot 12
+        BR   ILRTN                   ; >002A  slot 13
+        BR   ILRTN                   ; >002C  slot 14
+        BR   ILRTN                   ; >002E  slot 15
+        BR   ILRTN                   ; >0030  slot 16
+        BR   ILRTN                   ; >0032  slot 17
+        BR   ILRTN                   ; >0034  slot 18
+        BR   ILRTN                   ; >0036  slot 19
+        GROM >0038
+* Fixed GPLLNK/XMLLNK service entries >0038-005F: a stub grid with one real
+* service. Each 3-byte B lands a service CALL on SVCBAD (breadcrumb + graceful
+* RTN) -- except >004A, the lower-case character-set loader, which is a real
+* console service on the 99/4A (the 99/4-era table ended before it; TI added it
+* with the lowercase hardware). The sweep counts 26 bundled carts CALLing >004A;
+* Parsec stages the small-caps set through it and copies glyphs into its own
+* codes for the in-game "press fire to begin" text, so a no-op here renders
+* that text as leftover full-size garbage. The rest of the grid: the tail
+* >004D-005F used to be zero (a bare RTN), and the head >0038-0049 used to
+* reboot, but the coverage sweep showed carts CALL these and rely on a graceful
+* no-op, so stub entries RTN alike (QUALITY-ASSESSMENT §5 item 7). Thirteen
+* 3-byte entries fill >0038-005E; a 1-byte RTN pads >005F up to START at >0060.
+        B    SVCBAD                  ; >0038
+        B    SVCBAD                  ; >003B
+        B    SVCBAD                  ; >003E
+        B    SVCBAD                  ; >0041
+        B    SVCBAD                  ; >0044
+        B    SVCBAD                  ; >0047
+        B    LDLSET                  ; >004A  load lower-case (small caps) set
+        B    SVCBAD                  ; >004D
+        B    SVCBAD                  ; >0050
+        B    SVCBAD                  ; >0053
+        B    SVCBAD                  ; >0056
+        B    SVCBAD                  ; >0059
+        B    SVCBAD                  ; >005C  (ends >005E)
+        RTN                          ; >005F  pad to >0060
+
+        GROM >0060
+START   ST   @>8373,>7E             ; empty GPL sub-stack (frames grow >8380+)
+        MOVE >0008,G@VREGS,#0        ; program VDP registers (display still off)
+        MOVE >0200,G@FONT,V@>0900    ; character set -> pattern table (>20..>5F)
+        MOVE >00A0,G@LOGO,V@>0858    ; Libre99 chip logo -> pattern table (>0B..>1E)
+        MOVE >0008,G@COPYR,V@>0850   ; copyright glyph -> pattern table (>0A)
+* Blank the colour-bar glyphs (>60..>DF): a bar cell shows its colour-table
+* background colour, so its glyph pattern must be all-zero. Real VRAM powers up
+* random (the authentic GROM loads these blank too); smear-clear >0B00..>0EFF.
+        ST   V@>0B00,>00
+        MOVE >03FF,V@>0B00,V@>0B01
+        MOVE >0020,G@COLORS,V@>0380  ; colour table: text black/cyan + 16 bar colours
+
+* Clear the whole screen before painting the title. A reset (F5 -> m.reset())
+* re-runs this boot but does NOT touch VRAM, so on a reset from a running
+* cartridge the name table still holds that program's tiles and the sprite
+* attribute table its sprites. START writes only the specific title cells, so
+* without this clear the leftovers show through as artifacts. The authentic GROM
+* repaints the full screen the same way -- it leaves the name table all spaces
+* with no active sprites (verified by differential trace). Blank the name table
+* to spaces and end the sprite list at entry 0 (Y=>D0 terminates it), both while
+* the display is still off (R1=>A0), so there is no flicker.
+        ALL  >20                     ; name table -> spaces
+        ST   V@>0300,>D0             ; disable all sprites (>D0 ends the list)
+
+* ---- draw the original master-title layout (RECON R2) ----------------------
+* Colour bars, rows 0-2 (top) and 18-20 (bottom): one 32-cell row that steps
+* through the 16 bar-colour groups, two cells per colour.
+        MOVE >0020,G@BARS,V@>0000    ; row 0
+        MOVE >0020,G@BARS,V@>0020    ; row 1
+        MOVE >0020,G@BARS,V@>0040    ; row 2
+        MOVE >0020,G@BARS,V@>0240    ; row 18
+        MOVE >0020,G@BARS,V@>0260    ; row 19
+        MOVE >0020,G@BARS,V@>0280    ; row 20
+* The Libre99 chip logo (glyphs >0B..>1E), a 5x4 block at rows 3-6, cols 13-17
+* (centred above the banner, where the authentic "TI" logo sat).
+        MOVE >0005,G@LOGOR0,V@>006D   ; logo row 3
+        MOVE >0005,G@LOGOR1,V@>008D   ; logo row 4
+        MOVE >0005,G@LOGOR2,V@>00AD   ; logo row 5
+        MOVE >0005,G@LOGOR3,V@>00CD   ; logo row 6
+* Text lines, each centred by (32-len)/2: TEXAS INSTRUMENTS (17) -> col 7,
+* HOME COMPUTER / LIBRE 99 ROMS (13) -> col 9, READY... (28) -> col 2.
+        MOVE >0011,G@TITLE1,V@>0107  ; "TEXAS INSTRUMENTS"            row 8,  col 7
+        MOVE >000D,G@TITLE2,V@>0149  ; "HOME COMPUTER"               row 10, col 9
+        MOVE >000D,G@LIBRE,V@>01A9   ; "LIBRE 99 ROMS"               row 13, col 9
+        MOVE >001C,G@PRESS,V@>0202   ; "READY-PRESS ANY KEY TO BEGIN" row 16, col 2
+* Copyright line: the name pinned to the far left (one space in from the edge)
+* and the project URL pinned to the far right (one space in from the edge).
+        MOVE >0010,G@COPYT,V@>02C1   ; "(c) 2026 JOEL ODOM"  row 22, col 1
+        MOVE >000B,G@COPYURL,V@>02D4 ; "LIBRE99.COM"         row 22, col 20 (ends col 30)
+
+* Arm the console ROM's VBLANK interrupt service routine. The ISR runs every
+* frame ONLY once the 9901's VDP interrupt (CRU bit 2) is enabled; until then
+* the ISR never fires, so sound lists, sprite auto-motion, cursor/timers, and
+* QUIT (FCTN+=) are all dead. The authentic GROM enables it during boot with a
+* GPL `IO` (CRU-output) instruction; a rewrite that omits it boots to a silent,
+* QUIT-less console (see DEBUGGING.md "no sound at Tunnels of Doom" for the
+* trace, and RECON.md R2/finding F3 for the ISR scratchpad contract).
+*
+* First initialise the ISR's scratchpad cells (real hardware powers them up
+* random; the ISR reads them every frame), so the freshly-armed ISR starts from
+* a known-good state:
+        ST   @>837A,>00             ; auto-sprite count = 0 (no motion)
+        ST   @>83C2,>00             ; ISR disable flags = 0 (all handling on)
+        DCLR @>83C4                 ; user interrupt hook = none
+        DCLR @>83CC                 ; sound-list pointer = none
+        DCLR @>83CE                 ; sound bytes-remaining = 0
+        ST   @>83D4,>E0             ; ISR's VDP-R1 image = 16K+display+interrupt
+
+* Now enable the VDP interrupt. GPL opcode >F6 (CRU I/O): the destination
+* operand points at a FOUR-field list -- CRU bit address word (>8302), bit
+* count (>8304), and a data-ADDRESS byte (>8305, a >83xx offset) through which
+* the ROM fetches the output bit(s) -- and the source is function 3 = CRU
+* output. Every field must be written here: >8305 in particular is read by the
+* ROM, and after F5 (a CPU-only reset, RAM preserved) it holds whatever the
+* last program left there -- an uninitialized >8305 made this very IO fetch its
+* bit from the wrong cell and write CRU bit 2 = 0, DISARMING the ISR it was
+* arming (the 2026-07-03 "F5 then the menu can't launch" bug; DEBUGGING.md case
+* study 9; gate tests/f5_reset.rs). Cold boots hid it: zeroed RAM made >8305
+* point at >8300 by luck. Writing a 1 to CRU bit 2 unmasks the 9901's /INT2
+* line so the ISR fires.
+        ST   @>8300,>FF             ; data: output bit value 1 (set)
+        DST  @>8302,>0002           ; CRU bit address 2 = the VDP interrupt
+        DST  @>8304,>0100           ; count 1 bit; data-address byte := >00 (-> data at >8300)
+        BYTE >F6,>02,>03            ; IO @>8302,#3  (CRU output -> SBO bit 2)
+
+        MOVE >0001,G@DISPON,#1       ; raise display-enable: R1 := >E0
+
+* Boot beep — the original power-on tone. Arm the console ISR's sound list; the
+* VBLANK ISR drains it now that the 9901 VDP interrupt (armed just above) is
+* unmasked. Sound-list format (recovered in RECON): each block is
+* [N][N sound-chip bytes][duration in frames]; a duration-0 block ends the list.
+* This is our own tune with the same short ~1400 Hz beep character as the
+* authentic power-up.
+        DST  @>83CC,SND             ; sound-list pointer -> SND (a GROM address)
+        ST   @>83CE,>01             ; trigger: process block 0 on the next ISR tick
+
+* ---- peripheral device power-up (M7) ---------------------------------------
+* Run each peripheral card's DSR power-up routine, exactly as the authentic
+* console boot does before its key-wait. This is what initialises the TI Disk
+* Controller: its power-up reserves a sector buffer at the top of VRAM and
+* lowers >8370 (top of free VDP RAM) to >37D7. Without it the disk DSR has no
+* buffer and a later load stalls (DEBUGGING.md "M7 — console device I/O").
+* Mechanism (reproduced clean-room from the traced interface, RECON "Console
+* device I/O"; the authentic scan is inline at >0183): set the DSR operation
+* code >836D=>04 (power-up) and drive the kept console ROM's device linkage via
+* XML >19 (find the next card with a power-up routine) and XML >1A (call it),
+* looping via the data-stack continuation until the done flag >83D0 clears. On a
+* console with no cards this simply finds nothing and falls through.
+        DST  @>8370,>3FFF           ; top of free VDP RAM (a card's power-up lowers it)
+        DCLR @>83D0                 ; DSR done flag
+        CLR  @>8355
+        ST   @>836D,>04             ; DSR opcode = power-up
+PUSCAN  XML  >19                    ; find next card with a power-up routine
+        BS   PUSCAN
+PUCALL  DST  @>8372,>0080           ; data-stack frame for the DSR return
+        DST  *@>8372,PUDONE
+        XML  >1A                    ; call the card's power-up routine
+        DST  *@>8373,*@>8372
+        DECT @>8372
+        RTN                         ; (redirected to PUDONE via the pushed frame)
+PUDONE  DCZ  @>83D0                 ; all cards done?
+        BR   PUCALL                 ; no -> power up the next one
+
+* Wait for any key to leave the title, then wait for its release so the same
+* press is not read again by the menu (RECON V1: >8375 holds the key; >FF none).
+        ST   @>8374,>00             ; keyboard mode 0
+        ST   @>8375,>FF
+TWAIT   SCAN
+        CEQ  @>8375,>FF
+        BS   TWAIT                  ; loop while no key
+TREL    SCAN
+        CEQ  @>8375,>FF
+        BR   TREL                   ; loop until released
+        DST  @>83CC,KBEEP           ; key click as we leave the title
+        ST   @>83CE,>01
+
+* ---- M2: build and show the selection list ---------------------------------
+* Original master-selection layout (RECON R2 menu dump): the chip logo top-left,
+* the Texas-Instruments / Home-Computer banner, "PRESS", then the numbered list.
+MENU    ALL  >20                    ; clear the screen to spaces
+        MOVE >0005,G@LOGOR0,V@>0022   ; chip logo   row 1, col 2
+        MOVE >0005,G@LOGOR1,V@>0042   ; chip logo   row 2, col 2
+        MOVE >0005,G@LOGOR2,V@>0062   ; chip logo   row 3, col 2
+        MOVE >0005,G@LOGOR3,V@>0082   ; chip logo   row 4, col 2
+        MOVE >0011,G@TITLE1,V@>0028  ; "TEXAS INSTRUMENTS"  row 1, col 8
+        MOVE >000D,G@TITLE2,V@>0068  ; "HOME COMPUTER"      row 3, col 8
+        MOVE >0005,G@PRESSW,V@>00A4  ; "PRESS"              row 5, col 4
+        MOVE >0020,G@SINFO,V@>02E0   ; "PRESS (S) FOR SYSTEM INFORMATION" row 23
+        CLR  @>8350                 ; CNT = 0
+        DST  @>834E,>00E4           ; first entry line: row 7, col 4
+        DST  @>834A,>3800           ; menu table base (VDP)
+        ST   @>8374,>00             ; keyboard mode 0 (before any skip-to-SGET)
+        ST   @>8375,>FF
+        MOVE >0008,G@SCANT,V@>00C4   ; L5: "SCANNING" cue (row 6) while the scan runs
+
+* Each base is scanned by: peek 2 header bytes into the window, test for the
+* >AA "valid header" marker, and only if present copy a 512-byte window and walk
+* its program list (SCANW). The peek keeps empty bases cheap — a full GROM->VDP
+* window is slow because the console ROM re-writes the GROM address per byte, so
+* copying all six 8 KiB slots would take ~70 frames. The window is 512 bytes
+* (>1000..>11FF); SCANW's walk-bound guard (WBND) stops if a list entry lies past
+* it. A few carts store their program list far from the header (past 512 bytes:
+* STARSHIP PEGASUS at slot >7801, EXTENDED BASIC V2.5 at >6A01). SFAR spots that
+* from the header's list pointer and, for those bases only, re-copies the full
+* 8 KiB slot (>1000..>2FFF, all free VDP during the scan) and widens WBND to
+* >2FE0 so the far list is reachable (LIMITATIONS L2). Others stay on the cheap
+* path — the two extra copies cost ~12 frames, paid only by the outliers.
+*
+* Console GROM 1 (TI PYTHON) first, so it is always entry 1.
+        MOVE >0002,G@>2000,V@>1000
+        CEQ  V@>1000,>AA
+        BR   SC6000
+        MOVE >0200,G@>2000,V@>1000   ; window: our GROM 1 -> VDP >1000
+        DST  @>834C,>1000           ; ADJ = >2000 - >1000
+        CLR  @>8352                 ; KIND = GPL
+        DST  @>835A,>11E0           ; our GROM 1's list is near -> small window bound
+        CALL SCANW
+* Cartridge GROM bases >6000..>E000 (GPL programs).
+SC6000  MOVE >0002,G@>6000,V@>1000
+        CEQ  V@>1000,>AA
+        BR   SC8000
+        MOVE >0200,G@>6000,V@>1000
+        DST  @>834C,>5000
+        CLR  @>8352
+        CALL SFAR                    ; program list past the window?  set WBND/FARF
+        CZ   @>835C                  ; FARF == 0 (near) ?
+        BS   SC6X                    ; near -> walk the 512-byte window
+        MOVE >2000,G@>6000,V@>1000   ; far -> re-copy the full 8 KiB GROM slot
+SC6X    CALL SCANW
+SC8000  MOVE >0002,G@>8000,V@>1000
+        CEQ  V@>1000,>AA
+        BR   SCA000
+        MOVE >0200,G@>8000,V@>1000
+        DST  @>834C,>7000
+        CLR  @>8352
+        CALL SFAR
+        CZ   @>835C
+        BS   SC8X
+        MOVE >2000,G@>8000,V@>1000
+SC8X    CALL SCANW
+SCA000  MOVE >0002,G@>A000,V@>1000
+        CEQ  V@>1000,>AA
+        BR   SCC000
+        MOVE >0200,G@>A000,V@>1000
+        DST  @>834C,>9000
+        CLR  @>8352
+        CALL SFAR
+        CZ   @>835C
+        BS   SCAX
+        MOVE >2000,G@>A000,V@>1000
+SCAX    CALL SCANW
+SCC000  MOVE >0002,G@>C000,V@>1000
+        CEQ  V@>1000,>AA
+        BR   SCE000
+        MOVE >0200,G@>C000,V@>1000
+        DST  @>834C,>B000
+        CLR  @>8352
+        CALL SFAR
+        CZ   @>835C
+        BS   SCCX
+        MOVE >2000,G@>C000,V@>1000
+SCCX    CALL SCANW
+SCE000  MOVE >0002,G@>E000,V@>1000
+        CEQ  V@>1000,>AA
+        BR   SCPU
+        MOVE >0200,G@>E000,V@>1000
+        DST  @>834C,>D000
+        CLR  @>8352
+        CALL SFAR
+        CZ   @>835C
+        BS   SCEX
+        MOVE >2000,G@>E000,V@>1000
+SCEX    CALL SCANW
+* Cartridge ROM header at CPU >6000 (ML programs). Reads only — never write
+* >6000-7FFF (a write flips banks). ADJ same as GROM >6000.
+SCPU    MOVE >0002,@>6000,V@>1000
+        CEQ  V@>1000,>AA
+        BR   SGET
+        MOVE >0200,@>6000,V@>1000
+        DST  @>834C,>5000
+        ST   @>8352,>01             ; KIND = ML
+        CALL SFAR
+        CZ   @>835C
+        BS   SCPX
+        MOVE >2000,@>6000,V@>1000    ; far -> full 8 KiB ROM window (read-only; no bank flip)
+SCPX    CALL SCANW
+
+* ---- selection: read a digit, validate, dispatch ---------------------------
+SGET    MOVE >0008,G@BLANK8,V@>00C4  ; scan done -> erase the "SCANNING" cue (every path lands here)
+        SCAN
+        CEQ  @>8375,>FF
+        BS   SGET                   ; wait for a key
+        ST   @>8354,@>8375          ; copy the key out at once
+SREL    SCAN
+        CEQ  @>8375,>FF
+        BR   SREL                   ; wait for release
+* (S) -> the system information screen (SYSINF, in GROM 2 — a long B, not BS).
+        CEQ  @>8354,>53             ; 'S' ?
+        BS   SGOSYS
+        CEQ  @>8354,>73             ; 's' (alpha lock up) ?
+        BR   SDIGIT
+SGOSYS  DST  @>83CC,KBEEP           ; key click, then draw the screen
+        ST   @>83CE,>01
+        B    SYSINF
+SDIGIT  CHE  @>8354,>31             ; KEY >= '1' ?
+        BR   SBAD                   ; no -> click + ask again
+        ST   @>8355,>30
+        ADD  @>8355,@>8350          ; MAXK = '0' + CNT
+        CHE  @>8355,@>8354          ; MAXK >= KEY ?
+        BR   SBAD                   ; no (out of range) -> click + ask again
+* index = KEY-'1'; menu-table entry = >3800 + 4*index.
+        DST  @>8356,>0000
+        ST   @>8357,@>8354          ; T = KEY value
+        DSUB @>8356,>0031           ; T = index (0-based)
+        DADD @>8356,@>8356          ; 2*index
+        DADD @>8356,@>8356          ; 4*index
+        DADD @>8356,>3800           ; -> menu-table entry address
+        DST  @>834A,@>8356          ; reuse MTP as read pointer
+        ST   @>8352,*V@>834A        ; KIND
+        DADD @>834A,>0002
+        DST  @>8344,*V@>834A        ; ENTRY
+* Key beep, then wait for it to finish before launching — the authentic menu
+* likewise polls the sound-bytes-remaining cell until the click ends (RECON R2).
+        DST  @>83CC,KBEEP
+        ST   @>83CE,>01
+SBWAIT  CZ   @>83CE
+        BR   SBWAIT                 ; loop until the ISR drains the beep
+* Dispatch. GPL -> fake a sub-stack frame and RTN into it; ML -> vector at
+* >8300 and XML >F0 (both execution-verified, RECON §2/§3).
+        CZ   @>8352
+        BS   DGPL
+        DST  @>8300,@>8344
+        XML  >F0
+DGPL    DST  @>8380,@>8344
+        ST   @>8373,>80
+        RTN
+* Rejected key: click and re-prompt. The authentic menu beeps on every key,
+* out-of-range ones included (verified differentially, QUALITY-ASSESSMENT §7.5 /
+* examples/menu_beep_probe). We arm the same KBEEP click and loop back to SGET;
+* no wait, so the click plays while we poll for the next key.
+SBAD    DST  @>83CC,KBEEP
+        ST   @>83CE,>01
+        B    SGET
+
+* ============================================================================
+* SCANW — parse the >AA program header now sitting in the VDP window at >1000
+* and render + record every entry in its program list. Inputs: window loaded at
+* >1000; @>834C = ADJ (base-window); @>8352 = KIND. Walks {next,entry,len,name}
+* records, converting each GROM/ROM pointer P to window address P-ADJ.
+* ============================================================================
+SCANW   CEQ  V@>1000,>AA            ; a valid header in the window?
+        BR   SWRET                  ; no -> nothing to list
+        DST  @>8340,V@>1006         ; PLP = program-list pointer
+SWLOOP  DCZ  @>8340                 ; PLP == 0 -> end of list
+        BS   SWRET
+        DST  @>8346,@>8340          ; WP = PLP - ADJ
+        DSUB @>8346,@>834C
+        DCHE @>8346,@>835A          ; entry past the current window (WBND)?
+        BS   SWRET                  ; stop the walk (don't read out of window)
+        DST  @>8342,*V@>8346        ; NEXT
+        DADD @>8346,>0002
+        DST  @>8344,*V@>8346        ; ENTRY
+        DADD @>8346,>0002
+        ST   @>8351,*V@>8346        ; LEN
+        DINC @>8346                 ; WP -> name
+        CH   @>8351,>1C             ; clamp LEN to 28 (row width guard)
+        BR   SWLOK
+        ST   @>8351,>1C
+* Cap the list at 9 entries. Lines start at >00E4 (row 7) and step >40 (two
+* rows) each; the name table ends at >02FF (row 23 = entry 9), so a 10th entry
+* lands at >0324 inside the sprite attribute table (>0300) and scribbles it,
+* and the entry digit would run past '9' into ':' ';' while staying selectable
+* (QUALITY-ASSESSMENT §5 item 4). Stop before rendering a 10th.
+SWLOK   CHE  @>8350,>09             ; already listed 9 entries?  (CNT >= 9)
+        BS   SWRET                  ; yes -> stop (a 10th would corrupt the SAT)
+        INC  @>8350                 ; CNT += 1
+        ST   @>8353,>30
+        ADD  @>8353,@>8350          ; DIGIT = '0' + CNT
+        DST  @>8348,@>834E          ; SP = this line's start
+        ST   *V@>8348,@>8353        ; digit
+        DINC @>8348
+        ST   *V@>8348,>20           ; ' '
+        DINC @>8348
+        ST   *V@>8348,>46           ; 'F'
+        DINC @>8348
+        ST   *V@>8348,>4F           ; 'O'
+        DINC @>8348
+        ST   *V@>8348,>52           ; 'R'
+        DINC @>8348
+        ST   *V@>8348,>20           ; ' '
+        DINC @>8348
+SWNAME  CZ   @>8351                 ; copy LEN name chars, VDP->VDP
+        BS   SWNEND
+        ST   *V@>8348,*V@>8346
+        DINC @>8348
+        DINC @>8346
+        DEC  @>8351
+        B    SWNAME
+SWNEND  DADD @>834E,>0040           ; next screen line (entries are two rows apart)
+        ST   *V@>834A,@>8352        ; record KIND at menu-table[+0]
+        DADD @>834A,>0002
+        DST  *V@>834A,@>8344        ; record ENTRY at menu-table[+2]
+        DADD @>834A,>0002
+        DST  @>8340,@>8342          ; PLP = NEXT
+        B    SWLOOP
+SWRET   RTN
+
+* ============================================================================
+* SFAR — does this base store its program list beyond the 512-byte peek window?
+* The header sits at window >1000; its program-list pointer PLP is at >1006. Map
+* PLP to a window offset (PLP - ADJ): if that reaches past the small window
+* (>11E0) the list is "far" (STARSHIP PEGASUS at slot >7801, EXTENDED BASIC V2.5
+* at >6A01), so the caller must re-copy the whole 8 KiB slot before walking.
+* Sets WBND (>835A) = the walk bound and FARF (>835C) = >FF (far) / 0 (near).
+* Only the far-list carts pay the wider copy; every other base stays cheap.
+* Reads V@>1006 and ADJ (>834C); clobbers WP (>8346), which SCANW re-derives.
+* ============================================================================
+SFAR    ST   @>835C,>00             ; FARF = near
+        DST  @>835A,>11E0           ; WBND = 512-byte window bound
+        DST  @>8346,V@>1006         ; PLP
+        DSUB @>8346,@>834C          ;   - ADJ  -> window offset
+        DCHE @>8346,>11E0           ; past the small window?
+        BR   SFRET                  ; no  -> near (defaults stand)
+        ST   @>835C,>FF             ; yes -> far
+        DST  @>835A,>2FE0           ;        widen the bound to the full 8 KiB slot
+SFRET   RTN
+
+* ---- data ------------------------------------------------------------------
+* The menu data (VDP regs, colours, chip logo, title text, and the SND/KBEEP sound
+* lists) lives in the free GROM-0 gap ABOVE the spliced lower-case font
+* (>0874-094C, the last of the three font homes) and BELOW FONT (>1000). Keeping
+* it here — off the end of the >0060 code — means the menu code can grow without
+* the >0484 beep / >04B4 font splices overwriting it. (They did once: when the
+* code outgrew its old slot the sound lists slid past >0484 and the splices
+* clobbered them, so every beep ran away. See SFAR / L2. The same hazard moved
+* this block from >0880 to >0950 when the lower-case font took its authentic
+* home >0874.)
+        GROM >0950
+* VDP register image. R1=>A0 leaves the display OFF while we draw; DISPON
+* raises it to >E0 afterwards. Tables: name >0000, color >0380, pattern >0800,
+* sprites >0300/>0000, backdrop cyan (R7 low nibble 7).
+VREGS   BYTE >00,>A0,>F0,>0E,>F9,>86,>F8,>F7
+DISPON  BYTE >E0
+
+* Colour table (one byte per 8 characters, hi nibble = fg, lo = bg), matching the
+* authentic master title screen. Groups 0..11 (chars >00..>5F — the chip logo,
+* the copyright glyph, and all text) are black on cyan (>17). Groups 12..27 (chars
+* >60..>DF) are the sixteen title colour-bar colours (fg transparent, bg = the
+* bar colour); the last four groups are unused.
+COLORS  BYTE >17,>17,>17,>17,>17,>17,>17,>17
+        BYTE >17,>17,>17,>17,>06,>03,>01,>0B
+        BYTE >0C,>0D,>0F,>04,>02,>0D,>08,>0E
+        BYTE >05,>09,>0A,>06,>17,>17,>17,>17
+
+* One colour-bar row: sixteen colours, two cells each. Stepping the char code by
+* 8 lands each pair in the next colour-table group (>60,>68,..,>D8); the glyphs
+* are blank, so each cell shows its group's background colour.
+BARS    BYTE >60,>60,>68,>68,>70,>70,>78,>78
+        BYTE >80,>80,>88,>88,>90,>90,>98,>98
+        BYTE >A0,>A0,>A8,>A8,>B0,>B0,>B8,>B8
+        BYTE >C0,>C0,>C8,>C8,>D0,>D0,>D8,>D8
+
+* Chip-logo name-table cells (glyphs >0B..>1E), one 5-cell row each. The twenty
+* glyphs are loaded to the pattern table at char >0B in row-major cell order, so
+* these codes just step sequentially across the 5x4 block (see crate::logo).
+LOGOR0  BYTE >0B,>0C,>0D,>0E,>0F
+LOGOR1  BYTE >10,>11,>12,>13,>14
+LOGOR2  BYTE >15,>16,>17,>18,>19
+LOGOR3  BYTE >1A,>1B,>1C,>1D,>1E
+
+* An original copyright glyph (a ringed C) at char >0A, used by the copyright
+* line. Drawn by us — the authentic GROM's © glyph is TI's, and is not copied.
+COPYR   BYTE >3C,>42,>B9,>A1,>A1,>B9,>42,>3C
+
+TITLE1  TEXT 'TEXAS INSTRUMENTS'
+TITLE2  TEXT 'HOME COMPUTER'
+LIBRE   TEXT 'LIBRE 99 ROMS'
+PRESS   TEXT 'READY-PRESS ANY KEY TO BEGIN'
+PRESSW  TEXT 'PRESS'
+* L5 progress cue: shown at row 6 while the (visibly slow) per-byte base scan
+* runs, cleared at SGET once the menu is ready. BLANK8 erases it.
+SCANT   TEXT 'SCANNING'
+BLANK8  BYTE >20,>20,>20,>20,>20,>20,>20,>20
+* Menu row 23. Exactly 32 characters — the line fills the row edge to edge, so
+* it is drawn at column 0 and is "centered" by construction.
+SINFO   TEXT 'PRESS (S) FOR SYSTEM INFORMATION'
+* Copyright line (row 22), split so the name hugs the left edge and the URL hugs
+* the right edge (START places them one column in from each side, with spaces
+* filling the middle). Uppercase throughout because the font carries no lowercase
+* glyphs. COPYT is the >0A ringed-C glyph + name (16 cells); COPYURL is the URL.
+COPYT   BYTE >0A
+        TEXT ' 2026 JOEL ODOM'
+COPYURL TEXT 'LIBRE99.COM'
+
+* Sound lists drained by the console VBLANK ISR. Format per block:
+* [N][N sound-chip bytes][duration in frames]; a duration-0 block ends the list.
+* SND is the power-on beep (~1400 Hz, ~0.7 s); KBEEP is a short key click.
+* Bytes: >80,>05 set channel-0 divider 80; >92 sets its volume to 2; >9F mutes
+* channel 0. Original tunes — no TI sound data is copied.
+*
+* SND's first block also mutes generators 1-3 (>BF,>DF,>FF) before the beep. A
+* reset (F5 -> m.reset()) re-runs the boot but does NOT clear the SN76489, so a
+* cartridge that was mid-tune when the user reset keeps droning on our title.
+* The authentic power-on beep list (GROM >0484) opens with the same three mutes;
+* without them channels 1-3 sound over the beep (QUALITY-ASSESSMENT §5 item 5).
+SND     BYTE >06,>BF,>DF,>FF,>80,>05,>92,>28   ; mute gen 1-3, then channel-0 beep
+        BYTE >01,>9F,>00                        ; mute channel 0; duration 0 ends
+KBEEP   BYTE >03,>80,>05,>92,>02
+        BYTE >01,>9F,>00
+
+* ============================================================================
+* DSRLNK -- device service routine link (interconnect slot >0010). ORIGINAL
+* reimplementation of the console GPL utility a file loader reaches when it
+* CALLs >0010: e.g. Tunnels of Doom, loading a QUEST scenario from DSK1, builds
+* a PAB in VDP RAM, points >8356 at the PAB device/file name, and CALLs >0010.
+* We parse the device-name field (up to the '.' separator, max 8 chars), then
+* hand off to the console ROM's device search + DSR call via the XMLLNK entries
+* XML >19 / XML >1A. The ROM (which we keep) scans the peripheral CRU bases,
+* matches the device (DSK1...) in the card's DSR ROM header, and BLWPs into it;
+* we re-enter XML >1A per record until the DSR clears its done flag at >8390,
+* pushing/popping GPL sub-stack frames (>8373) so the DSR can RTN back into GPL.
+* Reimplemented clean-room from the traced DSRLNK interface (RECON "DSRLNK, the
+* DSR list, and the cassette DSR"; the sub-stack frame handling is the
+* interpreter's XMLLNK return convention) -- never from TI's GROM bytes.
+* Scratch: >8352 scan ptr, >8354/>8355 length, >8358 name-char count, >836D
+* ROM status, >83D0 the DSR done flag; >8356 is the caller's name pointer;
+* >83FA/>8372/>8373 are interpreter/sub-stack cells the XMLLNK convention uses.
+        GROM >1200
+ILRTN   RTN                          ; unused interconnect slots return cleanly
+* Stub for the fixed GPLLNK/XMLLNK service entries >0038-005F. We ship none of the
+* GROM-2 console GPL library those entries vector into, so a cartridge that CALLs
+* one gets here: leave a breadcrumb, then **return gracefully** (RTN). This is the
+* documented, deliberate form of what the old zero tail already did -- a >00 byte
+* is RTN, so a CALL to the formerly-zero tail already no-op'd and returned. The
+* coverage sweep (tests/coverage_sweep.rs) proved 16 bundled carts (Parsec among
+* them) CALL an unimplemented service and *rely* on that graceful no-op: an earlier
+* revision that rebooted here regressed them (Parsec rebooted to our title
+* mid-game). So do NOT reboot -- RTN and let the cart carry on (QUALITY-ASSESSMENT
+* §5 item 7; the plan's "loud reboot" premise was corrected by execution). A GPLLNK
+* may use console scratch by convention, so the >835E breadcrumb is within contract;
+* diagnosability of *which* service also comes from the emulator's GROM-fetch log.
+SVCBAD  ST    @>835E,>EE            ; breadcrumb: an unimplemented service was called
+        RTN                          ; graceful no-op return (carts rely on this; do NOT reboot)
+DSRLNK  FETCH @>836D                 ; ROM DSRLNK entry/status init
+        CLR   @>8354
+        ST    @>8355,*V@>8356        ; total PAB name length
+        CLR   @>8358                 ; device-name char counter
+        DST   @>8352,@>8356          ; scan pointer := name pointer
+DLNEXT  DINC  @>8352                 ; advance to next name char (word ptr)
+        CEQ   @>8358,@>8355          ; scanned the whole name?
+        BS    DLDONE
+        CEQ   *V@>8352,>2E           ; hit the '.' device/file separator?
+        BS    DLDONE
+        INC   @>8358                 ; count another device-name char
+        BR    DLNEXT
+DLDONE  CZ    @>8358                 ; empty device name?
+        BS    DLERR
+        ST    @>8355,@>8358          ; device-name length for the ROM search
+        CGE   @>8355,>08             ; device name too long (>= 8)?
+        BS    DLERR
+        CLR   @>8354
+        DCLR  @>83D0                 ; clear the DSR done/status word
+        DINC  @>8356                 ; step past the length byte
+        MOVE  @>8354,*V@>8356,@>834A ; copy the device name out for the search
+        DADD  @>8356,@>8354          ; point past the device name (word pointer)
+        XML   >19                    ; ROM: locate the device DSR
+        INCT  @>8373                 ; push a sub-stack frame for the DSR return
+        DST   *@>8373,@>83FA
+DLREAD  XML   >1A                    ; ROM: call the DSR (transfer one record)
+        BR    DLPOP                  ; normal return -> unwind
+        INCT  @>8373                 ; (DSR re-entry return frame)
+        DST   *@>8373,*@>8372
+        DECT  @>8372
+        RTN
+DLPOP   DCZ   @>83D0                 ; DSR signalled "done"?
+        BR    DLREAD                 ; not yet -> transfer the next record
+        DST   @>83FA,*@>8373         ; restore the saved return address
+        DECT  @>8373
+DLERR   CEQ   @>8300,@>8300          ; set the condition (return marker)
+        RTNC
+        DECT  @>8373                 ; (secondary unwind path)
+        DST   @>83FA,*@>8373
+        DECT  @>8373
+        RTN
+* ============================================================================
+
+* ============================================================================
+* Character-set loaders -- interconnect slots >0016 (standard) and >0018
+* (thin), and the fixed service entry >004A (lower-case small capitals).
+* ORIGINAL reimplementations of the console GPL utilities a cartridge reaches
+* when it CALLs one of them to populate the VDP pattern table with the
+* console's built-in fonts. The caller (e.g. TI Invaders) puts the target VDP
+* pattern-table address in >834A, then CALLs the slot; the console copies the
+* set's glyphs there. Without these, a cartridge that draws its text with the
+* console font gets blank glyphs -- the "text doesn't draw" symptom -- even
+* though its sprites (which it defines itself) still show.
+*
+* The console ships three sets: the standard (heavy) set (label FONT at >1000,
+* also shipped byte-identical at the authentic home >04B4), a thin "small"
+* set, and the lower-case small-capitals set (>60..>7E). The authentic
+* standard loader (>0396) is a single 512-byte MOVE; the authentic thin loader
+* (>039E) copies seven stored rows per glyph into VDP rows 1..7 and blanks row
+* 0, advancing the destination by 8/glyph -- we ship the loader block FONT2
+* already expanded to eight rows (blank top row) so the same single MOVE
+* reproduces it, then advance >834A by the 512 bytes written to match the
+* authentic loader's observable side effect (the cart may chain a second load
+* onto it). The authentic lower-case loader (>03C2) parameterizes the same
+* seven-row engine (>03A7) with source >0874 and count >1F, so it writes 31
+* glyphs (>60..>7E, 248 bytes) and advances >834A likewise; FONT3 is its
+* expanded block. Parsec CALLs >004A to stage the small caps and then copies
+* glyphs out into its own character codes for its in-game text -- the sweep
+* counts 26 carts on this service. FONT2/FONT3 live in empty GROM 2 at
+* >4000/>4200, not the >1800 chip gap (B4); the 7-row *stored* forms also ship
+* at the authentic homes >06B4/>0874 (B1) for a cart that reads a set from its
+* documented address rather than via the loader. Reimplemented clean-room from
+* the traced loader interface (which cells they read, what they write where)
+* -- never from TI's GROM bytes.
+LDCSET  MOVE >0200,G@FONT,*V@>834A    ; standard set -> 64 glyphs at VDP [>834A]
+        RTN
+LDTSET  MOVE >0200,G@FONT2,*V@>834A   ; thin set -> 64 glyphs at VDP [>834A]
+        DADD  @>834A,>0200            ; advance dest by the 512 bytes written
+        RTN
+LDLSET  MOVE >00F8,G@FONT3,*V@>834A   ; lower-case set -> 31 glyphs at VDP [>834A]
+        DADD  @>834A,>00F8            ; advance dest by the 248 bytes written
+        RTN
+* ============================================================================
+
+* The interface-data homes (original beep >0484, std font >04B4, thin font
+* >06B4, lower-case font >0874) and the FONT (>1000), LOGO (>1600), KEYTAB
+* (>1700), FONT2 (>4000, the thin loader block) and FONT3 (>4200, the
+* lower-case loader block) data blocks are spliced in after this file at build
+* time by system_grom::console_gpl_source(); each carries its own GROM directive.
+* The full authentic-image classification is grom/SURFACE-MAP.md.
+
+* ---- GROM 1: TI PYTHON program (M2 stub; M4 replaces PYENTRY) ---------------
+        GROM >2000
+PYHDR   BYTE >AA,>01,>00,>00        ; valid, version 1, 0 programs, reserved
+        DATA >0000                  ; power-up list
+        DATA PYLIST                 ; program list
+        DATA >0000                  ; DSR list
+        DATA >0000                  ; subprogram list
+        DATA >0000                  ; interrupt link
+        DATA >0000                  ; reserved
+PYLIST  DATA >0000                  ; next program = none
+        DATA PYENTRY                ; entry
+        BYTE 9
+        TEXT 'TI PYTHON'
+
+* ============================================================================
+* TI PYTHON — a tiny integer-expression REPL (M4). Original content; the name is
+* our own (a nod to the language, not a port). It evaluates 16-bit signed integer
+* expressions with + - * / % and parentheses, remembers single-letter variables
+* (X = expr), and reports SYNTAX / NAME / ZERO DIVISION errors. Division and
+* modulo truncate toward zero; arithmetic wraps mod 65536 (so 32767+1 = -32768).
+*
+* The evaluator is an iterative two-stack (operand + operator) shunting-yard, so
+* nesting is bounded by the stacks, not the GPL sub-stack. Both stacks and the
+* variable table live in scratchpad and are walked with *@ byte pointers
+* (final address = >8300 + the byte held in the pointer cell).
+*
+* Scratchpad map (all < >8370, clear of the GPL sub-stack >8380+ and ISR >83C0+):
+*   >8300-8307 arithmetic scratch (DMUL/DDIV need dst..dst+3)
+*   >8308      div/mod sign flag         >8309 scratch byte
+*   >830A-830D |a|,|b| for signed divide   >830E assignment name (survives EVAL)
+*   >8310 OSP (operand-stack byte ptr)   >8311 PSP (operator-stack byte ptr)
+*   >8312-8313 IP (input VDP pointer)    >8314 CHAR (current char)
+*   >8315 ERR (0 ok / 1 syntax / 2 name / 3 zero-div / 4 too-complex)
+*   >8316-8317 ROW (current VDP row start)   >8318 EXPECT (1 = operand expected)
+*   >831A-831B INSTART (VDP addr where input text begins)
+*   >831C-831D NUMACC (number/var accumulator)   >831E-831F temp
+*   >8320-834F variable table: 16 x {name, val_hi, val_lo}
+*   >8350-835F operand stack (8 words, base offset >50)
+*   >8360-836F operator stack (16 bytes, base offset >60)
+* ============================================================================
+PYENTRY ALL  >20
+        MOVE >0014,G@PYBANR,V@>0000  ; "TI PYTHON <version>" banner, row 0 (spliced, 20 bytes)
+* Clear the 16-entry variable table (name byte = 0 means empty).
+        ST   @>8320,>00
+        MOVE >002F,@>8320,@>8321     ; cascade-fill >8320-834F with 0
+        DST  @>8316,>0040            ; first prompt at row 2
+
+PYLOOP  DST  @>8312,@>8316           ; cursor = ROW start
+        ST   *V@>8312,>3E            ; '>' prompt
+        DINC @>8312
+        ST   *V@>8312,>20
+        DINC @>8312
+        DST  @>831A,@>8312           ; input begins here
+
+* ---- read a line, echoing to the screen, until ENTER ----------------------
+        ST   @>8374,>00             ; keyboard mode 0
+RDK     SCAN
+        CEQ  @>8375,>FF
+        BS   RDK                    ; wait for a key
+        ST   @>8314,@>8375          ; CHAR = key (copy out at once)
+RDKR    SCAN
+        CEQ  @>8375,>FF
+        BR   RDKR                   ; wait for release
+        CEQ  @>8314,>0D             ; ENTER?
+        BS   RDDONE
+        ST   *V@>8312,@>8314        ; echo the char
+        DINC @>8312
+        B    RDK
+RDDONE  ST   *V@>8312,>00           ; NUL-terminate the input in place
+
+* ---- assignment?  a single letter, optional spaces, then '=' --------------
+        DST  @>8312,@>831A          ; IP = input start
+        CALL SKIPSP
+        ST   @>8314,*V@>8312        ; first token char
+        CHE  @>8314,>41             ; letter?
+        BR   DOEXPR
+        CH   @>8314,>5A
+        BS   DOEXPR
+        ST   @>830E,@>8314          ; candidate variable name (>830E: clear of NUMACC)
+        DINC @>8312
+        CALL SKIPSP
+        ST   @>8314,*V@>8312
+        CEQ  @>8314,>3D             ; '=' ?
+        BR   DOEXPR                 ; a bare name (or longer) -> evaluate it
+        DINC @>8312                 ; IP now past '=' -> the right-hand side
+        CALL EVAL
+        CZ   @>8315
+        BR   SHOWERR
+        DST  @>831C,@>8350          ; value = operand[0]
+        ST   @>8314,@>830E          ; name
+        CALL VSTORE
+        B    PYNEXT                 ; assignments print nothing
+
+* ---- evaluate the whole line as an expression -----------------------------
+DOEXPR  DST  @>8312,@>831A
+        CALL EVAL
+        CZ   @>8315
+        BR   SHOWERR
+        DST  @>8312,@>8316          ; print cursor = the row below the input
+        DADD @>8312,>0020
+        DST  @>831C,@>8350          ; result = operand[0]
+        CALL PRNUM
+        B    PYNEXT
+SHOWERR DST  @>8312,@>8316
+        DADD @>8312,>0020
+        CALL PRERR
+
+* Each line occupies two rows (input + result); step the prompt down uniformly
+* whether or not a result was printed, and wrap to the top when off the bottom.
+PYNEXT  DADD @>8316,>0040
+        DCHE @>8316,>02C0
+        BR   PYLOOP
+        ALL  >20
+        MOVE >0014,G@PYBANR,V@>0000
+        DST  @>8316,>0040
+        B    PYLOOP
+
+* ============================================================================
+* EVAL — shunting-yard evaluate the NUL-terminated input at IP (@>8312). Leaves
+* the result as operand[0] (>8350), or sets ERR (@>8315).
+* ============================================================================
+EVAL    ST   @>8310,>50             ; operand stack empty (offset >50 = >8350)
+        ST   @>8311,>60             ; operator stack empty (>60 = >8360)
+        ST   @>8315,>00             ; ERR = none
+        ST   @>8318,>01             ; expecting an operand
+EV_LOOP ST   @>8314,*V@>8312        ; peek CHAR
+        CZ   @>8314
+        BS   EV_END                 ; end of input
+        CEQ  @>8314,>20             ; skip spaces
+        BR   EV_NOSP
+        DINC @>8312
+        B    EV_LOOP
+EV_NOSP CHE  @>8314,>30             ; digit? (>30..>39)
+        BR   EV_NDIG
+        CH   @>8314,>39
+        BS   EV_NDIG
+        CALL PNUM                   ; NUMACC = the number, IP advanced
+        CHE  @>8310,>60             ; operand stack full (>= >8360)? -> abort
+        BS   EV_OVF
+        DST  *@>8310,@>831C         ; push it
+        ADD  @>8310,>02
+        ST   @>8318,>00             ; now expecting an operator
+        B    EV_LOOP
+EV_NDIG CHE  @>8314,>41             ; letter? -> variable
+        BR   EV_NVAR
+        CH   @>8314,>5A
+        BS   EV_NVAR
+        CALL VLOAD                  ; NUMACC = value, or ERR = NAME
+        CZ   @>8315
+        BR   EV_END
+        CHE  @>8310,>60             ; operand stack full (>= >8360)? -> abort
+        BS   EV_OVF
+        DST  *@>8310,@>831C
+        ADD  @>8310,>02
+        ST   @>8318,>00
+        DINC @>8312
+        B    EV_LOOP
+EV_NVAR CEQ  @>8314,>28             ; '(' ?
+        BR   EV_NLP
+        CHE  @>8311,>70             ; operator stack full (>= >8370)? -> abort
+        BS   EV_OVF
+        ST   *@>8311,>28
+        INC  @>8311
+        ST   @>8318,>01
+        DINC @>8312
+        B    EV_LOOP
+EV_NLP  CEQ  @>8314,>29             ; ')' ?
+        BR   EV_NRP
+EV_RP1  CEQ  @>8311,>60             ; operator stack empty -> unbalanced
+        BS   EV_SYN
+        DEC  @>8311
+        ST   @>8319,*@>8311         ; peek top (and it's now popped)
+        CEQ  @>8319,>28             ; '(' ?
+        BS   EV_RPOK
+        INC  @>8311                 ; not '(' -> let APPLY pop it
+        CALL APPLY
+        CZ   @>8315
+        BR   EV_END
+        B    EV_RP1
+EV_RPOK ST   @>8318,>00             ; '(' consumed; expect an operator next
+        DINC @>8312
+        B    EV_LOOP
+EV_NRP  CALL ISOP                   ; operator? @>8319 = precedence (0 = no)
+        CZ   @>8319
+        BS   EV_SYN
+        ST   @>831D,@>8314          ; CUROP
+        ST   @>831E,@>8319          ; CURPREC
+        CZ   @>8318                 ; expecting operand -> this is unary +/-
+        BS   EV_BIN
+        CHE  @>8310,>60             ; operand stack full (>= >8360)? -> abort
+        BS   EV_OVF
+        DST  @>8300,>0000           ; push a 0 so unary '-x' = '0 - x'
+        DST  *@>8310,@>8300
+        ADD  @>8310,>02
+        ST   @>8318,>00
+EV_BIN  CEQ  @>8311,>60             ; while op-stack top has >= precedence: apply
+        BS   EV_PUSH
+        DEC  @>8311
+        ST   @>8319,*@>8311
+        INC  @>8311
+        CEQ  @>8319,>28             ; top is '(' -> stop
+        BS   EV_PUSH
+        ST   @>8314,@>8319          ; precedence of the top operator
+        CALL ISOP
+        CHE  @>8319,@>831E          ; prec(top) >= CURPREC ?
+        BR   EV_PUSH
+        CALL APPLY
+        CZ   @>8315
+        BR   EV_END
+        B    EV_BIN
+EV_PUSH CHE  @>8311,>70             ; operator stack full (>= >8370)? -> abort
+        BS   EV_OVF
+        ST   *@>8311,@>831D         ; push CUROP
+        INC  @>8311
+        ST   @>8318,>01
+        DINC @>8312
+        B    EV_LOOP
+EV_SYN  ST   @>8315,>01             ; SYNTAX ERROR
+        B    EV_RET
+* Stack overflow: deep nesting has filled the operand stack (>8350-835F, 8 words)
+* or the operator stack (>8360-836F, 16 bytes). Abort here BEFORE any push walks
+* the pointer into >8370-8373 (VDP top-of-mem + the GPL data/sub-stack pointers),
+* which would derail CALL/RTN mid-evaluation. Every push site guards its pointer
+* and branches here on overflow, so the interpreter cells stay intact and the
+* REPL recovers with a clean error and re-prompts.
+EV_OVF  ST   @>8315,>04             ; TOO COMPLEX (operand/operator stack overflow)
+        B    EV_RET
+EV_END  CZ   @>8315
+        BR   EV_RET                 ; already errored
+EV_FL   CEQ  @>8311,>60             ; flush remaining operators
+        BS   EV_FIN
+        DEC  @>8311
+        ST   @>8319,*@>8311
+        INC  @>8311
+        CEQ  @>8319,>28             ; a leftover '(' -> unbalanced
+        BS   EV_SYN
+        CALL APPLY
+        CZ   @>8315
+        BR   EV_RET
+        B    EV_FL
+EV_FIN  CEQ  @>8310,>52             ; exactly one operand left?
+        BS   EV_RET
+        ST   @>8315,>01             ; otherwise SYNTAX
+EV_RET  RTN
+
+* ISOP — precedence of the operator in CHAR (@>8314) -> @>8319 (0 if not one).
+ISOP    ST   @>8319,>00
+        CEQ  @>8314,>2B             ; '+'
+        BS   ISADD
+        CEQ  @>8314,>2D             ; '-'
+        BS   ISADD
+        CEQ  @>8314,>2A             ; '*'
+        BS   ISMUL
+        CEQ  @>8314,>2F             ; '/'
+        BS   ISMUL
+        CEQ  @>8314,>25             ; '%'
+        BS   ISMUL
+        RTN
+ISADD   ST   @>8319,>01
+        RTN
+ISMUL   ST   @>8319,>02
+        RTN
+
+* PNUM — parse a run of digits at IP into NUMACC (@>831C), wrapping mod 65536.
+PNUM    DST  @>831C,>0000
+PN_LP   ST   @>8314,*V@>8312
+        CHE  @>8314,>30
+        BR   PN_RET
+        CH   @>8314,>39
+        BS   PN_RET
+        DST  @>8300,@>831C
+        DMUL @>8300,>000A           ; NUMACC*10 -> low word at >8302
+        DST  @>831C,@>8302
+        DST  @>831E,>0000
+        ST   @>831F,@>8314
+        DSUB @>831E,>0030           ; digit value
+        DADD @>831C,@>831E
+        DINC @>8312
+        B    PN_LP
+PN_RET  RTN
+
+* VLOAD — value of the variable named CHAR (@>8314) -> NUMACC, or ERR = NAME.
+VLOAD   ST   @>8319,>20             ; table walk (offset >20 = >8320)
+VL_LP   CEQ  @>8319,>50
+        BS   VL_NF
+        ST   @>831E,*@>8319         ; slot name
+        CZ   @>831E
+        BS   VL_NF
+        CEQ  @>831E,@>8314
+        BS   VL_HIT
+        ADD  @>8319,>03
+        B    VL_LP
+VL_HIT  INC  @>8319
+        DST  @>831C,*@>8319         ; value word
+        RTN
+VL_NF   ST   @>8315,>02             ; NAME ERROR
+        RTN
+
+* VSTORE — store NUMACC into the variable named CHAR (@>8314).
+VSTORE  ST   @>8319,>20
+VS_LP   CEQ  @>8319,>50
+        BS   VS_RET                 ; table full -> silently drop
+        ST   @>831E,*@>8319
+        CZ   @>831E
+        BS   VS_NEW
+        CEQ  @>831E,@>8314
+        BS   VS_SET
+        ADD  @>8319,>03
+        B    VS_LP
+VS_NEW  ST   *@>8319,@>8314         ; claim the slot
+VS_SET  INC  @>8319
+        DST  *@>8319,@>831C
+VS_RET  RTN
+
+* SKIPSP — advance IP over spaces.
+SKIPSP  ST   @>8314,*V@>8312
+        CEQ  @>8314,>20
+        BR   SK_RET
+        DINC @>8312
+        B    SKIPSP
+SK_RET  RTN
+
+* APPLY — pop operator, pop b, pop a, compute a<op>b, push the result.
+APPLY   DEC  @>8311
+        ST   @>8309,*@>8311         ; operator
+        SUB  @>8310,>02
+        DST  @>8306,*@>8310         ; b
+        SUB  @>8310,>02
+        DST  @>8304,*@>8310         ; a
+        CEQ  @>8309,>2B
+        BS   AP_ADD
+        CEQ  @>8309,>2D
+        BS   AP_SUB
+        CEQ  @>8309,>2A
+        BS   AP_MUL
+        CEQ  @>8309,>2F
+        BS   AP_DIV
+        CEQ  @>8309,>25
+        BS   AP_MOD
+        ST   @>8315,>01
+        RTN
+AP_ADD  DADD @>8304,@>8306
+        B    AP_PSH
+AP_SUB  DSUB @>8304,@>8306
+        B    AP_PSH
+AP_MUL  DST  @>8300,@>8304
+        DMUL @>8300,@>8306
+        DST  @>8304,@>8302          ; low word of the product
+        B    AP_PSH
+AP_DIV  CALL SDIV
+        CZ   @>8315
+        BR   AP_RET
+        B    AP_PSH
+AP_MOD  CALL SMOD
+        CZ   @>8315
+        BR   AP_RET
+AP_PSH  DST  *@>8310,@>8304
+        ADD  @>8310,>02
+AP_RET  RTN
+
+* SDIV — signed a/b (truncate toward zero) into @>8304; a=@>8304, b=@>8306.
+SDIV    DCZ  @>8306
+        BS   DV_ZERO
+        ST   @>8308,>00             ; result sign
+        DST  @>830A,@>8304          ; |a|
+        DCH  @>8304,>7FFF
+        BR   SD_AP
+        DCLR @>830A
+        DSUB @>830A,@>8304
+        XOR  @>8308,>01
+SD_AP   DST  @>830C,@>8306          ; |b|
+        DCH  @>8306,>7FFF
+        BR   SD_BP
+        DCLR @>830C
+        DSUB @>830C,@>8306
+        XOR  @>8308,>01
+SD_BP   DCLR @>8300
+        DST  @>8302,@>830A
+        DDIV @>8300,@>830C          ; quotient -> >8300
+        DST  @>8304,@>8300
+        CZ   @>8308
+        BS   AP_RET2
+        DCLR @>8300
+        DSUB @>8300,@>8304
+        DST  @>8304,@>8300
+AP_RET2 RTN
+DV_ZERO ST   @>8315,>03             ; ZERO DIVISION
+        RTN
+
+* SMOD — signed a%b (remainder takes the dividend's sign) into @>8304.
+SMOD    DCZ  @>8306
+        BS   DV_ZERO
+        ST   @>8308,>00             ; remainder sign = sign of a
+        DST  @>830A,@>8304
+        DCH  @>8304,>7FFF
+        BR   SM_AP
+        DCLR @>830A
+        DSUB @>830A,@>8304
+        ST   @>8308,>01
+SM_AP   DST  @>830C,@>8306
+        DCH  @>8306,>7FFF
+        BR   SM_BP
+        DCLR @>830C
+        DSUB @>830C,@>8306
+SM_BP   DCLR @>8300
+        DST  @>8302,@>830A
+        DDIV @>8300,@>830C          ; remainder -> >8302
+        DST  @>8304,@>8302
+        CZ   @>8308
+        BS   AP_RET2
+        DCLR @>8300
+        DSUB @>8300,@>8304
+        DST  @>8304,@>8300
+        RTN
+
+* PRNUM — print the signed 16-bit NUMACC (@>831C) at the cursor (@>8312).
+PRNUM   DCH  @>831C,>7FFF           ; negative?
+        BR   PR_POS
+        DCEQ @>831C,>8000           ; the un-negatable -32768?
+        BR   PR_NEG
+        MOVE >0006,G@PYMIN,@>8350   ; "-32768" -> buffer
+        ST   @>8319,>06
+        B    PR_STR
+PR_NEG  ST   *V@>8312,>2D           ; '-'
+        DINC @>8312
+        DCLR @>8300
+        DSUB @>8300,@>831C          ; magnitude
+        DST  @>831C,@>8300
+PR_POS  ST   @>8309,>00             ; digit count
+        ST   @>8311,>60             ; digit stack (reuse operator area, >8360)
+PR_DL   DCLR @>8300
+        DST  @>8302,@>831C
+        DDIV @>8300,>000A           ; q -> >8300, r -> >8302
+        ST   @>8307,@>8303          ; remainder low byte
+        ADD  @>8307,>30             ; -> ASCII digit
+        ST   *@>8311,@>8307
+        INC  @>8311
+        INC  @>8309
+        DST  @>831C,@>8300
+        DCZ  @>831C
+        BR   PR_DL
+PR_EL   CZ   @>8309                 ; pop the digits (reversed) to the screen
+        BS   PR_RET
+        DEC  @>8311
+        ST   @>8307,*@>8311
+        ST   *V@>8312,@>8307
+        DINC @>8312
+        DEC  @>8309
+        B    PR_EL
+PR_RET  RTN
+
+* PR_STR — copy @>8319 bytes from buffer >8350 to the cursor (used by -32768).
+PR_STR  ST   @>8309,>50
+PS_LP   CZ   @>8319
+        BS   PS_RET
+        ST   @>8307,*@>8309
+        ST   *V@>8312,@>8307
+        DINC @>8312
+        INC  @>8309
+        DEC  @>8319
+        B    PS_LP
+PS_RET  RTN
+
+* PRERR — print the message for ERR (@>8315) at the cursor.
+PRERR   CEQ  @>8315,>02
+        BS   PE_NAME
+        CEQ  @>8315,>03
+        BS   PE_ZERO
+        CEQ  @>8315,>04
+        BS   PE_CPX
+        MOVE >000C,G@PYSYN,@>8350   ; "SYNTAX ERROR"
+        ST   @>8319,>0C
+        B    PR_STR
+PE_NAME MOVE >000A,G@PYNAM,@>8350   ; "NAME ERROR"
+        ST   @>8319,>0A
+        B    PR_STR
+PE_ZERO MOVE >0013,G@PYZERO,@>8350  ; "ZERO DIVISION ERROR"
+        ST   @>8319,>13
+        B    PR_STR
+PE_CPX  MOVE >000B,G@PYCPX,@>8350   ; "TOO COMPLEX"
+        ST   @>8319,>0B
+        B    PR_STR
+
+* ---- data ------------------------------------------------------------------
+* The banner PYBANR is NOT here: it is spliced by the Rust build
+* (libre99_gpl::system_grom::sysinfo_block, GROM >575C, 20 bytes space-padded) so
+* its version is the workspace's CARGO_PKG_VERSION — one number shared by the
+* emulator, this GROM, and TI PYTHON, and shown on the system information
+* screen (SYSINF). TI PYTHON remains an early v0 stand-in (Joel, 2026-07-02);
+* the version string tells the user so.
+PYMIN   TEXT '-32768'
+PYSYN   TEXT 'SYNTAX ERROR'
+PYNAM   TEXT 'NAME ERROR'
+PYZERO  TEXT 'ZERO DIVISION ERROR'
+PYCPX   TEXT 'TOO COMPLEX'
+
+* ============================================================================
+* SYSINF — the system information screen ((S) on the selection menu).
+*
+* Lives in GROM 2 (>4800), above the FONT2 loader block (>4000-41FF) and below
+* the L99I emulator-identification block (>5700, spliced by the Rust build —
+* see libre99_gpl::system_grom::sysinfo_block and libre99_core::sysinfo). Reached by
+* a long B from SGET, so BR/BS here stay within the >4000 slot.
+*
+* Two kinds of rows. BAKED rows (GROM, PYTHON) read the version strings the
+* build spliced at >5740+ — correct wherever this image runs, any emulator or
+* a real GROM board. STAMPED rows (VERSION/BUILD/COMMIT/HOST under EMULATOR,
+* and ROM) read the L99I block, which ships blank with its flag >00; an
+* emulator that recognizes the block fills the fields in its in-memory copy of
+* this image before power-on and sets the flag to >01. If the flag is not >01
+* — any other emulator, or real hardware — those rows render UNKNOWN. That
+* degraded mode is the design, not an error.
+* ============================================================================
+        GROM >4800
+SYSINF  ALL  >20
+        MOVE >0012,G@SITTL,V@>0007   ; 'SYSTEM INFORMATION'       row 0
+        MOVE >0008,G@SIEMU,V@>0040   ; 'EMULATOR'                 row 2
+        MOVE >0007,G@SIVER,V@>0061   ; 'VERSION'                  row 3
+        MOVE >0005,G@SIBLD,V@>00A1   ; 'BUILD'                    row 5
+        MOVE >0006,G@SIGIT,V@>00E1   ; 'COMMIT'                   row 7
+        MOVE >0004,G@SIHST,V@>0121   ; 'HOST'                     row 9
+        MOVE >0008,G@SIFRM,V@>0160   ; 'FIRMWARE'                 row 11
+        MOVE >0003,G@SIROM,V@>0181   ; 'ROM'                      row 12
+        MOVE >0004,G@SIGRM,V@>01C1   ; 'GROM'                     row 14
+        MOVE >0006,G@SIPY,V@>0201    ; 'PYTHON'                   row 16
+        MOVE >0008,G@SIHW,V@>0240    ; 'HARDWARE'                 row 18
+        MOVE >001B,G@SIHW1,V@>0261   ; CPU + VDP                  row 19
+        MOVE >001A,G@SIHW2,V@>0281   ; PSG + CRU                  row 20
+        MOVE >0019,G@SIHW3,V@>02A1   ; GROM chips + FDC           row 21
+        MOVE >0017,G@SIRET,V@>02E4   ; 'PRESS ANY KEY TO RETURN'  row 23
+* Baked facts — known at assembly time, valid anywhere.
+        MOVE >0014,G@VERSTR,V@>01CA  ; GROM   = 'LIBRE99 <version>'
+        MOVE >0008,G@PYVERS,V@>020A  ; PYTHON = '<version>'
+* Stamped facts — valid only when the running emulator set the L99I flag.
+        MOVE >0001,G@L99FLG,@>8354
+        CEQ  @>8354,>01
+        BR   SIUNK
+        MOVE >0008,G@L99EMU,V@>006A  ; emulator version           row 3
+        MOVE >000A,G@L99BLD,V@>00AA  ; build date                 row 5
+        MOVE >0008,G@L99GIT,V@>00EA  ; commit                     row 7
+        MOVE >000C,G@L99HST,V@>012A  ; host                       row 9
+        MOVE >0014,G@L99ROM,V@>018A  ; console-ROM identity       row 12
+        B    SIKEY
+SIUNK   MOVE >0007,G@SIUNKS,V@>006A
+        MOVE >0007,G@SIUNKS,V@>00AA
+        MOVE >0007,G@SIUNKS,V@>00EA
+        MOVE >0007,G@SIUNKS,V@>012A
+        MOVE >0007,G@SIUNKS,V@>018A
+* Any key (press, then release) returns to the menu, which redraws + rescans.
+SIKEY   SCAN
+        CEQ  @>8375,>FF
+        BS   SIKEY                  ; wait for a key
+        DST  @>83CC,KBEEP           ; key click on the way out
+        ST   @>83CE,>01
+SIREL   SCAN
+        CEQ  @>8375,>FF
+        BR   SIREL                  ; wait for release
+        B    MENU
+
+SITTL   TEXT 'SYSTEM INFORMATION'
+SIEMU   TEXT 'EMULATOR'
+SIVER   TEXT 'VERSION'
+SIBLD   TEXT 'BUILD'
+SIGIT   TEXT 'COMMIT'
+SIHST   TEXT 'HOST'
+SIFRM   TEXT 'FIRMWARE'
+SIROM   TEXT 'ROM'
+SIGRM   TEXT 'GROM'
+SIPY    TEXT 'PYTHON'
+SIHW    TEXT 'HARDWARE'
+* Two-column chip list (cols 1 and 16) — compact so the version rows above can
+* be double-spaced; the VDP has no per-line leading, whole rows are the unit.
+SIHW1   TEXT 'CPU TMS9900    VDP TMS9918A'
+SIHW2   TEXT 'PSG SN76489    CRU TMS9901'
+SIHW3   TEXT 'GROM TMC0430   FDC FD1771'
+SIRET   TEXT 'PRESS ANY KEY TO RETURN'
+SIUNKS  TEXT 'UNKNOWN'

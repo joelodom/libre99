@@ -1,0 +1,167 @@
+* CAROUSEL.A99 — the mode carousel: switch cleanly among three VDP     (Ch. 14)
+* modes at runtime.  Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* Lab 14, part 1. Cycles GRAPHICS I -> TEXT -> MULTICOLOR forever, holding each
+* for a beat, to show the register/VRAM dance a mode change really is. Each
+* switch follows the discipline S14.4 argues for: BLANK the display, rewrite the
+* mode and table-base registers, lay out that mode's VRAM, then UNBLANK — so the
+* viewer never sees a half-built screen.
+*
+*   Phase 1  GRAPHICS I : 32 vertical colour bars, one per 8-character colour
+*                         group (the ch13 constraint, made visible).
+*   Phase 2  TEXT 40    : a title and label, via textlib40.
+*   Phase 3  MULTICOLOR : a white diagonal on a blue field, via mcolib.
+*
+* The hold between phases here is a simple cycle-delay so the whole program is
+* deterministic on the bare bench (verify each phase with  u PH1DON / u PH2DON /
+* u PH3DON  then  vdp / screen / pixels). A shipping carousel would hold each
+* mode for a fixed number of *frames* by polling the VDP interrupt flag — the
+* 60 Hz heartbeat we build a proper timer around in Ch. 17.
+*
+* Build:  libre99asm code/ch14/carousel.a99 ...
+
+       COPY '../ch11/equates.inc'
+       COPY '../ch12/vdplib.inc'
+       COPY 'textlib40.inc'
+       COPY 'mcolib.inc'
+
+WS     EQU  >8300
+STKTOP EQU  >8340
+* Graphics I table bases for phase 1 (textlib40/mcolib don't name these)
+G1NAME EQU  >0000            name table
+G1COL  EQU  >0380            colour table  (R3 = >0E)
+G1PAT  EQU  >0800            pattern table (R4 = >01)
+
+START  LWPI WS
+       LI   R10,STKTOP
+CLOOP  BL   @PHAS1
+PH1DON BL   @DELAY
+       BL   @PHAS2
+PH2DON BL   @DELAY
+       BL   @PHAS3
+PH3DON BL   @DELAY
+       JMP  CLOOP
+
+* ---- BLANK: turn the display off (16K on, enable off) before a switch ----
+BLANK  DECT R10
+       MOV  R11,*R10
+       LI   R0,1
+       LI   R1,>8000        R1 = >80: 16K on, BL(enable) off, all modes 0
+       BL   @VWTR
+       MOV  *R10+,R11
+       RT
+
+* ---- PHASE 1: GRAPHICS I, 32 vertical colour bars by group of eight ----
+PHAS1  DECT R10
+       MOV  R11,*R10
+       BL   @BLANK
+* pattern table >0800: every character solid (>FF), so a cell shows pure fg
+       LI   R0,G1PAT
+       BL   @VWA
+       LI   R1,>FF00
+       LI   R2,2048
+P1PAT  MOVB R1,@VDPWD
+       DEC  R2
+       JNE  P1PAT
+* colour table >0380: group g -> foreground colour (g AND 15) on black
+       LI   R0,G1COL
+       BL   @VWA
+       CLR  R3             R3 = group 0..31
+P1COL  MOV  R3,R1
+       ANDI R1,>000F        fg = group AND 15
+       SLA  R1,4            fg -> high nibble
+       AI   R1,1            bg = 1 (black)
+       SWPB R1
+       MOVB R1,@VDPWD
+       INC  R3
+       CI   R3,32
+       JNE  P1COL
+* name table >0000: cell (row,col) -> character col*8 (so column c is group c)
+       LI   R0,G1NAME
+       BL   @VWA
+       CLR  R3            R3 = cell index 0..767
+P1NAM  MOV  R3,R1
+       ANDI R1,>001F        col = cell AND 31
+       SLA  R1,3            char = col * 8
+       SWPB R1
+       MOVB R1,@VDPWD
+       INC  R3
+       CI   R3,768
+       JNE  P1NAM
+* registers, then UNBLANK (enable is in this same write)
+       LI   R0,2
+       LI   R1,0           R2 = >00 -> name >0000
+       BL   @VWTR
+       LI   R0,3
+       LI   R1,>0E00        R3 = >0E -> colour table >0380
+       BL   @VWTR
+       LI   R0,4
+       LI   R1,>0100        R4 = >01 -> pattern >0800
+       BL   @VWTR
+       LI   R0,0
+       LI   R1,0           R0 = >00
+       BL   @VWTR
+       LI   R0,7
+       LI   R1,>0100        R7 = >01 black backdrop
+       BL   @VWTR
+       LI   R0,1
+       LI   R1,>E000        R1 = >E0: 16K, enable, Graphics I -> UNBLANK
+       BL   @VWTR
+       MOV  *R10+,R11
+       RT
+
+* ---- PHASE 2: TEXT 40, a title and a label via textlib40 ----
+PHAS2  DECT R10
+       MOV  R11,*R10
+       BL   @BLANK
+       BL   @TX40MD         text mode, font, clear (re-enables display)
+       LI   R0,2
+       LI   R1,13
+       BL   @TX40LC
+       LI   R1,STITL
+       BL   @TX40PS
+       LI   R0,5
+       LI   R1,10
+       BL   @TX40LC
+       LI   R1,SLAB2
+       BL   @TX40PS
+       MOV  *R10+,R11
+       RT
+
+* ---- PHASE 3: MULTICOLOR, a white diagonal on blue via mcolib ----
+PHAS3  DECT R10
+       MOV  R11,*R10
+       BL   @BLANK
+       BL   @MCMODE         multicolor mode, name map, cleared canvas
+       LI   R2,4           flood the canvas dark blue
+       BL   @MCCLS
+* R7 is the diagonal parameter 0..47 — MCPLOT preserves R7-R9, so it survives
+* the calls (it clobbers R0, R3-R6, R1); the plain counter R3 would not.
+       CLR  R7
+P3DIAG MOV  R7,R0          x = i
+       MOV  R7,R1          y = i
+       LI   R2,15          white
+       BL   @MCPLOT
+       LI   R0,63          mirror: x = 63 - i
+       S    R7,R0
+       MOV  R7,R1          y = i
+       LI   R2,15
+       BL   @MCPLOT
+       INC  R7
+       CI   R7,48
+       JNE  P3DIAG
+       MOV  *R10+,R11
+       RT
+
+* ---- DELAY: a deterministic hold (see the header note on frame timing) ----
+DELAY  LI   R5,30000
+DELAYL DEC  R5
+       JNE  DELAYL
+       RT                  ; leaf: R11 still holds the return
+
+STITL  TEXT 'MODE CAROUSEL'
+       BYTE 0
+SLAB2  TEXT 'TEXT MODE 40 COLUMNS'
+       BYTE 0
+       EVEN
+       END  START

@@ -1,0 +1,163 @@
+* CRUDEMO — the five CRU instructions on real hardware: SBO / SBZ / TB
+* (single-bit) and LDCR / STCR (multi-bit), self-checked.          (Ch. 10)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* HOW TO RUN (from docs/ti99book/):
+*   ../../target/release/libre99asm code/ch10/crudemo.a99 --name 'CRUDEMO' \
+*       --format bin -o build/crudemoc.bin --symbols build/crudemo.map.json
+*   code/bench/target/release/bench99.exe <script>
+*     load build/crudemoc.bin        (mount at >6000)
+*     pc <START>                     (START's address is in the .map.json)
+*     u <HALT>                       (run to the park loop)
+*     vdp                            (R7 = >02 green PASS / >06 red FAIL)
+*     m 8320 32                      (read the measured proofs)
+*
+* THE CRU (Communications Register Unit) is the 9900's bit-serial I/O bus:
+* 4096 individually addressable one-bit ports, ENTIRELY SEPARATE from the
+* 64 KiB memory space. A CRU bit address is formed from R12:
+*
+*        bit_address = (R12 >> 1) + signed_displacement
+*
+* so the value you load into R12 is the bit address times two (bits 3-14 of
+* R12 hold the address; bit 15 is ignored). The "base" you quote for a card
+* is the R12 value, and the bit address is HALF of it.
+*
+* WHAT ROUND-TRIPS IN THIS EMULATOR (verified, see the report): the TMS9901's
+* own output pins (keyboard-column select, interrupt mask, alpha-lock) are
+* NOT read-back-able -- reading those bit numbers samples a different signal
+* (that is the whole "read and write are different functions of one bit"
+* lesson, test 7 below). The TI Disk Controller card at CRU base >1100,
+* however, latches two control bits we CAN read back over the CRU: bit 0
+* (ROM-enable) and bit 7 (side-select). So this demo drives its writable,
+* observable bits against that card, and reads live INPUT bits off the 9901
+* keyboard rows. The ->2 example is concrete and checked: R12 = >1100
+* addresses CRU bit >0880 (>0880 * 2 = >1100).
+
+WS     EQU  >8300            harness workspace (fast pad)
+VDPWA  EQU  >8C02            VDP address/register port
+GREEN  EQU  >0200            border color: medium green (high byte)
+RED    EQU  >0600            border color: dark red (high byte)
+DISK   EQU  >1100            disk-controller CRU base (R12) = bit >0880 * 2
+KROW   EQU  >0006            9901 keyboard-row base (R12) = bit >0003 * 2
+
+* --- proof readouts (BENCH99 reads these out of the pad) ---
+M_STB  EQU  >8330            measured: STCR-8 of the rows      (expect >FF00)
+M_STW  EQU  >8332            measured: STCR-12 of rows+unwired (expect >0FFF)
+M_LDS  EQU  >8334            measured: STCR-8 after LDCR >0081 (expect >0081)
+DONE   EQU  >833C            done-marker = >C0DE on completion
+FAILS  EQU  >833E            failure count (>0000 = every test passed)
+
+START  LWPI WS               registers on the fast island
+       CLR  @DONE
+       CLR  @FAILS
+
+* ===== SBO / SBZ / TB : single-bit output, then read back =============
+* Test 1 -- SBO sets a bit to 1. R12 = >1100 (bit >0880), SBO 0 drives the
+* disk card's ROM-enable latch high; TB 0 copies it into EQ.
+       LI   R12,DISK
+       SBO  0                 CRU bit >0880 <- 1
+       TB   0                 EQ <- CRU bit >0880  (expect EQ = 1)
+       JEQ  T1OK
+       INC  @FAILS
+T1OK   EQU  $
+
+* Test 2 -- SBZ sets the same bit to 0. TB 0 now reads 0 (EQ clear).
+       SBZ  0                 CRU bit >0880 <- 0
+       TB   0                 expect EQ = 0
+       JNE  T2OK
+       INC  @FAILS
+T2OK   EQU  $
+
+* Test 3 -- displacement: SBO 7 addresses bit >0880 + 7 = >0887 (the side
+* latch) without disturbing bit 0. Confirm bit 7 = 1 AND bit 0 still = 0.
+       SBO  7                 CRU bit >0887 <- 1
+       TB   7                 expect EQ = 1
+       JEQ  T3A
+       INC  @FAILS
+T3A    TB   0                 bit 0 untouched -> expect EQ = 0
+       JNE  T3OK
+       INC  @FAILS
+T3OK   SBZ  7                 tidy up: side latch back to 0
+
+* ===== LDCR / STCR : multi-bit transfer, LSB-first ====================
+* Test 4 -- LDCR sends the low `count` bits of a BYTE operand (the <=8-bit
+* rule: byte cargo rides the register's HIGH half) to consecutive CRU bits,
+* LSB first. LDCR >0081 count 8 to base >1100 drives CRU bits >0880..>0887
+* from operand bits 0..7: bit 0 (=1, the LSB, sent first) -> ROM-enable,
+* bit 7 (=1) -> side; bits 1..6 = 0. Verify with TB 0 and TB 7.
+       LI   R1,>8100          the byte >81 in the HIGH half (LDCR byte cargo)
+       LDCR R1,8              drive 8 CRU bits from >81, LSB first
+       TB   0                 bit 0 (operand LSB) -> expect 1
+       JEQ  T4A
+       INC  @FAILS
+T4A    TB   7                 bit 7 (operand MSB) -> expect 1
+       JEQ  T4OK
+       INC  @FAILS
+T4OK   EQU  $
+
+* Test 5 -- STCR gathers `count` CRU bits back into the operand, LSB first.
+* STCR 8 from base >1100 reads bits >0880..>0887: bit 0 = ROM-enable (1),
+* bits 1..6 not CRU-readable on this card (0), bit 7 = side (1) -> >81.
+* This round-trips the two readable latches AND proves the bit order
+* (CRU bit 0 lands in result bit 0).
+       CLR  R2
+       STCR R2,8              gather 8 bits -> R2 high byte
+       SWPB R2                right-justify the byte cargo -> R2 = >0081
+       MOV  R2,@M_LDS         stash for the transcript
+       CI   R2,>0081
+       JEQ  T5OK
+       INC  @FAILS
+T5OK   SBZ  0                 tidy up: disable the card again
+       SBZ  7
+
+* Test 6 -- STCR of live INPUT bits, and the <=8 vs >8 operand rule.
+* (a) STCR 8 from base >0006 (bit >0003) reads the eight keyboard rows of
+* the selected 9901 column. Nothing is pressed on the bench, so every row
+* idles HIGH -> >FF in the byte's high half. A pressed key pulls its row LOW
+* (active-low), zeroing that bit.
+       LI   R12,KROW          R12 = >0006 -> bit >0003 (row 0)
+       CLR  R3
+       STCR R3,8              8 bits -> BYTE operand (high half)
+       MOV  R3,@M_STB         expect >FF00 (no key down)
+       CI   R3,>FF00
+       JEQ  T6A
+       INC  @FAILS
+* (b) count 12 (>8) uses a WORD operand: reads bits >0003..>000E (8 rows +
+* 4 unwired inputs, all idle-high) right-justified -> >0FFF.
+T6A    CLR  R4
+       STCR R4,12             12 bits -> WORD operand, right-justified
+       MOV  R4,@M_STW         expect >0FFF
+       CI   R4,>0FFF
+       JEQ  T6OK
+       INC  @FAILS
+T6OK   EQU  $
+
+* Test 7 -- read and write are DIFFERENT functions of one bit number. The
+* 9901 alpha-lock (output pin P5, CRU bit 21) is write-only from the CRU's
+* side: whatever we drive, reading bit 21 samples an unwired input that
+* idles HIGH. So TB 21 reads 1 after BOTH SBO 21 and SBZ 21 -- it is NOT a
+* loop-back of the latch (contrast the disk card's bit 0 above).
+       CLR  R12               R12 = >0000 -> the TMS9901 at CRU base 0
+       SBO  21                drive alpha-lock high
+       TB   21                reads the (unwired) input -> expect 1
+       JEQ  T7A
+       INC  @FAILS
+T7A    SBZ  21                drive alpha-lock low
+       TB   21                still reads idle-high -> expect 1 (not 0!)
+       JEQ  T7OK
+       INC  @FAILS
+T7OK   EQU  $
+
+* ===== verdict ========================================================
+       LI   R0,>C0DE
+       MOV  R0,@DONE          stamp completion
+       MOV  @FAILS,R0
+       JNE  FAIL
+PASS   LI   R0,GREEN
+       JMP  VRDCT
+FAIL   LI   R0,RED
+VRDCT  MOVB R0,@VDPWA         color byte -> VDP register 7 (backdrop)
+       LI   R0,>8700
+       MOVB R0,@VDPWA
+HALT   JMP  HALT
+       END  START

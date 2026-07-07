@@ -1,0 +1,99 @@
+* TERRAIN.A99 — a coarse-scrolling landscape, and the cost of a frame. (Ch. 17)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* Lab 17 (the scroll mechanic + the budget). A field of 32 vertical colour
+* stripes (Graphics I, the 8-character colour-group trick of ch13/14) scrolled
+* LEFT one column per tick by rewriting the name table from a moving offset:
+* cell (row, col) shows colour group (col + OFFSET) AND 31. Watch it move with
+* `pixels 8` at successive OFFSETs; measure ONE tick against the ~50,000-cycle
+* frame budget with `u SNAP` / `cycles`.
+*
+* This is the *whole-table-rewrite* scroll — simplest, and deliberately the
+* expensive one, so its cost is visible; S17.4 shows the column-feed that only
+* touches the newly exposed edge. OFFSET lives at >8342 so the bench can poke it
+* and re-render a chosen frame.
+*
+* Verify: load, pc START; then repeatedly  u SNAP / m 8342 2 / pixels 8  to see
+* successive scrolled frames; measure a tick with  u TICK0 / cycles / u SNAP /
+* cycles  (the delta is one rewrite).
+*
+* Build:  libre99asm code/ch17/terrain.a99 ...
+
+       COPY '../ch11/equates.inc'
+       COPY '../ch12/vdplib.inc'
+
+WS     EQU  >8300
+STKTOP EQU  >8340
+OFFSET EQU  >8342            scroll offset (columns)
+NAME   EQU  >0000
+COLTAB EQU  >0380
+PATGEN EQU  >0800
+
+START  LWPI WS
+       LI   R10,STKTOP
+* --- Graphics I: solid patterns, one colour per 8-char group ---
+       LI   R0,1
+       LI   R1,>E000
+       BL   @VWTR
+       LI   R0,0
+       LI   R1,0
+       BL   @VWTR
+       LI   R0,2
+       LI   R1,0
+       BL   @VWTR
+       LI   R0,3
+       LI   R1,>0E00        colour table >0380
+       BL   @VWTR
+       LI   R0,4
+       LI   R1,>0100        pattern >0800
+       BL   @VWTR
+       LI   R0,7
+       LI   R1,>0100
+       BL   @VWTR
+* every character solid (>FF), so a cell is pure foreground
+       LI   R0,PATGEN
+       BL   @VWA
+       LI   R1,>FF00
+       LI   R2,2048
+TPAT   MOVB R1,@VDPWD
+       DEC  R2
+       JNE  TPAT
+* colour group g -> foreground colour (g AND 15) on black
+       LI   R0,COLTAB
+       BL   @VWA
+       CLR  R3
+TCOL   MOV  R3,R1
+       ANDI R1,>000F
+       SLA  R1,4
+       AI   R1,1
+       SWPB R1
+       MOVB R1,@VDPWD
+       INC  R3
+       CI   R3,32
+       JNE  TCOL
+       CLR  @OFFSET
+
+* --- the scroll loop: rewrite the name table from OFFSET, then OFFSET++ ---
+TICK0  BL   @DRAW
+SNAP   INC  @OFFSET         (breakpoint here each tick: one frame is on screen)
+       JMP  TICK0
+
+* DRAW — name[row*32+col] = ((col + OFFSET) AND 31) * 8. Non-leaf.
+DRAW   DECT R10
+       MOV  R11,*R10
+       LI   R0,NAME
+       BL   @VWA
+       CLR  R3             R3 = cell index 0..767
+DNL    MOV  R3,R4          col = cell AND 31
+       ANDI R4,>001F
+       A    @OFFSET,R4     + scroll offset
+       ANDI R4,>001F       wrap to 0..31
+       SLA  R4,3           * 8  -> the group's first character
+       SWPB R4
+       MOVB R4,@VDPWD
+       INC  R3
+       CI   R3,768
+       JNE  DNL
+       MOV  *R10+,R11
+       RT
+       END  START

@@ -1,0 +1,16 @@
+# mathtest.bench — run mathlib's self-checking harness on BENCH99 and read
+# the verdict out of the pad. Build the ROM image first (from docs/ti99book/):
+#
+#   ../../target/release/libre99asm code/ch08/mathlib.a99 --name 'MATHLIB' \
+#       --format bin -o build/MATHLIBC.bin --symbols build/mathlib.map.json
+#
+# then:  code/bench/target/release/bench99 code/ch08/mathtest.bench
+#
+# START = >6150 and HALT = >648A are mathlib's entry and halt labels (read
+# them from build/mathlib.map.json if the source changes and they shift).
+# PASS iff the verdict reads  >C0DE / >0000 / >0000  (done / FAILS / first-fail).
+# The word at >83F8 is the LFSR period the harness counted (proof, = >FFFF).
+load build/MATHLIBC.bin
+pc 6150
+u 648A
+m 83F8 8

@@ -1,0 +1,109 @@
+* SPRITELIB.A99 — self-test harness for lib99's sprite engine.        (Ch. 16)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* Proves spritelib on BENCH99 over a blank Graphics I background. Loads a ball
+* shape, then places FIVE sprites on one scanline (y=96) and one sprite above.
+* The law of four means only the first four of the five draw — the fifth
+* (sprite 4, x=216) is dropped — which `pixels 4` shows directly. Self-checks
+* that sprite 0's SAL Y byte is 95 (screen y 96 minus one) and paints the
+* verdict: GREEN (>02) pass / RED (>06) fail.
+*
+* Build:  libre99asm code/ch16/spritelib.a99 ...
+* Verify: load, pc START, x 20000, then  pixels 4  (four balls on the row, not
+*         five; one above) and  vdp  (R7=>02).
+
+       COPY '../ch11/equates.inc'
+       COPY '../ch12/vdplib.inc'
+       COPY 'spritelib.inc'
+
+WS     EQU  >8300
+STKTOP EQU  >8340
+
+START  LWPI WS
+       LI   R10,STKTOP
+* --- blank Graphics I background, blue backdrop ---
+       LI   R0,1
+       LI   R1,>E000
+       BL   @VWTR
+       LI   R0,0
+       LI   R1,0
+       BL   @VWTR
+       LI   R0,2
+       LI   R1,0
+       BL   @VWTR
+       LI   R0,3
+       LI   R1,>0E00
+       BL   @VWTR
+       LI   R0,4
+       LI   R1,>0100
+       BL   @VWTR
+       LI   R0,7
+       LI   R1,>0400        blue backdrop
+       BL   @VWTR
+
+       BL   @SINIT
+       CLR  R0             load BALL as sprite shape 0
+       LI   R1,BALL
+       BL   @SPAT
+
+* five sprites on scanline y=96 — the fifth (sprite 4) is dropped
+       CLR  R0
+       LI   R1,96
+       LI   R2,24
+       CLR  R3
+       LI   R4,15
+       BL   @SPUT
+       LI   R0,1
+       LI   R1,96
+       LI   R2,72
+       CLR  R3
+       LI   R4,13           magenta (distinct from the green verdict backdrop)
+       BL   @SPUT
+       LI   R0,2
+       LI   R1,96
+       LI   R2,120
+       CLR  R3
+       LI   R4,7
+       BL   @SPUT
+       LI   R0,3
+       LI   R1,96
+       LI   R2,168
+       CLR  R3
+       LI   R4,8
+       BL   @SPUT
+       LI   R0,4
+       LI   R1,96
+       LI   R2,216
+       CLR  R3
+       LI   R4,11
+       BL   @SPUT
+* a lone sprite above the row
+       LI   R0,5
+       LI   R1,40
+       LI   R2,120
+       CLR  R3
+       LI   R4,15
+       BL   @SPUT
+* end the active list after sprite 5
+       LI   R0,SATTR+24     sprite 6 entry (6*4)
+       LI   R1,>D000        Y = >D0 ends the list
+       BL   @VSBW
+
+* self-check: sprite 0's SAL Y must be 95 (=96-1)
+       LI   R0,SATTR
+       BL   @VSBR           R1 high = SAL[0].Y
+       LI   R5,>5F00        95
+       CB   R1,R5
+       JNE  BAD
+
+       LI   R0,7
+       LI   R1,GREEN
+       BL   @VWTR
+       JMP  HALT
+BAD    LI   R0,7
+       LI   R1,RED
+       BL   @VWTR
+HALT   JMP  HALT
+
+BALL   DATA >3C7E,>FFFF,>FFFF,>7E3C     an 8x8 filled ball
+       END  START

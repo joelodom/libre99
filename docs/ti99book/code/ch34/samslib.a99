@@ -1,0 +1,14 @@
+* SAMSLIB.A99 — assembles lib99's SAMS mapper wrappers.               (Ch. 34)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+* NOT runnable here: the project does not emulate SAMS (R-12). Runs on MAME/
+* js99er/SAMS hardware. Proves samslib.inc assembles with libre99asm.
+       COPY '../ch11/equates.inc'
+       COPY 'samslib.inc'
+WS     EQU  >8300
+START  LWPI WS
+       LI   R0,10            window >A000 (index 10)
+       LI   R1,>0005         show physical page 5 there
+       BL   @SAMSMP
+*      now reads/writes to >A000 hit page 5 of the big RAM
+HALT   JMP  HALT
+       END  START

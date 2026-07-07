@@ -1,0 +1,20 @@
+* SETUP — the machine-setup cast: LI, LWPI, STWP, STST, CLR,       (Ch. 7)
+* SETO, SWPB. One run touring each; a register dump reads the results.
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+
+WS     EQU  >8300            workspace (fast pad)
+C1     EQU  >8340            a pad cell to clear through the @ door
+
+START  LWPI WS               aim WP at the fast island
+       STWP R0               R0 <- where our registers live (>8300)
+       STST R1               R1 <- a photograph of ST
+       LI   R2,>1234         a plain immediate load
+       CLR  R3               R3 <- >0000, packed in the opcode
+       SETO R4               R4 <- >FFFF (set to ones; Ch. 8 reads it as -1)
+       LI   R5,>0041         'A' in the low half ...
+       SWPB R5               ... flipped to the high half => >4100
+       LI   R6,>FFFF
+       MOV  R6,@C1           dirty the cell ...
+       CLR  @C1             ... then clear it through the @ door
+HALT   JMP  HALT
+       END  START

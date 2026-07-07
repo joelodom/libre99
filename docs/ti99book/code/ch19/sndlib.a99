@@ -1,0 +1,45 @@
+* SNDLIB.A99 — self-test harness for lib99's sound engine.            (Ch. 19)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* Proves sndlib on BENCH99. Plays a C-major chord — C4/E4/G4 on the three tone
+* channels, loaded from the NOTES table — with a little white noise under it,
+* then paints a green border to show it ran. The chip is write-only, so the
+* PROOF is the `sound` command: it must show ch0 ~261 Hz, ch1 ~330 Hz, ch2
+* ~392 Hz (C/E/G), each att 2, and white noise at att 8.
+*
+* Build:  libre99asm code/ch19/sndlib.a99 ...
+* Verify: load, pc START, x 200, then  sound
+
+       COPY '../ch11/equates.inc'
+       COPY '../ch12/vdplib.inc'
+       COPY 'sndlib.inc'
+
+WS     EQU  >8300
+STKTOP EQU  >8340
+
+START  LWPI WS
+       LI   R10,STKTOP
+       BL   @SSILNC          start from silence
+
+       CLR  R0              ch0 = C4
+       MOV  @NOTES,R1
+       LI   R2,2
+       BL   @STONE
+       LI   R0,1            ch1 = E4  (NOTES index 4)
+       MOV  @NOTES+8,R1
+       LI   R2,2
+       BL   @STONE
+       LI   R0,2            ch2 = G4  (NOTES index 7)
+       MOV  @NOTES+14,R1
+       LI   R2,2
+       BL   @STONE
+
+       LI   R0,4           white noise (bit 2 set), attenuation 8
+       LI   R1,8
+       BL   @SNOISE
+
+       LI   R0,7           green: the driver ran (tones proven with `sound`)
+       LI   R1,GREEN
+       BL   @VWTR
+SPIN   JMP  SPIN
+       END  START

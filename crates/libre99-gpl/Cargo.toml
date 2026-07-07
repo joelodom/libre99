@@ -1,0 +1,23 @@
+# The GPL (Graphics Programming Language) assembler + disassembler for the
+# TI-99/4A system-GROM rewrite. Pure `std`, like the rest of the emulation
+# stack; depends only on sibling crates:
+#
+#   libre99-asm   for the shared E/A lexer (`lex`) and expression evaluator (`expr`)
+#   libre99-core  for the GROM/cartridge container writer and boot tests
+#
+# See original-content/system-roms/README.md (doc map; the original plan and
+# review are archived under original-content/system-roms/history/).
+[package]
+name = "libre99-gpl"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "libre99gpl"
+path = "src/main.rs"
+
+[dependencies]
+libre99-asm = { path = "../libre99-asm" }
+libre99-core = { path = "../libre99-core" }

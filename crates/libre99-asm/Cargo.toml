@@ -1,0 +1,25 @@
+# libre99-asm — a TMS9900 assembler + cartridge packager for the TI-99/4A emulator.
+#
+# A complete two-pass Editor/Assembler-style assembler (the full instruction set,
+# E/A expressions, cartridge and absolute-image modes; it also builds the console
+# ROM). Pure `std`; the only dependency is `libre99-core` (for the shared `.ctg`
+# writer and the boot test), matching the core's zero-third-party-deps discipline.
+
+[package]
+name = "libre99-asm"
+version.workspace = true
+description = "A complete two-pass TMS9900 assembler and cartridge packager for the TI-99/4A emulator."
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+libre99-core = { path = "../libre99-core" }
+
+[lib]
+name = "libre99_asm"
+path = "src/lib.rs"
+
+[[bin]]
+name = "libre99asm"
+path = "src/main.rs"

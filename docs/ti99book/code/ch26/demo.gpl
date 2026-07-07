@@ -1,0 +1,11 @@
+* DEMO.GPL — a tiny GPL program, round-tripped through libre99gpl.       (Ch. 26)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Shows GPL's shape: the between-any-two-spaces MOVE, an immediate store, the
+* screen-fill ALL, and RTN. Assemble with `libre99gpl asm`, disassemble back with
+* `libre99gpl dis` — the instructions round-trip, proving the toolchain both ways.
+        GROM >2000
+START   ALL  >20                    ; fill the name table with spaces
+        ST   V@>0000,>48            ; poke 'H' (>48) to screen cell 0
+        MOVE >0005,G@MSG,V@>0002    ; copy 5 bytes GROM->VDP (screen cols 2..6)
+        RTN
+MSG     TEXT 'HELLO'

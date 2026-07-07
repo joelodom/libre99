@@ -1,0 +1,208 @@
+* KEYSCAN — reading the console keyboard through the TMS9901 CRU: select a
+* column, shift the eight rows in with STCR, decode the pressed cell to an
+* ASCII byte.                                                       (Ch. 10)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* HOW TO RUN (from docs/ti99book/):
+*   ../../target/release/libre99asm code/ch10/keyscan.a99 --name 'KEYSCAN' \
+*       --format bin -o build/keyscanc.bin --symbols build/keyscan.map.json
+*   code/bench/target/release/bench99.exe <script>
+*     load build/keyscanc.bin / pc <START> / u <HALT>
+*     vdp                 (R7 = >02 green PASS / >06 red FAIL)
+*     m 8320 44           (KRAW, KRES, decoded proofs)
+*
+* THE 9901 KEYBOARD MATRIX is a passive 8x8 grid of switches scanned over the
+* CRU. Software drives a 3-bit COLUMN number onto the 9901's output pins
+* P2,P3,P4 (CRU bits 18,19,20; P2 = LSB), then reads the eight ROWS of that
+* column back on CRU INPUT bits 3..10. A key pulls its row LOW, so a pressed
+* key reads as 0 (ACTIVE LOW); an idle row reads 1.
+*
+* THE TWO R12 VALUES THIS CODE USES (the ->2 rule: R12 = bit_address * 2):
+*   * column select: R12 = >0024  ->  bit address >0012 (=18), the P2 pin.
+*     LDCR Rx,3 then drives P2,P3,P4 from the low 3 bits of Rx, LSB first.
+*   * row read:      R12 = >0006  ->  bit address >0003 (row 0 of the column).
+*     STCR Rx,8 then shifts CRU bits 3..10 (rows 0..7) into a byte, LSB first,
+*     so result bit r = row r (0 = that key is down).
+*
+* THE MATRIX (column x row -> key), transcribed from the emulator's own
+* keyboard model (crates/libre99-core/src/keyboard.rs) and encoded in KTAB:
+*        Col0   Col1  Col2  Col3  Col4  Col5
+*  Row0   =      .     ,     M     N     /
+*  Row1  SPACE   L     K     J     H     ;
+*  Row2  ENTER   O     I     U     Y     P
+*  Row3   -      9     8     7     6     0
+*  Row4  FCTN    2     3     4     5     1
+*  Row5  SHIFT   S     D     F     G     A
+*  Row6  CTRL    W     E     R     T     Q
+*  Row7   -      X     C     V     B     Z
+* The three modifier cells (FCTN/SHIFT/CTRL) and the two empty cells carry no
+* ASCII of their own (KTAB byte >00); real firmware combines them with the
+* base key. Columns 6-7 are the joystick ports and are not scanned here.
+*
+* VERIFICATION NOTE (a genuine bench limit, R-12 style): BENCH99 can inject a
+* keypress (`k A`) only in BOOT mode, where the console firmware owns the CPU;
+* it cannot press a key while OUR code runs on the bare bench (where we set
+* PC). So this harness proves the scan two ways that together cover the whole
+* path: (A) it runs the LIVE 9901 scan on the bare bench and confirms the CRU
+* column-select + STCR row-read execute and read idle-high with nothing down;
+* (B) it drives DECROW with the exact active-low row byte the 9901 produces
+* for each key (derived from the matrix above and the active-low convention),
+* proving the decode. See the report for the boot-mode `k` cross-check that
+* independently confirms this same matrix through the firmware.
+
+WS     EQU  >8300            harness workspace (fast pad)
+STKTOP EQU  >83FE            software stack top (grows down; KSCAN pushes R11)
+VDPWA  EQU  >8C02            VDP address/register port
+GREEN  EQU  >0200            border: medium green (high byte)
+RED    EQU  >0600            border: dark red (high byte)
+COLSEL EQU  >0024            column-select CRU base (R12) = bit >0012 * 2
+ROWRD  EQU  >0006            row-read CRU base (R12)      = bit >0003 * 2
+
+* --- proof readouts (BENCH99 peeks these) ---
+KRAW   EQU  >8320            6 words: live per-column row bytes (expect 00FF x6)
+KRES   EQU  >832C            live KSCAN result on the bench   (expect >0000)
+DONE   EQU  >832E            done-marker = >C0DE
+FAILS  EQU  >8330            failure count (>0000 = all passed)
+DBYTES EQU  >8332            12 words: Part-B decoded ASCII proofs
+
+* ===================== the library ==============================
+
+* READROW — select 9901 column R1 (0..5) and shift its 8 rows in.
+* Returns R2 = the active-low row byte, RIGHT-justified (bit r = row r,
+* 0 = key down). LEAF. Clobbers R2,R6,R12; preserves R1.
+READROW MOV  R1,R6            the column number ...
+       SWPB R6                ... into the HIGH half (LDCR byte cargo)
+       LI   R12,COLSEL        R12 = >0024 -> bit >0012 (pin P2)
+       LDCR R6,3              drive P2,P3,P4 = column, LSB first
+       LI   R12,ROWRD         R12 = >0006 -> bit >0003 (row 0)
+       CLR  R2
+       STCR R2,8              rows 0..7 -> R2 HIGH half (active low)
+       SWPB R2                right-justify -> R2 low byte = the 8 rows
+       RT                     ; leaf
+
+* DECROW — decode one column's rows to ASCII. R1 = column (0..5),
+* R2 low byte = active-low rows (0 = down). Returns R0 = ASCII of the
+* lowest-numbered pressed row's key, or >0000 if none is down (or the cell
+* is an unmapped modifier/blank). LEAF. Clobbers R0,R2,R3,R4,R5.
+DECROW ANDI R2,>00FF          isolate the eight row bits (active low)
+       LI   R3,>00FF
+       XOR  R2,R3             R3 = ~rows = active-HIGH pressed bits
+       JEQ  DECNON            nothing set -> no key down
+       CLR  R4                row index
+DECFB  SRL  R3,1              next row bit -> carry
+       JOC  DECHIT            carry set -> this row is down
+       INC  R4
+       CI   R4,8
+       JL   DECFB
+       JMP  DECNON            (defensive) no bit found
+DECHIT MOV  R1,R5             column ...
+       SLA  R5,3              ... * 8
+       A    R4,R5             + row -> flat table index
+       AI   R5,KTAB           -> &KTAB[column*8 + row]
+       CLR  R0
+       MOVB *R5,R0            ASCII -> R0 HIGH half
+       SWPB R0                -> R0 = >00xx (ASCII in low half)
+       RT                     ; leaf
+DECNON CLR  R0                no key / unmapped cell
+       RT                     ; leaf
+
+* KSCAN — scan columns 0..5, stash each column's row byte to KRAW, and
+* return R0 = ASCII of the first key found (>0000 if the keyboard is idle).
+* NON-LEAF (calls READROW, DECROW): saves R11 on the software stack.
+KSCAN  DECT R10               PUSH R11
+       MOV  R11,*R10
+       CLR  R7                column index
+       LI   R8,KRAW           -> the proof buffer
+KSCL   MOV  R7,R1             column
+       BL   @READROW          R2 = active-low rows for this column
+       MOV  R2,*R8+           stash (word: 00 xx) for the transcript
+       CI   R2,>00FF          any row down? (>00FF = all idle)
+       JNE  KSHIT
+       INC  R7
+       CI   R7,6              columns 0..5
+       JL   KSCL
+       CLR  R0                keyboard idle -> no key
+       JMP  KSRT
+KSHIT  MOV  R7,R1             the column holding the pressed key
+       BL   @DECROW           R0 = decoded ASCII
+KSRT   MOV  *R10+,R11         POP R11
+       RT
+
+* KTAB — column-major ASCII map (6 columns x 8 rows), >00 = no ASCII cell.
+KTAB   BYTE >3D,>20,>0D,>00,>00,>00,>00,>00   Col0: =  SP ENT -  FN SH CT -
+       BYTE >2E,>4C,>4F,>39,>32,>53,>57,>58   Col1: .  L  O  9  2  S  W  X
+       BYTE >2C,>4B,>49,>38,>33,>44,>45,>43   Col2: ,  K  I  8  3  D  E  C
+       BYTE >4D,>4A,>55,>37,>34,>46,>52,>56   Col3: M  J  U  7  4  F  R  V
+       BYTE >4E,>48,>59,>36,>35,>47,>54,>42   Col4: N  H  Y  6  5  G  T  B
+       BYTE >2F,>3B,>50,>30,>31,>41,>51,>5A   Col5: /  ;  P  0  1  A  Q  Z
+       EVEN
+
+* ===================== the self-test ===========================
+START  LWPI WS               registers on the fast island
+       LI   R10,STKTOP        establish the software stack pointer
+       CLR  @DONE
+       CLR  @FAILS
+
+* ---- Part A: run the LIVE 9901 scan (nothing is pressed on the bench) ----
+       BL   @KSCAN            fills KRAW; R0 = decoded key (expect 0)
+       MOV  R0,@KRES          stash the live result
+       MOV  R0,R0             keyboard idle -> R0 = 0 ?
+       JEQ  PAOK
+       INC  @FAILS
+PAOK   LI   R1,KRAW           every scanned column must have read >00FF
+       LI   R2,6
+PACL   MOV  *R1+,R3
+       CI   R3,>00FF          idle-high (no key down)?
+       JEQ  PACN
+       INC  @FAILS
+PACN   DEC  R2
+       JNE  PACL
+
+* ---- Part B: decode-table vectors. Each row of VECS is
+*      (column, active-low row byte, expected ASCII) -- the exact byte the
+*      9901 hands back for that key. R9 holds the expected value because
+*      DECROW clobbers R5. ----
+       LI   R6,VECS          -> the vector table
+       LI   R7,DBYTES        -> the decoded-proof buffer
+PBL    MOV  *R6+,R1          column   (>FFFF sentinel ends the table)
+       CI   R1,>FFFF
+       JEQ  PBDONE
+       MOV  *R6+,R2          active-low row byte
+       MOV  *R6+,R9          expected ASCII
+       BL   @DECROW          R0 = decoded ASCII
+       MOV  R0,*R7+          stash the decode for the transcript
+       C    R0,R9            matches the expected key?
+       JEQ  PBN
+       INC  @FAILS
+PBN    JMP  PBL
+PBDONE EQU  $
+
+* ---- verdict ----
+       LI   R0,>C0DE
+       MOV  R0,@DONE
+       MOV  @FAILS,R0
+       JNE  FAIL
+PASS   LI   R0,GREEN
+       JMP  VRDCT
+FAIL   LI   R0,RED
+VRDCT  MOVB R0,@VDPWA        color byte -> VDP register 7 (backdrop)
+       LI   R0,>8700
+       MOVB R0,@VDPWA
+HALT   JMP  HALT
+
+* VECS — (column, active-low rows, expected ASCII). The row byte is
+* ~(1 << row) & >FF: the pressed row's bit is 0, all others 1.
+VECS   DATA 5,>00DF,>0041     A     col5 row5  (~>20)
+       DATA 5,>007F,>005A     Z     col5 row7  (~>80)
+       DATA 0,>00FB,>000D     ENTER col0 row2  (~>04)
+       DATA 5,>00F7,>0030     0     col5 row3  (~>08)
+       DATA 2,>00F7,>0038     8     col2 row3  (~>08)
+       DATA 0,>00FE,>003D     =     col0 row0  (~>01)
+       DATA 0,>00FD,>0020     SPACE col0 row1  (~>02)
+       DATA 5,>00FE,>002F     /     col5 row0  (~>01)
+       DATA 5,>00EF,>0031     1     col5 row4  (~>10)
+       DATA 5,>00BF,>0051     Q     col5 row6  (~>40)
+       DATA 5,>00FF,>0000     (none) idle column -> no key
+       DATA 0,>00DF,>0000     SHIFT col0 row5 -> unmapped modifier cell
+       DATA >FFFF             end of table
+       END  START

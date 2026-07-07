@@ -1,0 +1,593 @@
+* MATHLIB — arithmetic, division, conversion, and pseudo-random routines,
+* with a self-checking harness.                                    (Ch. 8)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* The book's first self-checking lab. Leaf routines: BL @NAME in, RT out.
+* 32-bit values ride a register PAIR, HIGH word in the lower-numbered
+* register (matching the 9900's own MPY/DIV layout) — book-wide.
+*
+* START (below the library) is the harness "mathtest": it runs a table of
+* known vectors, counts disagreements, and writes a verdict to three fixed
+* pad words so BENCH99 can read PASS/FAIL out of memory:
+*     >83FA  done-marker  = >C0DE on completion
+*     >83FC  FAILS        = number of failing vectors (>0000 = all passed)
+*     >83FE  first-fail   = id of the first failing vector (>0000 = none)
+* PASS iff the three read >C0DE / >0000 / >0000. Ch. 11 lifts the routines
+* above the rule into code/lib99/ unchanged.
+
+WS     EQU  >8300            harness workspace (fast pad)
+BUF    EQU  >8320            scratch output buffer (pad)
+PERIOD EQU  >83F8            observed LFSR period (proof readout)
+DONE   EQU  >83FA            verdict: done-marker
+FAILS  EQU  >83FC            verdict: failure count
+FFID   EQU  >83FE            verdict: first-failing id
+
+* ===================== the library ==============================
+
+* ADD32 — R1:R2 (augend) += R3:R4 (addend). Result in R1:R2.
+* Low words first; the carry is consumed by a jump AROUND the high INC.
+ADD32  A    R4,R2            low words; C = carry out of the low add
+       JNC  ADD32H           no carry -> skip the fix-up
+       INC  R1               fold the carry into the high word
+ADD32H A    R3,R1            high words
+       RT                    ; back to caller
+
+* SUB32 — R1:R2 (minuend) -= R3:R4 (subtrahend). Result in R1:R2.
+* S sets C on NO borrow; a borrow (C clear) DECs the high word.
+SUB32  S    R4,R2            low words; C set = no borrow
+       JOC  SUB32H           no borrow -> skip
+       DEC  R1               borrow: pull one from the high word
+SUB32H S    R3,R1            high words
+       RT                    ; back to caller
+
+* CMP32 — unsigned compare R1:R2 vs R3:R4; leaves ST for JH/JHE/JL/JLE/JEQ.
+* High words decide unless equal, then the low words do.
+CMP32  C    R1,R3            high words
+       JNE  CMP32X           differ -> ST already correct
+       C    R2,R4            equal highs -> low words settle it
+CMP32X RT                    ; back to caller
+
+* NEG32 — R1:R2 = -(R1:R2). Two's complement: invert both, add 1 low.
+NEG32  INV  R1
+       INV  R2
+       INC  R2               +1 into the low word
+       JNC  NEG32X
+       INC  R1               carry into the high word
+NEG32X RT                    ; back to caller
+
+* MULS — signed 16x16 -> 32. R1 * R2 -> R1:R2 (R1 high, R2 low).
+* Record the sign (operands' signs disagree => negative), multiply
+* magnitudes with the unsigned MPY, restore the sign on the product.
+MULS   MOV  R2,R0            R0 = a copy of R2 ...
+       XOR  R1,R0            ... R0 bit15 = sign(R1) ^ sign(R2) = product sign
+       ABS  R1               |R1|  (>8000 stays >8000 — the right magnitude)
+       ABS  R2               |R2|
+       MPY  R2,R1            unsigned product -> R1:R2
+       MOV  R0,R0            product sign?
+       JGT  MULSX            positive -> done
+       JEQ  MULSX            zero -> done
+       INV  R1               negative -> negate the 32-bit product
+       INV  R2
+       INC  R2
+       JNC  MULSX
+       INC  R1
+MULSX  RT                    ; back to caller
+
+* DIVS — signed 32/16. Dividend R1:R2 (signed), divisor R3.
+* Quotient -> R1, remainder -> R2. Remainder takes the DIVIDEND's sign
+* (truncated division — C's rule). Assumes the quotient fits 16 bits.
+DIVS   MOV  R1,R0            R0 = dividend high ...
+       XOR  R3,R0            ... R0 bit15 = quotient sign (dvd ^ dsr)
+       MOV  R1,R4            R4 bit15 = remainder sign = dividend sign
+       MOV  R1,R1            dividend negative?
+       JGT  DIVSPD           high word > 0 -> positive
+       JEQ  DIVSPD           high word = 0 -> non-negative
+       INV  R1               negate the 32-bit dividend
+       INV  R2
+       INC  R2
+       JNC  DIVSPD
+       INC  R1
+DIVSPD ABS  R3               |divisor|
+       DIV  R3,R1            unsigned divide: R1 = quotient, R2 = remainder
+       MOV  R0,R0            quotient sign?
+       JGT  DIVSQ
+       JEQ  DIVSQ
+       NEG  R1               negative quotient
+DIVSQ  MOV  R4,R4            remainder sign = dividend sign?
+       JGT  DIVSX
+       JEQ  DIVSX
+       NEG  R2               remainder takes the dividend's sign
+DIVSX  RT                    ; back to caller
+
+* DIVSAF — guarded unsigned divide. Dividend R1:R2, divisor R3.
+* Refuses (R0 = >FFFF, dividend left intact) when the divide would
+* overflow — i.e. the high word is >= the divisor (this also catches a
+* zero divisor). On success: R1 = quotient, R2 = remainder, R0 = >0000.
+DIVSAF C    R1,R3            high word vs divisor (unsigned)
+       JHE  DSAFOV           high >= divisor -> would overflow
+       DIV  R3,R1            safe: quotient -> R1, remainder -> R2
+       CLR  R0               R0 = 0: success
+       RT                    ; back to caller
+DSAFOV SETO R0               R0 = >FFFF: refused
+       RT                    ; back to caller
+
+* U16DEC — 16-bit unsigned R1 -> five decimal ASCII digits at R2,
+* right-filled with leading zeros. The divide-by-ten chain: each
+* remainder is the next digit, produced from the right end backward.
+U16DEC AI   R2,4             R2 -> the rightmost digit slot
+       LI   R7,10            the divisor
+       MOV  R1,R6            R6 = value (low word of the dividend)
+       LI   R3,5             five digit positions
+UDECL  CLR  R5               high word of the dividend = 0
+       DIV  R7,R5            R5 = value/10, R6 = value mod 10
+       AI   R6,>0030         digit -> ASCII (low byte)
+       SWPB R6               move the character into the high byte
+       MOVB R6,*R2           store it (the high-byte law)
+       DEC  R2               step left
+       MOV  R5,R6            the quotient feeds the next position
+       DEC  R3
+       JNE  UDECL
+       RT                    ; back to caller
+
+* U16DEB — 16-bit unsigned R1 -> five decimal ASCII digits at R2,
+* streamed FORWARD by the subtract-table method. R3 selects padding:
+* R3 = >0000 zero-pads ("00042"); R3 nonzero blank-pads ("   42").
+* The units digit always prints, so 0 renders "00000" or "    0".
+U16DEB MOV  R3,R5            R5 = pad mode
+       MOV  R2,R6            R6 = output pointer (walks forward)
+       LI   R7,POWTAB        R7 -> the power table
+       LI   R8,5             five positions
+       SETO R9               R9 = >FFFF: still in the leading zeros
+UDEBL  MOV  *R7+,R10         R10 = this position's power, advance
+       CLR  R0              digit accumulator
+UDEBS  C    R1,R10           value >= power?
+       JL   UDEBD            no -> this digit is done
+       S    R10,R1           subtract the power
+       INC  R0              digit++
+       JMP  UDEBS
+UDEBD  MOV  R0,R0            digit zero?
+       JNE  UDEBNZ           nonzero -> print it, stop suppressing
+       MOV  R9,R9            still suppressing leading zeros?
+       JEQ  UDEBPR           no -> print '0'
+       CI   R8,1             the units position always prints
+       JEQ  UDEBPR
+       MOV  R5,R5            zero-pad mode?
+       JEQ  UDEBPR           yes -> print '0'
+       LI   R0,>2000         blank mode -> a space in the high byte
+       MOVB R0,*R6+
+       JMP  UDEBNX
+UDEBNZ CLR  R9               a nonzero digit ends the leading run
+UDEBPR AI   R0,>0030         digit -> ASCII
+       SWPB R0               into the high byte
+       MOVB R0,*R6+          store the character
+UDEBNX DEC  R8
+       JNE  UDEBL
+       RT                    ; back to caller
+POWTAB DATA >2710,>03E8,>0064,>000A,>0001
+
+* HEX16 — 16-bit R1 -> four hex ASCII digits at R2, most significant
+* first. Each nibble indexes a 16-glyph table — hex is nearly free.
+HEX16  LI   R3,4             four nibbles
+HEX16L MOV  R1,R4
+       SRL  R4,12            top nibble -> low four bits (0..15)
+       LI   R5,HEXTAB
+       A    R4,R5            R5 -> the glyph for this nibble
+       MOVB *R5,*R2+         copy the glyph byte to the buffer
+       SLA  R1,4             bring the next nibble to the top
+       DEC  R3
+       JNE  HEX16L
+       RT                    ; back to caller
+HEXTAB TEXT '0123456789ABCDEF'
+
+* RND — advance a 16-bit maximal LFSR (Galois form). R1 = state in,
+* R1 = next state out. Shift right; if the bit that fell off was 1,
+* XOR the tap constant. Period = 65,535 (proven by the harness).
+RND    SRL  R1,1             C = the bit shifted out
+       JNC  RNDX             0 -> no feedback
+       XOR  @TAP,R1          1 -> fold in the taps
+RNDX   RT                    ; back to caller
+TAP    DATA >B400            x^16 + x^14 + x^13 + x^11 + 1
+
+* RNDB — a value in 0..R2-1 without division. R1 = a raw LFSR word,
+* R2 = the range N; returns R1 = (R1 * N) >> 16, the high word of the
+* product — the mod-free ranging trick.
+RNDB   MPY  R2,R1            R1 = high word of R1 * N
+       RT                    ; back to caller
+
+* RNDS — seed guard. R1 = candidate seed; a zero seed is fatal to an
+* LFSR (it stays zero forever), so substitute >0001.
+RNDS   MOV  R1,R1            zero?
+       JNE  RNDSX
+       LI   R1,>0001
+RNDSX  RT                    ; back to caller
+
+* ===================== the harness (mathtest) ==================
+
+START  LWPI WS               registers on the fast island
+       CLR  @DONE            clear the three verdict words
+       CLR  @FAILS
+       CLR  @FFID
+
+* --- ADD32 ---
+* v1: 0000:FFFF + 0000:0001 = 0001:0000 (carry crosses the seam)
+       LI   R1,>0000
+       LI   R2,>FFFF
+       LI   R3,>0000
+       LI   R4,>0001
+       BL   @ADD32
+       LI   R6,>0001
+       LI   R7,>0000
+       LI   R0,1
+       BL   @CK32
+* v2: FFFF:FFFF + 0000:0001 = 0000:0000 (full 32-bit wrap)
+       LI   R1,>FFFF
+       LI   R2,>FFFF
+       LI   R3,>0000
+       LI   R4,>0001
+       BL   @ADD32
+       LI   R6,>0000
+       LI   R7,>0000
+       LI   R0,2
+       BL   @CK32
+
+* --- SUB32 ---
+* v3: 0001:0000 - 0000:0001 = 0000:FFFF (borrow crosses the seam)
+       LI   R1,>0001
+       LI   R2,>0000
+       LI   R3,>0000
+       LI   R4,>0001
+       BL   @SUB32
+       LI   R6,>0000
+       LI   R7,>FFFF
+       LI   R0,3
+       BL   @CK32
+* v4: 0000:0000 - 0000:0001 = FFFF:FFFF (borrow, wrap)
+       LI   R1,>0000
+       LI   R2,>0000
+       LI   R3,>0000
+       LI   R4,>0001
+       BL   @SUB32
+       LI   R6,>FFFF
+       LI   R7,>FFFF
+       LI   R0,4
+       BL   @CK32
+
+* --- CMP32 ---  (v5 higher via low word, v6 equal)
+       LI   R1,>0001
+       LI   R2,>0000
+       LI   R3,>0000
+       LI   R4,>FFFF
+       BL   @CMP32
+       JH   CM5OK            0001:0000 > 0000:FFFF unsigned?
+       LI   R0,5
+       BL   @RECF
+CM5OK  LI   R1,>1234
+       LI   R2,>5678
+       LI   R3,>1234
+       LI   R4,>5678
+       BL   @CMP32
+       JEQ  CM6OK
+       LI   R0,6
+       BL   @RECF
+CM6OK  EQU  $
+
+* --- NEG32 ---
+* v7: -(0000:0001) = FFFF:FFFF
+       LI   R1,>0000
+       LI   R2,>0001
+       BL   @NEG32
+       LI   R6,>FFFF
+       LI   R7,>FFFF
+       LI   R0,7
+       BL   @CK32
+* v8: -(0001:0000) = FFFF:0000
+       LI   R1,>0001
+       LI   R2,>0000
+       BL   @NEG32
+       LI   R6,>FFFF
+       LI   R7,>0000
+       LI   R0,8
+       BL   @CK32
+
+* --- MULS ---
+* v9: -32768 * 2 = -65536 = FFFF:0000  (>8000 operand edge)
+       LI   R1,>8000
+       LI   R2,>0002
+       BL   @MULS
+       LI   R6,>FFFF
+       LI   R7,>0000
+       LI   R0,9
+       BL   @CK32
+* v10: -5 * -7 = 35 = 0000:0023 (both negative -> positive)
+       LI   R1,>FFFB
+       LI   R2,>FFF9
+       BL   @MULS
+       LI   R6,>0000
+       LI   R7,>0023
+       LI   R0,10
+       BL   @CK32
+* v11: -5 * 7 = -35 = FFFF:FFDD (mixed sign)
+       LI   R1,>FFFB
+       LI   R2,>0007
+       BL   @MULS
+       LI   R6,>FFFF
+       LI   R7,>FFDD
+       LI   R0,11
+       BL   @CK32
+* v12: 1234 * 5678 = 7,006,652 = 006A:E9BC (the vignette)
+       LI   R1,>04D2
+       LI   R2,>162E
+       BL   @MULS
+       LI   R6,>006A
+       LI   R7,>E9BC
+       LI   R0,12
+       BL   @CK32
+
+* --- DIVS ---  remainder takes the dividend's sign
+* v13: -7 / 2 = q -3, r -1
+       LI   R1,>FFFF
+       LI   R2,>FFF9
+       LI   R3,>0002
+       BL   @DIVS
+       MOV  R1,R4           quotient -> R4
+       LI   R5,>FFFD
+       LI   R0,13
+       BL   @CKEQ           quotient == -3?
+       LI   R1,>FFFF
+       LI   R2,>FFF9
+       LI   R3,>0002
+       BL   @DIVS
+       MOV  R2,R4           remainder
+       LI   R5,>FFFF
+       LI   R0,14
+       BL   @CKEQ           remainder == -1?
+* v15: 7 / -2 = q -3, r +1 (remainder positive: dividend's sign)
+       LI   R1,>0000
+       LI   R2,>0007
+       LI   R3,>FFFE
+       BL   @DIVS
+       MOV  R2,R4           remainder
+       LI   R5,>0001
+       LI   R0,15
+       BL   @CKEQ           remainder == +1?
+
+* --- DIVSAF ---
+* v16: overflow refused (high word 0002 >= divisor 0001) -> R0 = FFFF, intact
+       LI   R1,>0002
+       LI   R2,>0000
+       LI   R3,>0001
+       BL   @DIVSAF
+       MOV  R0,R4
+       LI   R5,>FFFF
+       LI   R0,16
+       BL   @CKEQ
+* v17: safe divide 00010000 / 0002 = q 8000 r 0 -> R0 = 0, quotient 8000
+       LI   R1,>0001
+       LI   R2,>0000
+       LI   R3,>0002
+       BL   @DIVSAF
+       MOV  R1,R4           quotient
+       LI   R5,>8000
+       LI   R0,17
+       BL   @CKEQ
+* v18: divide by zero refused -> R0 = FFFF
+       LI   R1,>0000
+       LI   R2,>0064
+       LI   R3,>0000
+       BL   @DIVSAF
+       MOV  R0,R4
+       LI   R5,>FFFF
+       LI   R0,18
+       BL   @CKEQ
+
+* --- U16DEC ---  (byte-exact strings)
+* v19: 42 -> "00042"
+       LI   R0,42
+       LI   R5,E00042
+       LI   R1,19
+       BL   @DODEC
+* v20: 0 -> "00000"
+       LI   R0,0
+       LI   R5,E00000
+       LI   R1,20
+       BL   @DODEC
+* v21: 65535 -> "65535"
+       LI   R0,>FFFF
+       LI   R5,E65535
+       LI   R1,21
+       BL   @DODEC
+
+* --- U16DEB ---
+* v22: 42 blank-pad -> "   42"
+       LI   R0,42
+       LI   R2,>FFFF
+       LI   R5,EB0042
+       LI   R1,22
+       BL   @DODEB
+* v23: 42 zero-pad -> "00042"
+       LI   R0,42
+       LI   R2,>0000
+       LI   R5,E00042
+       LI   R1,23
+       BL   @DODEB
+* v24: 0 blank-pad -> "    0"
+       LI   R0,0
+       LI   R2,>FFFF
+       LI   R5,EB0000
+       LI   R1,24
+       BL   @DODEB
+
+* --- HEX16 ---
+* v25: 1A2B -> "1A2B"
+       LI   R1,>1A2B
+       BL   @CLRBUF
+       LI   R2,BUF
+       BL   @HEX16
+       LI   R4,BUF
+       LI   R5,E1A2B
+       LI   R0,25
+       BL   @CKS4
+
+* --- RND family ---
+* v26: RND(0) stays 0 (the cursed state)
+       LI   R1,>0000
+       BL   @RND
+       MOV  R1,R4
+       LI   R5,>0000
+       LI   R0,26
+       BL   @CKEQ
+* v27: RNDS(0) refuses zero
+       LI   R1,>0000
+       BL   @RNDS
+       MOV  R1,R4
+       CI   R4,>0000
+       JNE  RS27OK
+       LI   R0,27
+       BL   @RECF
+RS27OK EQU  $
+* v28: RNDB(FFFF, 6) = 5 (max of range)
+       LI   R1,>FFFF
+       LI   R2,6
+       BL   @RNDB
+       MOV  R1,R4
+       LI   R5,5
+       LI   R0,28
+       BL   @CKEQ
+
+* --- LFSR period: count steps from seed 0001 back to 0001; must be 65535 ---
+       LI   R1,>0001        seed
+       CLR  R2              step counter
+PERL   BL   @RND            advance
+       INC  R2              count this step
+       JEQ  PERBAD          counter wrapped (> 65535 without return) -> fail
+       CI   R1,>0001        returned to the seed?
+       JNE  PERL
+       MOV  R2,@PERIOD      stash the measured period for the transcript
+       CI   R2,>FFFF        period == 65,535?
+       JEQ  PERGD
+PERBAD LI   R0,29
+       BL   @RECF
+PERGD  EQU  $
+
+* --- all vectors run: stamp the done-marker and park ---
+       LI   R0,>C0DE
+       MOV  R0,@DONE
+HALT   JMP  HALT
+
+* ---------- harness helpers (leaf; fail-record inlined) ----------
+
+* CK32 — result R1:R2 (a routine's native pair) vs expected R6:R7; id in R0.
+CK32   C    R1,R6
+       JNE  CK32F
+       C    R2,R7
+       JNE  CK32F
+       RT
+CK32F  INC  @FAILS
+       MOV  @FFID,R8
+       JNE  CK32X
+       MOV  R0,@FFID
+CK32X  RT
+
+* CKEQ — result R4 vs expected R5; id in R0. Records on mismatch.
+CKEQ   C    R4,R5
+       JNE  CKEQF
+       RT
+CKEQF  INC  @FAILS
+       MOV  @FFID,R8
+       JNE  CKEQX
+       MOV  R0,@FFID
+CKEQX  RT
+
+* CKS4 — 4 buffer bytes at R4 vs expected at R5; id in R0.
+CKS4   C    *R4+,*R5+
+       JNE  CKS4F
+       C    *R4+,*R5+
+       JNE  CKS4F
+       RT
+CKS4F  INC  @FAILS
+       MOV  @FFID,R8
+       JNE  CKS4X
+       MOV  R0,@FFID
+CKS4X  RT
+
+* CKS6 — 6 buffer bytes (3 words) at R4 vs expected at R5; id in R0.
+CKS6   C    *R4+,*R5+
+       JNE  CKS6F
+       C    *R4+,*R5+
+       JNE  CKS6F
+       C    *R4+,*R5+
+       JNE  CKS6F
+       RT
+CKS6F  INC  @FAILS
+       MOV  @FFID,R8
+       JNE  CKS6X
+       MOV  R0,@FFID
+CKS6X  RT
+
+* RECF — record a failure with id in R0 (for pass/fail decided by a jump).
+RECF   INC  @FAILS
+       MOV  @FFID,R8
+       JNE  RECFX
+       MOV  R0,@FFID
+RECFX  RT
+
+* CLRBUF — zero the six scratch bytes at BUF (so a 5-char write leaves a
+* clean trailing byte for the word-wise compare).
+CLRBUF CLR  @BUF
+       CLR  @BUF+2
+       CLR  @BUF+4
+       RT
+
+* DODEC — run U16DEC(R0) into BUF and compare 6 bytes vs R5; id in R1.
+* NON-LEAF: it calls other routines, so it must preserve its own return
+* link R11 (Ch. 4) and any value the inner calls would clobber.
+DODEC  MOV  R11,R12         save the return link (non-leaf)
+       MOV  R1,R13          save the id
+       MOV  R5,R14          save the expected-string pointer
+       BL   @CLRBUF
+       MOV  R0,R1           value
+       LI   R2,BUF
+       BL   @U16DEC
+       LI   R4,BUF
+       MOV  R14,R5          restore the expected pointer
+       MOV  R13,R0          id -> R0
+       BL   @CKS6
+       MOV  R12,R11         restore the return link
+       RT
+
+* DODEB — run U16DEB(R0 value, R2 mode) into BUF, compare vs R5; id in R1.
+DODEB  MOV  R11,R12         save the return link (non-leaf)
+       MOV  R1,R13          save the id
+       MOV  R5,R14          save the expected pointer
+       MOV  R2,R15          save the pad mode
+       BL   @CLRBUF
+       MOV  R0,R1           value
+       LI   R2,BUF
+       MOV  R15,R3          mode
+       BL   @U16DEB
+       LI   R4,BUF
+       MOV  R14,R5          restore the expected pointer
+       MOV  R13,R0          id -> R0
+       BL   @CKS6
+       MOV  R12,R11         restore the return link
+       RT
+
+* ---------- expected strings (ROM) ----------
+E00042 TEXT '00042'
+       BYTE >00
+       EVEN
+E00000 TEXT '00000'
+       BYTE >00
+       EVEN
+E65535 TEXT '65535'
+       BYTE >00
+       EVEN
+EB0042 TEXT '   42'
+       BYTE >00
+       EVEN
+EB0000 TEXT '    0'
+       BYTE >00
+       EVEN
+E1A2B  TEXT '1A2B'
+       EVEN
+       END  START

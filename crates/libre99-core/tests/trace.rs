@@ -1,0 +1,79 @@
+// Modified MIT License
+//
+// Copyright (c) 2026 Joel Odom
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, and sublicense copies of the
+// Software, and to permit persons to whom the Software is furnished to do so,
+// subject to the following conditions:
+//
+// "Commons Clause" License Condition v1.0
+//
+// The Software is provided to you by the Licensor under the License, subject to
+// the following condition.
+//
+// Without limiting other conditions in the License, the grant of rights under the
+// License will not include, and the License does not grant to you, the right to
+// Sell the Software.
+//
+// For purposes of the foregoing, "Sell" means practicing any or all of the rights
+// granted to you under the License to provide to third parties, for a fee or other
+// consideration (including without limitation fees for hosting or consulting/
+// support services related to the Software), a product or service whose value
+// derives, entirely or substantially, from the functionality of the Software. Any
+// license notice or attribution required by the License must also include this
+// Commons Clause License Condition notice.
+//
+// Software: Libre99
+//
+// License: Modified MIT
+//
+// Licensor: Joel Odom
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+//! Scratch diagnostic + a useful regression: verify that GROM reads through the
+//! full console bus are byte-exact against the raw GROM image (all three console
+//! slots). This is fast and passes; rewrite freely when resuming a GROM/GPL
+//! investigation (see `docs/history/POSTMORTEMS.md` for the boot-bug story
+//! this instrumentation solved).
+
+use std::sync::LazyLock;
+
+use libre99_core::bus::Bus;
+use libre99_core::machine::Tms9900Bus;
+
+static CONSOLE_ROM: LazyLock<Option<Vec<u8>>> =
+    LazyLock::new(|| libre99_core::third_party::load("roms/994aROM.Bin"));
+static CONSOLE_GROM: LazyLock<Option<Vec<u8>>> =
+    LazyLock::new(|| libre99_core::third_party::load("roms/994AGROM.Bin"));
+
+#[test]
+fn grom_through_bus_matches_file() {
+    let (Some(rom), Some(grom)) = (CONSOLE_ROM.as_deref(), CONSOLE_GROM.as_deref()) else {
+        eprintln!("SKIPPED: third-party media not present");
+        return;
+    };
+    let mut bus = Tms9900Bus::new(rom, grom);
+    for slot in 0..3u16 {
+        let base = slot * 0x2000;
+        bus.write_byte(0x9C02, (base >> 8) as u8); // GROM address high
+        bus.write_byte(0x9C02, base as u8); // GROM address low
+        for i in 0..0x1FFFu16 {
+            let got = bus.read_byte(0x9800);
+            let want = grom[(base + i) as usize];
+            assert_eq!(got, want, "GROM mismatch at >{:04X}", base + i);
+        }
+    }
+}

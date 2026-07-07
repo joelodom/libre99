@@ -1,0 +1,18 @@
+* SECLIB.A99 — assembles lib99's sector-access wrappers.              (Ch. 32)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+* NOT bench-runnable (no disk in BENCH99, R-12); the SECTOR subprogram is
+* verified in the Rust harness (disk_dsr.rs). Proves seclib.inc assembles.
+       COPY '../ch11/equates.inc'
+       COPY '../ch30/dsrlib.inc'
+       COPY 'seclib.inc'
+WS     EQU  >8300
+STKTOP EQU  >8340
+BUF    EQU  >1000            VDP sector buffer
+START  LWPI WS
+       LI   R10,STKTOP
+       LI   R0,0             sector 0 (the VIB)
+       LI   R1,1             drive 1
+       LI   R2,BUF
+       BL   @SECRD           read the VIB into the buffer
+HALT   JMP  HALT
+       END  START

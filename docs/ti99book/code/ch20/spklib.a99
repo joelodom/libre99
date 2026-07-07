@@ -1,0 +1,34 @@
+* SPKLIB.A99 — self-test harness for lib99's speech interface.        (Ch. 20)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* Proves the ONE thing this console can prove about speech: DETECTION. The
+* project models a console with no speech sidecar, so SPKDET must return
+* "absent" (>0000). A correct absent verdict paints the border GREEN; a false
+* "present" would paint RED. (To hear actual speech, run under MAME or js99er,
+* which emulate the TMS5220 — see the chapter and App. F.)
+*
+* Build:  libre99asm code/ch20/spklib.a99 ...
+* Verify: load, pc START, x 100, then  vdp  (R7=>02 = correctly detected absent)
+
+       COPY '../ch11/equates.inc'
+       COPY '../ch12/vdplib.inc'
+       COPY 'spklib.inc'
+
+WS     EQU  >8300
+STKTOP EQU  >8340
+
+START  LWPI WS
+       LI   R10,STKTOP
+       BL   @SPKDET          R0 = >FFFF present / >0000 absent
+       MOV  R0,R0
+       JNE  BAD             present on a no-speech console -> detection is wrong
+
+       LI   R0,7            correctly absent: green
+       LI   R1,GREEN
+       BL   @VWTR
+       JMP  HALT
+BAD    LI   R0,7
+       LI   R1,RED
+       BL   @VWTR
+HALT   JMP  HALT
+       END  START

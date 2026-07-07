@@ -1,0 +1,27 @@
+* EDGES — autoincrement's corners                               (Ch. 7)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* (a) MOV *R1+,*R1+ — one register drives both operands; in what order
+*     do the reads, the write, and the increments land? (b) byte-step
+*     vs word-step: *Rn+ advances by the operand's size, not always one.
+
+WS     EQU  >8300            workspace (fast pad)
+
+START  LWPI WS
+* seed a small buffer: >8340=AAAA, >8342=BBBB, >8344=CCCC
+       LI   R0,>AAAA
+       MOV  R0,@>8340
+       LI   R0,>BBBB
+       MOV  R0,@>8342
+       LI   R0,>CCCC
+       MOV  R0,@>8344
+* (a) same-register autoincrement on both sides
+       LI   R1,>8340
+       MOV  *R1+,*R1+        source fetched, then destination; R1 ends?
+* (b) byte-step advances by 1, word-step by 2
+       LI   R2,>8340
+       MOVB *R2+,R4          R2 -> >8341
+       LI   R3,>8340
+       MOV  *R3+,R5          R3 -> >8342
+HALT   JMP  HALT
+       END  START

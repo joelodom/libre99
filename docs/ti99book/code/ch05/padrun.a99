@@ -1,0 +1,35 @@
+* PADRUN — stage the hot loop in the pad and pocket the toll.   (Ch. 5)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* A program resident in slow cartridge ROM runs its inner loop 1000
+* times where it sits, then copies that same loop into the fast pad and
+* runs it again. The bench clocks both; the difference is the funnel
+* toll, refunded on every fetch of every lap.
+
+WS     EQU  >8300            our workspace (fast pad)
+HOTLOC EQU  >8360            staging area in the pad (a claimable corner)
+
+START  LWPI WS               a workspace of our own
+* Copy the hot loop (HOTLEN bytes) into the pad.
+       LI   R0,HOT
+       LI   R1,HOTLOC
+       LI   R2,HOTLEN
+CP     MOVB *R0+,*R1+        one byte, both pointers step
+       DEC  R2
+       JNE  CP
+* Run 1: the loop where it sits — in slow cartridge ROM.
+RUN1   LI   R5,>03E8         1000 laps
+       BL   @HOT
+* Run 2: the very same loop, now staged in the fast pad.
+RUN2   LI   R5,>03E8         1000 laps
+       BL   @HOTLOC
+STOP   JMP  STOP             done (the bench breakpoints here)
+
+* The hot loop: spin R5 to zero, then return. Position-independent — a
+* self-relative jump and a register operand — so it means the same thing
+* in the cartridge and in the pad.
+HOT    DEC  R5
+       JNE  HOT
+       RT                    ; back to caller
+HOTLEN EQU  $-HOT
+       END  START

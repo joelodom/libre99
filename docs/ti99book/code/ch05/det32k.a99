@@ -1,0 +1,34 @@
+* DET32K — is the 32K expansion there? Ask the only way the machine  (Ch. 5)
+* allows: write, read back, and don't be fooled by an echo.
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* Verdict in R0: >FFFF = expansion present, >0000 = absent. We write a
+* pattern AND its complement to the same cell; a floating bus that merely
+* echoes the last value driven cannot pass both tests.
+
+WS     EQU  >8300            our workspace (fast pad)
+LORAM  EQU  >2000            low expansion, first word
+HIRAM  EQU  >A000            high expansion, first word
+
+START  LWPI WS               a workspace of our own
+       CLR  R0               verdict = absent, until proven otherwise
+       LI   R1,LORAM         probe the low expansion at >2000
+       BL   @PROBE
+       JNE  DONE             low RAM missing -> absent
+       LI   R1,HIRAM         probe the high expansion at >A000
+       BL   @PROBE
+       JNE  DONE             high RAM missing -> absent
+       SETO R0               both answered -> expansion present
+DONE   JMP  DONE             verdict in R0 (the bench reads it)
+
+* PROBE — write a pattern and its complement to (R1); return EQ if both
+* survive (RAM present), NE if either fails (open bus / no RAM).
+PROBE  LI   R2,>A55A         a pattern with no accidental symmetry
+       MOV  R2,*R1           write it
+       C    R2,*R1           did it survive?
+       JNE  PBAD             no -> fail
+       INV  R2               now the complement, >5AA5
+       MOV  R2,*R1           write it over the top
+       C    R2,*R1           did THAT survive?
+PBAD   RT                    ; status flag carries the verdict
+       END  START

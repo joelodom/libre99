@@ -1,0 +1,59 @@
+* MCOLIB.A99 — self-test harness for lib99's Multicolor canvas.        (Ch. 14)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* Proves mcolib on BENCH99. Brings up Multicolor mode, then paints sixteen
+* vertical colour bars (band b = colour b, four fat pixels wide) by plotting
+* every one of the 64x48 fat pixels through MCPLOT. Because Multicolor is 64x48
+* and `pixels 4` samples the screen to 64x48, one character maps to one fat
+* pixel: the bars read back as 0000111122223333...ffff, exactly.
+*
+* Self-check: the rightmost bar is colour 15, so the canvas byte for fat pixels
+* (62,0)/(63,0) — address (0>>3)*256 + (62>>1)*8 + 0 = 31*8 = >F8 — must be >FF.
+* Verdict painted to the backdrop: GREEN (>02) pass / RED (>06) fail.
+*
+* Build:  libre99asm code/ch14/mcolib.a99 ...
+* Verify: load, pc START, x 250000, then  vdp  (R7=>02 pass) /  pixels 4
+
+       COPY '../ch11/equates.inc'
+       COPY '../ch12/vdplib.inc'
+       COPY 'mcolib.inc'
+
+WS     EQU  >8300
+STKTOP EQU  >8340
+
+START  LWPI WS
+       LI   R10,STKTOP
+       BL   @MCMODE          Multicolor mode, name map, cleared canvas
+
+* --- sixteen colour bars: for x 0..63, colour = x>>2, for y 0..47 ---
+       CLR  R7              R7 = x
+BARX   MOV  R7,R9           R9 = colour = x >> 2   (survives MCPLOT)
+       SRL  R9,2
+       CLR  R8             R8 = y
+BARY   MOV  R7,R0
+       MOV  R8,R1
+       MOV  R9,R2
+       BL   @MCPLOT
+       INC  R8
+       CI   R8,48
+       JNE  BARY
+       INC  R7
+       CI   R7,64
+       JNE  BARX
+
+* --- self-check: canvas[>F8] must be >FF (both nibbles colour 15) ---
+       LI   R0,>00F8
+       BL   @VSBR           R1 high = VRAM[>F8]
+       LI   R5,>FF00
+       CB   R1,R5
+       JNE  BAD
+
+       LI   R0,7            PASS: green backdrop
+       LI   R1,GREEN
+       BL   @VWTR
+       JMP  HALT
+BAD    LI   R0,7            FAIL: red backdrop
+       LI   R1,RED
+       BL   @VWTR
+HALT   JMP  HALT
+       END  START

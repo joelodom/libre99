@@ -1,0 +1,24 @@
+* QUIZMASTER.GPL — a GPL program with a cartridge/program header.     (Ch. 27)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+* The header choreography (>AA + a program-list entry the master menu scans for
+* and lists as "n FOR NAME"), then an entry that draws a title with MOVE and
+* waits on SCAN. Built at >2000 because libre99gpl targets console-GROM space; a
+* shipping cartridge lives at >6000 (the tooling gap of S27.5). Assembles and
+* round-trips through libre99gpl asm->dis.
+        GROM >2000
+HDR     BYTE >AA,>02,>01,>00        ; valid GROM, version 2, 1 program, reserved
+        DATA >0000                 ; power-up list  = none
+        DATA PROG                  ; program list   -> our entry
+        DATA >0000                 ; DSR list       = none
+        DATA >0000                 ; subprogram list= none
+        DATA >0000                 ; interrupt link = none
+        DATA >0000                 ; reserved
+PROG    DATA >0000                 ; next entry     = none (last in the list)
+        DATA START                 ; entry address  (where the menu launches us)
+        BYTE >06                   ; name length
+        TEXT 'QUIZ99'              ; the name shown as "1 FOR QUIZ99"
+START   ALL  >20                   ; clear the name table to spaces
+        MOVE >0010,G@TITLE,V@>00C7  ; draw the title (row 6, col 7)
+WAIT    SCAN                        ; wait for a key
+        BR   WAIT
+TITLE   TEXT 'QUIZMASTER   99 '

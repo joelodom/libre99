@@ -1,0 +1,42 @@
+* LOOPS — the pump family: copy, fill, scan                      (Ch. 7)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* The three canonical data-movement loops of §7.4, over pad buffers.
+* The copy loop is the reference form memlib's MEMCPY adopts verbatim.
+
+WS     EQU  >8300            workspace (fast pad)
+DST    EQU  >8340            copy destination (pad)
+FBUF   EQU  >8350            fill destination (pad)
+SRC    DATA >C0DE,>CAFE,>F00D,>BEEF
+STR    BYTE >48,>49,>21,>00
+       EVEN
+
+START  LWPI WS
+* copy — the pump in a countdown: 4 words SRC -> DST
+       LI   R0,4
+       LI   R1,SRC
+       LI   R2,DST
+CPY    MOV  *R1+,*R2+        one word, both pointers step
+       DEC  R0
+       JNE  CPY
+* fill — source nailed down: stamp >7777 into 4 words at FBUF
+       LI   R0,4
+       LI   R1,>7777
+       LI   R2,FBUF
+FIL    MOV  R1,*R2+
+       DEC  R0
+       JNE  FIL
+* scan — walk and interrogate: find '!' (>21) in STR; R3 <- addr or 0
+       LI   R0,4
+       LI   R1,STR
+       LI   R2,>2100         '!' in the high half
+SCN    CB   *R1+,R2
+       JEQ  SCNHIT
+       DEC  R0
+       JNE  SCN
+       CLR  R1               absent
+       JMP  SCNDON
+SCNHIT DEC  R1               back up to the matching byte
+SCNDON MOV  R1,R3            park the scan result
+HALT   JMP  HALT
+       END  START

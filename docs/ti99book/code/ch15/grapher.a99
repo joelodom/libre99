@@ -1,0 +1,59 @@
+* GRAPHER.A99 — a function grapher on the bitmap canvas.              (Ch. 15)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* Lab 15 plotting demo. Draws x/y axes with BLINE, then plots a parabola
+* y = 40 + (|x-128|^2 >> 7) for every column x = 0..255 through BPSET — one
+* pixel per x, the essence of a grapher. Reuses the 9900's MPY for x^2. View
+* with  pixels 4 : the axes cross at (128,96) and the curve arches down from a
+* peak near the top-centre to the lower corners.
+*
+* Build:  libre99asm code/ch15/grapher.a99 ...
+
+       COPY '../ch11/equates.inc'
+       COPY '../ch12/vdplib.inc'
+       COPY 'bmplib.inc'
+
+WS     EQU  >8300
+STKTOP EQU  >8340
+
+START  LWPI WS
+       LI   R10,STKTOP
+       BL   @BMODE
+
+* axes
+       CLR  R0
+       LI   R1,96
+       LI   R2,255
+       LI   R3,96
+       BL   @BLINE           x-axis  (0,96)-(255,96)
+       LI   R0,128
+       CLR  R1
+       LI   R2,128
+       LI   R3,191
+       BL   @BLINE           y-axis  (128,0)-(128,191)
+
+* parabola: for x = 0..255, y = 40 + (|x-128|^2 >> 7), clamped to 191
+       CLR  R7              R7 = x  (BPSET preserves R7-R9)
+GLOOP  MOV  R7,R2
+       AI   R2,-128          R2 = x - 128 (signed)
+       MOV  R2,R2
+       JGT  GPOS
+       NEG  R2             |x - 128|
+GPOS   MPY  R2,R2           R2:R3 = |x-128|^2 (fits in R3; R2 = 0)
+       MOV  R3,R1
+       SRL  R1,7            >> 7
+       AI   R1,40           + 40
+       CI   R1,191
+       JLE  GPLOT
+       LI   R1,191          clamp to the bottom row
+GPLOT  MOV  R7,R0
+       BL   @BPSET
+       INC  R7
+       CI   R7,256
+       JNE  GLOOP
+
+       LI   R0,7            green: the whole plot ran
+       LI   R1,GREEN
+       BL   @VWTR
+HALT   JMP  HALT
+       END  START

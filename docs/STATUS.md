@@ -1,0 +1,86 @@
+# Project Status
+
+Where the project stands, at a glance. Kept current: update this file in the
+same commit as any change that lands or retires a milestone-sized piece of
+work (see the documentation policy in [DEVELOPMENT.md](DEVELOPMENT.md)).
+
+_Last updated: 2026-07-06 — **this repository is the IP-clean fork**: born from
+a snapshot of the (discontinued) private predecessor's tree, history clean from
+commit 1. Same date: the project rebranded **Libre99** throughout (crates
+`libre99-*`, binaries `libre99`/`libre99asm`/`libre99gpl`, data dir
+`~/.libre99/` with automatic migration); documentation reorganization;
+clean-room firmware boots by default._
+
+## The emulator
+
+| Piece | Status |
+|---|---|
+| TMS9900 CPU (all instructions, flags, interrupts, cycle-aware timing) | ✅ complete, conformance-tested |
+| TMC0430 GROM array (prefetch, destructive address read, slot wrap) | ✅ complete |
+| TMS9918A VDP (all modes, sprites, beam-accurate scanline rendering) | ✅ complete |
+| TMS9901 + CRU + keyboard matrix | ✅ complete |
+| Cartridge loader (`.ctg`, byte-exact across a 137-image test corpus) + bank switching | ✅ complete |
+| TI Disk Controller (FD1771, clean-room DSR by default, VIB-aware geometry) | ✅ complete |
+| SN76489 PSG + host audio | ✅ complete |
+| Desktop app (window, input, audio, overlays, file chooser, config, logging, save states) | ✅ complete, playable |
+| Media model: **zero embedded media** — `.ctg`/`.dsk` load at run time (CLI paths / `F9` system file chooser) | ✅ complete (2026-07-06) |
+| macOS `.app` bundle (packaging) | ⬜ open — run via `cargo run` for now |
+
+The four historical validation gates all pass as integration tests: boot to
+the master title screen, Tunnels of Doom listed on the selection menu, QUEST
+loaded from disk by the genuine DSR, and the disk-boot title regression.
+
+## The clean-room firmware (Libre99)
+
+| Piece | Status |
+|---|---|
+| Console GROM (title, menu, TI PYTHON, system info, GPLLNK services) | ✅ complete (M0–M7), 137/137 carts list & launch |
+| Console ROM (kernel, GPL interpreter, KSCAN, ISR, DSRLNK, FMT, floating point) | ✅ complete (M1–M5, M7, M8), differentially verified |
+| TI BASIC support (ROM M6 + the console GPL library) | ⬜ deferred indefinitely by policy — BASIC needs the authentic firmware |
+| Boot default | ✅ clean-room ROM + GROM boot **by default** (2026-07-06); user-supplied authentic TI images selected via `--system-rom` / `--system-grom` |
+
+One cartridge-compatibility exception is open under the rewrite: Video Vegas
+(GROM-2 library dependency,
+[LIMITATIONS L8](../original-content/system-roms/LIMITATIONS.md)). Detail and
+evidence: [original-content/system-roms/STATUS.md](../original-content/system-roms/STATUS.md)
+and [rom/README.md](../original-content/system-roms/rom/README.md).
+
+## The toolchain and original content
+
+| Piece | Status |
+|---|---|
+| `libre99asm` — TMS9900 assembler, `.ctg` packager, disassembler | ✅ complete (all 69 base opcodes; [guide](../assembler/ASSEMBLER.md)) |
+| `libre99gpl` — GPL assembler/decoder/disassembler + GROM build | ✅ complete |
+| Titris — original cartridge, source → own assembler → boots in own emulator | ✅ complete, playable, gameplay-tested |
+| Sokoban — second original cartridge (12 credited Microban levels, undo, flood-filled floors) | ✅ complete, playable; the test suite plays every level to completion |
+| *Programming the TI-99/4A* (book manuscript) | 🔄 in progress ([docs/ti99book](ti99book/README.md)) |
+
+## Health
+
+- `cargo test --workspace` green — **500+ tests** across the four crates
+  (CPU conformance, chip semantics, boot/cartridge/disk integration gates,
+  firmware differential suites, the 137-cartridge sweep, save-state
+  round-trips, frontend logic).
+- `cargo clippy --workspace` clean; CI runs tests + clippy on Windows and
+  macOS (`.github/workflows/ci.yml`).
+- Committed firmware binaries are gate-checked against fresh builds from
+  source, so a stale `console-rom.bin`/`console-grom.bin` fails the suite.
+
+## What's next
+
+Feature direction lives in [ROADMAP.md](ROADMAP.md). The current priority is the
+**[Road to 0.1.0](ROADMAP.md#road-to-010--the-first-public-release-early-testing)**
+release gate — rename to *libre99*, purge others' IP, load media on demand instead
+of embedding it, finish the clean-room disk DSR, make save states portable and
+atomic across macOS/Windows, and refresh docs/help. Other
+near-term **[next]** items are the macOS `.app` bundle, key/joystick remapping, and
+the alpha-lock host toggle. User-visible quirks and open issues are tracked in
+[KNOWN-ISSUES.md](KNOWN-ISSUES.md); firmware-rewrite limitations in
+[LIMITATIONS.md](../original-content/system-roms/LIMITATIONS.md).
+
+## The record
+
+The engineering history — the original implementation plan with its hardware
+citations, the deep root-cause write-ups of the boot-era bugs, the 2026-07-05
+whole-project quality evaluation and its executed remediation plan, and the
+assembler's bootstrap plan — is preserved in [docs/history/](history/).

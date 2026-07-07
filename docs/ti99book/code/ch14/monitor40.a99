@@ -1,0 +1,66 @@
+* MONITOR40.A99 — MONITOR99 ported to the 40-column TEXT screen.       (Ch. 14)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* Lab 14, part 2. The ch13 hex viewer, rebuilt on textlib40: TEXT mode's extra
+* eight columns buy a wider row — the address then SIX words instead of four —
+* so one screen shows half again as much memory. The port is almost free: swap
+* TXMODE/TXLOC/TXHEX/TXPUTC for TX40MD/TX40LC/TX40HX/TX40PC and widen the inner
+* loop. Loop state R6 (address), R7 (row), R8 (word count) survive the textlib40
+* calls, which touch only R0-R5 and the stack.
+*
+* Dumps console ROM from >0000 (the reset/interrupt vectors of Ch. 9). Verify on
+* the bench with  screen , cross-checked against  m 0000 90 .
+*
+* Build:  libre99asm code/ch14/monitor40.a99 ...
+
+       COPY '../ch11/equates.inc'
+       COPY '../ch12/vdplib.inc'
+       COPY 'textlib40.inc'
+
+WS     EQU  >8300
+STKTOP EQU  >8340            below CUR40 (>8346)
+VIEW   EQU  >0000            the address to dump (console ROM vectors)
+SPACE  EQU  >2000            a space in the high half
+
+START  LWPI WS
+       LI   R10,STKTOP
+       BL   @TX40MD          TEXT mode, font, cleared screen
+
+* title line
+       CLR  R0
+       CLR  R1
+       BL   @TX40LC
+       LI   R1,STITL
+       BL   @TX40PS
+
+       LI   R6,VIEW          R6 = running address
+       LI   R7,2            R7 = first data row
+MROW   MOV  R7,R0            cursor to (row R7, col 0)
+       CLR  R1
+       BL   @TX40LC
+       MOV  R6,R1            the address ...
+       BL   @TX40HX
+       LI   R1,SPACE        ... a gap ...
+       BL   @TX40PC
+       BL   @TX40PC
+       LI   R8,6           ... then six words
+MWORD  MOV  *R6+,R1          next word from memory
+       BL   @TX40HX
+       LI   R1,SPACE
+       BL   @TX40PC
+       DEC  R8
+       JNE  MWORD
+       INC  R7
+       CI   R7,14          twelve rows (2..13)?
+       JNE  MROW
+
+* paint green: the whole dump ran without derailing (white on green)
+       LI   R0,7
+       LI   R1,>F200
+       BL   @VWTR
+SPIN   JMP  SPIN
+
+STITL  TEXT 'MONITOR99  40-COLUMN  ROM AT 0000'
+       BYTE 0
+       EVEN
+       END  START

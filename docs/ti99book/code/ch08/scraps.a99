@@ -1,0 +1,50 @@
+* SCRAPS — the chapter's short fragments in one runnable file: the
+* signed/unsigned jump disagreement, the COC/CZC mask tests, the shift
+* idioms, and the carry-as-a-data-channel loop.               (Ch. 8)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+
+WS     EQU  >8300
+BITCNT EQU  >8360            count of 1-bits found by the carry-channel loop
+
+START  LWPI WS
+
+* ---- 8.2: the two rulers disagree on >8000 vs >0001 ----
+* Unsigned, >8000 (32768) towers over 1; signed, >8000 (-32768) is beneath
+* it. After one compare, JH says "higher", JGT says "not greater" — both true.
+       LI   R1,>8000
+       LI   R2,>0001
+       C    R1,R2            compare the same bits two ways at once
+       JH   UNSIGN           unsigned: >8000 IS higher (taken)
+UNSIGN JGT  SIGNED           signed: >8000 is NOT greater (NOT taken)
+SIGNED NOP
+
+* ---- 8.2: COC and CZC, one mask, both questions ----
+       LI   R5,>8005         the word under test  (bits 15, 2, 0 set)
+       LI   R4,>0005         a 3-bit mask (bits 2 and 0)
+       COC  R4,R5            EQ <=> every mask bit is SET in R5   (here: yes)
+       JEQ  ALLSET
+ALLSET CZC  R4,R5            EQ <=> every mask bit is CLEAR in R5  (here: no)
+       JEQ  NONE
+NONE   NOP
+
+* ---- 8.4: the three arithmetic shift idioms ----
+       LI   R1,>0005
+       SLA  R1,3            x * 8   -> R1 = >0028 (40)
+       LI   R2,>0040
+       SRL  R2,2            unsigned x / 4 -> R2 = >0010 (16)
+       LI   R3,>FFFB        -5
+       SRA  R3,1            signed x / 2 -> R3 = >FFFD (-3): rounds toward -inf
+
+* ---- 8.4: the carry as a one-bit data channel ----
+* Shift R6 right; each bit that falls off lands in C, where JOC reads it.
+* Count the 1-bits of >B4 (four of them).
+       CLR  @BITCNT
+       LI   R6,>00B4        1011 0100
+       LI   R7,8            eight bits to inspect
+CHNL   SRL  R6,1            low bit -> C
+       JNC  CHNL0           C = 0: a zero bit, nothing to tally
+       INC  @BITCNT         C = 1: count it
+CHNL0  DEC  R7
+       JNE  CHNL
+HALT   JMP  HALT
+       END  START

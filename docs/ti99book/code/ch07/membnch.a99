@@ -1,0 +1,32 @@
+* MEMBNCH — the pump, priced by buffer placement                (Ch. 7)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* The copy loop's inner three instructions, run once with buffers on the
+* fast island and once with buffers across the funnel. The code lives in
+* cartridge ROM both times, so the difference the bench reports is the
+* operand toll alone. Step (`s`) from PCP and from ECP to read the
+* per-word cost in each neighborhood; 50,000 / cost is words per frame.
+
+WS     EQU  >8300            workspace (fast pad)
+PSRC   EQU  >8340            pad source buffer
+PDST   EQU  >8360            pad destination buffer
+ESRC   EQU  >A000            expansion source buffer
+EDST   EQU  >A200            expansion destination buffer
+
+START  LWPI WS
+* buffers on the fast island
+PADLP  LI   R0,8
+       LI   R1,PSRC
+       LI   R2,PDST
+PCP    MOV  *R1+,*R2+        the pump — pad buffers
+       DEC  R0
+       JNE  PCP
+* the same loop, buffers across the funnel
+EXPLP  LI   R0,8
+       LI   R1,ESRC
+       LI   R2,EDST
+ECP    MOV  *R1+,*R2+        the pump — expansion buffers
+       DEC  R0
+       JNE  ECP
+HALT   JMP  HALT
+       END  START

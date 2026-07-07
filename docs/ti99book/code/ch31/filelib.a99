@@ -1,0 +1,21 @@
+* FILELIB.A99 — assembles lib99's file-I/O wrappers and shows a call site. (Ch.31)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+* NOT bench-runnable (no disk in BENCH99, R-12); the PAB path is verified in the
+* Rust harness (device_io.rs). This proves filelib.inc assembles with libre99asm.
+       COPY '../ch11/equates.inc'
+       COPY '../ch12/vdplib.inc'
+       COPY '../ch30/dsrlib.inc'
+       COPY 'filelib.inc'
+WS     EQU  >8300
+STKTOP EQU  >8340
+PABADR EQU  >1000            PAB base in VRAM
+START  LWPI WS
+       LI   R10,STKTOP
+       LI   R0,PABADR        R0 = PAB VDP base
+       BL   @FOPEN           open the file named in the PAB
+       LI   R0,PABADR
+       BL   @FREAD           read one record
+       LI   R0,PABADR
+       BL   @FCLOSE          close
+HALT   JMP  HALT
+       END  START

@@ -1,0 +1,237 @@
+* SYSCHK — lib99's first consumer: a system-information card.          (Ch. 11)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* SYSCHK interrogates the machine it wakes up on and writes what it finds
+* to a fixed block of scratchpad, then paints a border verdict. It is the
+* diagnostic we extend all book long. Three probes, each a lib99 routine:
+*
+*   (a) EXPANSION RAM  — write a pattern AND its complement to >2000 and
+*       >A000 and demand both survive (the Ch. 5 det32k idiom): a floating
+*       bus that merely echoes cannot pass both writes.
+*   (b) VDP            — write a VRAM byte through the port and read it
+*       back to prove the chip answers; then WALK the address counter to
+*       the point where it wraps, which reveals the VRAM size (a 16 K
+*       9918A wraps its 14-bit counter at >4000).
+*   (c) PERIPHERALS    — scan the peripheral CRU bases >1000..>1F00: page
+*       each card's DSR ROM in (SBO 0), look for the >AA "valid ROM"
+*       signature at >4000, page it out (SBZ 0); count who answered.
+*
+* This single file is BOTH the library and its self-test harness, the
+* shape mathlib/stack99 established: the routines sit above the rule,
+* START (the harness) drives them and records the verdict below it. Ch. 11
+* lifts the routines into code/lib99/ unchanged.
+*
+* CALLING CONVENTION (Ch. 9): R10 = full-descending software stack; leaf
+* routines return in R11 with RT; a non-leaf PUSHes R11 first. Args and
+* results ride R0-R2; byte cargo rides a register's HIGH half.
+*
+* HOW TO BUILD (from docs/ti99book/):
+*   ../../target/release/libre99asm code/ch11/syschk.a99 --name 'SYSCHK' \
+*       --format bin -o build/SYSCHKC.bin --symbols build/syschk.map.json
+* HOW TO RUN:
+*   code/bench/target/release/bench99 code/ch11/syschk.bench
+*
+* THE FINDINGS BLOCK (scratchpad; a bench script reads it with `m 8320 20`):
+*   >8320  DONE   completion marker, >C0DE once every probe has run
+*   >8322  FLOWR  low  expansion >2000 present   (>FFFF yes / >0000 no)
+*   >8324  FHIGH  high expansion >A000 present   (>FFFF yes / >0000 no)
+*   >8326  F32K   both answered = full 32 K       (>FFFF yes / >0000 no)
+*   >8328  FVDP   VDP responds                    (>FFFF yes / >0000 no)
+*   >832A  FVSIZE detected VRAM size in bytes     (>4000 = 16 K)
+*   >832C  FDSRC  DSR responders found            (count)
+*   >832E  FDSRM  DSR responder bitmask (bit k = base >1000 + k*>0100)
+*   >8330  FVERD  verdict code: >0000 PASS, else the failing check
+* PASS (green border) iff the VDP answered AND measured exactly 16 K —
+* the invariant that must hold on this machine; RAM and DSR findings are
+* REPORTED, not gate conditions (their honest values depend on the rig).
+
+       COPY 'equates.inc'          the named console addresses (S11.3)
+       COPY 'assert.inc'           the verdict / panic-dump idiom (S11.5)
+
+WS     EQU  >8300            harness workspace: R0-R15 at >8300-831F
+STKTOP EQU  >8370            software-stack top; grows down, clear of pad tenants
+
+* --- the findings block (documented above) ---
+DONE   EQU  >8320
+FLOWR  EQU  >8322
+FHIGH  EQU  >8324
+F32K   EQU  >8326
+FVDP   EQU  >8328
+FVSIZE EQU  >832A
+FDSRC  EQU  >832C
+FDSRM  EQU  >832E
+FVERD  EQU  >8330
+
+* --- probe constants ---
+MWRITE EQU  >4000            VDP address-setup: the "write" mode bit
+VPROBE EQU  >0100            a harmless VRAM cell for the responds test
+TSTBY  EQU  >5A00            responds-test byte (high half)
+SENT   EQU  >E100            wrap-walk sentinel at VRAM >0000
+MARK   EQU  >3C00            wrap-walk marker at the candidate top cell
+STAMP  EQU  >C300            wrap-walk stamp — lands on >0000 only on a wrap
+SIGVAL EQU  >AA00            the >AA "valid DSR ROM" signature (high half)
+
+* ===================== the library ==============================
+
+* RAMPRB — is writable RAM at (R1)? Write a pattern and its complement to
+* the same cell; return R0 = >FFFF only if BOTH survive, else >0000. Leaf.
+* (The Ch. 5 det32k test, promoted to a lib99 routine.)
+RAMPRB LI   R2,>A55A            a pattern with no accidental symmetry
+       MOV  R2,*R1              write it
+       C    R2,*R1              did it survive?
+       JNE  RAMPNO              no -> not RAM
+       INV  R2                  the complement, >5AA5
+       MOV  R2,*R1              write it over the top
+       C    R2,*R1              did THAT survive?
+       JNE  RAMPNO              no -> open bus, not RAM
+       SETO R0                  both answered -> RAM present
+       RT                       ; back to caller
+RAMPNO CLR  R0                  absent
+       RT                       ; back to caller
+
+* VSADDR — set the VDP address counter. R1 = 14-bit VRAM address, R2 =
+* mode mask (MWRITE to write, >0000 to read). Two BYTE writes to the
+* address port, low byte first; the mode bit rides bit 6 of the high
+* byte. Leaf; clobbers only R3, leaves R1/R2 intact for the caller.
+VSADDR MOV  R1,R3               R3 = a copy for the LOW byte
+       SWPB R3                  low address byte -> high half
+       MOVB R3,@VDPWA           first control byte: low 8 address bits
+       MOV  R1,R3               fresh copy for the HIGH byte
+       SOC  R2,R3               merge the mode bit into bit 6 (write=>40)
+       MOVB R3,@VDPWA           second control byte: mode | high 6 bits
+       RT                       ; back to caller
+
+* VDPCHK — does the VDP answer, and how big is its VRAM? NON-LEAF (it
+* calls VSADDR), so it PUSHes R11. Returns R0 = >FFFF present / >0000
+* absent, R1 = detected VRAM size in bytes (>4000 = 16 K), 0 if no wrap.
+* R7 holds each expected byte ACROSS the VSADDR calls (VSADDR spares it).
+VDPCHK DECT R10                 PUSH R11 (non-leaf)
+       MOV  R11,*R10
+* --- responds test: write a byte to VPROBE, read it back ---
+       LI   R1,VPROBE
+       LI   R2,MWRITE
+       BL   @VSADDR             point the write counter at VPROBE
+       LI   R7,TSTBY            the test byte (survives VSADDR)
+       MOVB R7,@VDPWD           write it into VRAM ; counter -> VPROBE+1
+       LI   R1,VPROBE
+       CLR  R2                  read mode: prefetch VRAM[VPROBE]
+       BL   @VSADDR
+       MOVB @VDPRD,R4           R4 high := the prefetched byte
+       CB   R4,R7              matches what we wrote?
+       JEQ  VDPYES
+       CLR  R0                  no -> VDP absent
+       CLR  R1                  size unknown
+       JMP  VDPCHX
+VDPYES SETO R0                  VDP present
+* --- size walk: plant a sentinel at >0000, then look for the wrap ---
+       CLR  R1
+       LI   R2,MWRITE
+       BL   @VSADDR             counter := >0000 (write)
+       LI   R7,SENT
+       MOVB R7,@VDPWD           VRAM[>0000] := sentinel
+       LI   R5,SIZTAB           -> candidate sizes (>1000,>2000,>4000,0)
+VWALKL MOV  *R5+,R6             R6 = candidate size T (0 ends the table)
+       JEQ  VWNONE              exhausted -> no wrap seen
+       MOV  R6,R1
+       DEC  R1                  R1 = T-1, the top cell of this candidate
+       LI   R2,MWRITE
+       BL   @VSADDR             counter := T-1 (write)
+       LI   R3,MARK
+       MOVB R3,@VDPWD           VRAM[T-1] := marker ; counter -> T mod size
+       LI   R7,STAMP
+       MOVB R7,@VDPWD           counter now (T mod size): a wrap lands on >0000
+       CLR  R1
+       CLR  R2                  read mode
+       BL   @VSADDR             prefetch VRAM[>0000]
+       MOVB @VDPRD,R4           R4 high := VRAM[>0000]
+       CB   R4,R7              did >0000 get clobbered by the stamp?
+       JNE  VWALKL             no wrap at T -> try the next candidate
+       MOV  R6,R1              wrap! the VRAM size is this candidate
+       JMP  VDPCHX
+VWNONE CLR  R1                  no wrap found -> size unknown
+VDPCHX MOV  *R10+,R11           POP R11
+       RT                       ; back to caller
+SIZTAB DATA >1000,>2000,>4000,>0000
+
+* DSRSCN — scan the peripheral CRU bases for DSR ROMs. For each base
+* >1000..>1F00, page its ROM in (SBO 0), test the byte at >4000 for the
+* >AA signature, page it out (SBZ 0). Returns R0 = responder count,
+* R1 = bitmask (bit k set = base >1000 + k*>0100 answered). Leaf.
+DSRSCN CLR  R0                  responder count
+       CLR  R1                  responder bitmask
+       LI   R4,DSRLO            first CRU base (an R12 value)
+       LI   R5,16              bases >1000..>1F00 inclusive
+       LI   R6,>0001            running single-bit mask (bit 0 = >1000)
+       LI   R8,SIGVAL           the >AA signature in the high half
+DSCNL  MOV  R4,R12              R12 = this card's CRU base
+       SBO  0                   page its DSR ROM into >4000-5FFF
+       MOVB @DSRWIN,R7          read the signature cell at >4000
+       SBZ  0                   page the ROM back out
+       CB   R7,R8              a >AA "valid ROM" header?
+       JNE  DSCNNX              no card here
+       INC  R0                  count the responder
+       SOC  R6,R1              record its bit in the mask
+DSCNNX SLA  R6,1                advance the bit mask
+       AI   R4,DSRSTP           next CRU base (+>0100)
+       DEC  R5
+       JNE  DSCNL
+       RT                       ; back to caller
+
+* ===================== the harness (START) =====================
+START  LWPI WS                  registers on the fast island
+       LI   R10,STKTOP          establish the software stack
+* clear the whole findings block so a partial run still reads honestly
+       CLR  @DONE
+       CLR  @FLOWR
+       CLR  @FHIGH
+       CLR  @F32K
+       CLR  @FVDP
+       CLR  @FVSIZE
+       CLR  @FDSRC
+       CLR  @FDSRM
+       CLR  @FVERD
+
+* (a) expansion RAM at >2000 and >A000
+       LI   R1,LOWEXP
+       BL   @RAMPRB
+       MOV  R0,@FLOWR
+       MOV  R0,R9               keep the low-RAM verdict
+       LI   R1,HIEXP
+       BL   @RAMPRB
+       MOV  R0,@FHIGH
+       MOV  R9,R9               low RAM present?
+       JEQ  N32K
+       MOV  R0,R0               high RAM present?
+       JEQ  N32K
+       SETO @F32K               both -> the full 32 K answered
+N32K   EQU  $
+
+* (b) VDP: responds + VRAM size
+       BL   @VDPCHK
+       MOV  R0,@FVDP
+       MOV  R1,@FVSIZE
+
+* (c) peripherals: DSR CRU scan
+       BL   @DSRSCN
+       MOV  R0,@FDSRC
+       MOV  R1,@FDSRM
+
+* stamp the completion marker so the bench knows every probe ran
+       LI   R0,>C0DE
+       MOV  R0,@DONE
+
+* verdict: PASS (>0000) iff the VDP answered AND measured exactly 16 K.
+* RAM and DSR findings are REPORTED, not gate conditions (their honest
+* values depend on the rig). VERDCT (assert.inc) records the code to
+* FVERD and flashes the border green/red in one call (S11.5).
+       LI   R0,1                assume failure (code 1)
+       MOV  @FVDP,R1            VDP present?
+       JEQ  DOVERD              no -> fail
+       MOV  @FVSIZE,R1
+       CI   R1,>4000            exactly 16 K?
+       JNE  DOVERD              no -> fail
+       CLR  R0                  everything checks out -> PASS
+DOVERD LI   R1,FVERD            the pad word to stamp the verdict into
+       BL   @VERDCT             record the code + flash the border
+HALT   JMP  HALT                park here; the bench reads the findings
+       END  START

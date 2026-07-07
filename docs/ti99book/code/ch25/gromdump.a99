@@ -1,0 +1,47 @@
+* GROMDUMP.A99 — dump and checksum the console GROM.                  (Ch. 25)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* Lab 25. Streams the first 256 bytes of the console GROM (address 0) through
+* gromlib and accumulates a 16-bit checksum (sum of the bytes, mod 2^16). The
+* whole 256 bytes flow from ONE address write — the auto-increment doing the
+* work — which is the point: a GROM table is a stream once you aim the counter.
+* The checksum must equal >50E7 (the same value `od roms/994AGROM.Bin` summed
+* over its first 256 bytes gives), proving gromlib reads the ROM faithfully at
+* scale, not just the header.
+*
+* Build:  libre99asm code/ch25/gromdump.a99 ...
+* Verify: load, pc START, x 3000, then  vdp  (R7=>02) and  m 8320 2  (CKSUM=50E7)
+
+       COPY '../ch11/equates.inc'
+       COPY '../ch12/vdplib.inc'
+       COPY 'gromlib.inc'
+
+WS     EQU  >8300
+STKTOP EQU  >8340
+CKSUM  EQU  >8320            the computed 16-bit checksum
+WANT   EQU  >50E7            expected sum of the first 256 GROM bytes
+
+START  LWPI WS
+       LI   R10,STKTOP
+       CLR  R0              aim the GROM counter at address 0
+       BL   @GRDADR
+       CLR  R5             running checksum
+       LI   R6,256         byte count
+SUML   MOVB @GRMRD,R7       next GROM byte -> R7 high (auto-increments)
+       SRL  R7,8            -> R7 low = the byte value (0..255)
+       A    R7,R5           checksum += byte
+       DEC  R6
+       JNE  SUML
+       MOV  R5,@CKSUM       publish the checksum
+       CI   R5,WANT         does it match the reference?
+       JNE  BAD
+
+       LI   R0,7
+       LI   R1,GREEN
+       BL   @VWTR
+       JMP  HALT
+BAD    LI   R0,7
+       LI   R1,RED
+       BL   @VWTR
+HALT   JMP  HALT
+       END  START

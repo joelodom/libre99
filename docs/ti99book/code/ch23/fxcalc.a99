@@ -1,0 +1,47 @@
+* FXCALC.A99 — 8.8 fixed-point multiply, the cheap alternative to the ROM    (Ch. 23)
+* floating-point package.  Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* §23.5's judgment made concrete. The console's radix-100 floating-point package
+* is general and accurate but expensive (hundreds to thousands of cycles per
+* operation, per the E/A manual). For the ranges a game needs, 8.8 fixed point
+* (Ch. 8, Ch. 16) is a handful of instructions. FXMUL multiplies two 8.8 values
+* with one MPY and a shift; the bench measures its cost against the frame.
+*
+* An 8.8 value = whole.fraction, high byte the integer, low byte the 256ths.
+* a*b in 8.8: MPY gives the 16.16 product across two words; the 8.8 answer is
+* its middle 16 bits (integer low byte : fraction high byte).
+*
+* Verify: load, pc START, x 100, then  m 8320 6  (three results) ; bracket
+*         FX0..FX1 with `cycles` for one FXMUL's cost.
+* Build:  libre99asm code/ch23/fxcalc.a99 ...
+
+WS     EQU  >8300
+R      EQU  >8320            three 8.8 results land here
+
+START  LWPI WS
+* 1.5 (>0180) * 2.0 (>0200) = 3.0 (>0300)
+       LI   R0,>0180
+       LI   R1,>0200
+FX0    BL   @FXMUL
+FX1    MOV  R2,@R
+* 2.5 (>0280) * 2.5 (>0280) = 6.25 (>0640)
+       LI   R0,>0280
+       LI   R1,>0280
+       BL   @FXMUL
+       MOV  R2,@R+2
+* 0.5 (>0080) * 0.5 (>0080) = 0.25 (>0040)
+       LI   R0,>0080
+       LI   R1,>0080
+       BL   @FXMUL
+       MOV  R2,@R+4
+HALT   JMP  HALT
+
+* FXMUL — R0 (8.8) * R1 (8.8) -> R2 (8.8). Leaf. Clobbers R2, R3.
+FXMUL  MOV  R0,R2
+       MPY  R1,R2           R2:R3 = a*b as 16.16 (R2 = integer, R3 = fraction)
+       ANDI R2,>00FF        keep the integer's low byte (assume result < 256)
+       SLA  R2,8            -> the result's high byte
+       SRL  R3,8            fraction's high byte -> low
+       SOC  R3,R2           combine -> R2 = 8.8 product
+       RT
+       END  START

@@ -1,0 +1,61 @@
+* PADWATCH.A99 — snapshot the scratchpad, then diff it after a routine   (Ch. 24)
+* runs — a live "what did that touch?" tool.
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* Lab 24. The scratchpad (>8300-83FF) is 256 bytes shared by your code, the GPL
+* interpreter, KSCAN, and the interrupt handler — and it is maddening to know
+* what any given routine really touches. PADWATCH snapshots all 256 bytes,
+* lets a target routine run, then diffs: it reports how many bytes changed and
+* the first changed address. Point it at any console service and it reveals the
+* service's true pad footprint.
+*
+* KEY TRICK: PADWATCH's own workspace lives OUTSIDE the pad (at >A000, expansion
+* RAM), so watching the pad does not capture PADWATCH's own registers — the diff
+* is the *target's* footprint, nothing else.
+*
+* Here the target writes >C0DE to pad word >8340, so the diff must report 2
+* changed bytes, first at >8340.
+*
+* Verify: load, pc START, x 3000, then  m 2100 4  (NCHG=0002, FIRST=8340)
+* Build:  libre99asm code/ch24/padwatch.a99 ...
+
+WS     EQU  >A000            workspace OUTSIDE the watched pad
+SAVE   EQU  >2000            256-byte snapshot buffer (expansion RAM)
+PAD    EQU  >8300            the scratchpad
+NCHG   EQU  >2100            result: count of changed bytes
+FIRST  EQU  >2102            result: first changed address
+
+START  LWPI WS
+* --- snapshot the whole pad to SAVE ---
+       LI   R0,PAD
+       LI   R1,SAVE
+       LI   R2,256
+SNL    MOVB *R0+,*R1+
+       DEC  R2
+       JNE  SNL
+
+* --- the target routine to watch: touch pad word >8340 ---
+       LI   R3,>C0DE
+       MOV  R3,@>8340
+
+* --- diff the pad against the snapshot ---
+       CLR  R4              change count
+       SETO R5              first changed address = none yet
+       LI   R0,PAD
+       LI   R1,SAVE
+       LI   R2,256
+DFL    MOVB *R0+,R6
+       MOVB *R1+,R7
+       CB   R6,R7
+       JEQ  DFN             unchanged
+       INC  R4              a changed byte
+       CI   R5,>FFFF        already recorded the first?
+       JNE  DFN
+       MOV  R0,R5           first changed addr = (post-incremented R0) - 1
+       DEC  R5
+DFN    DEC  R2
+       JNE  DFL
+       MOV  R4,@NCHG
+       MOV  R5,@FIRST
+HALT   JMP  HALT
+       END  START

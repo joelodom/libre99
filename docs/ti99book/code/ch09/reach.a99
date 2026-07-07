@@ -1,0 +1,33 @@
+* REACH — the two-jump idiom for a long-distance conditional branch.  (Ch. 9)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* A Format-II jump reaches only -128..+127 words. When the target is
+* farther, invert the condition and jump OVER an unconditional B @far
+* (which reaches all 64 K). This test drives the idiom to a target that
+* is deliberately out of jump range, and paints the border green if the
+* far branch actually landed. START/END so verify.sh assembles it.
+*
+* (A direct "JEQ FAR" here does NOT assemble: libre99asm reports
+*  "jump target out of range" — that failure is the reason for the idiom.)
+
+WS     EQU  >8300
+VDPWA  EQU  >8C02            VDP address/register port
+GREEN  EQU  >0200            border color, in the high half: pass
+RED    EQU  >0600            border color: fail
+
+START  LWPI WS
+       CLR  R1               R1 = 0, so the condition "R1 = 0" is TRUE
+       MOV  R1,R1            set the flags from R1 (a move is a test; CLR is silent)
+* We want "if R1 = 0 then goto FAR", but FAR is >127 words away.
+* Idiom: invert (JNE) around an unconditional B @FAR.
+       JNE  NEAR             R1 <> 0 ? skip the long branch
+       B    @FAR             R1 = 0 : reach anywhere with B @LABEL
+NEAR   LI   R0,RED           condition false -> would land here
+       B    @VRDCT
+       BSS  300              150 words of gap: pushes FAR out of jump reach
+FAR    LI   R0,GREEN         reached the far target through the idiom
+VRDCT  MOVB R0,@VDPWA        paint the border (color byte first) ...
+       LI   R0,>8700         ... then select VDP register 7
+       MOVB R0,@VDPWA
+SPIN   JMP  SPIN
+       END  START

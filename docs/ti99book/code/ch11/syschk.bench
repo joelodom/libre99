@@ -1,0 +1,25 @@
+# syschk.bench — run SYSCHK on BENCH99 and read its verdict out of the pad.
+# The S11.6 "scripted CI" example: assemble -> boot the image on the bare
+# bench -> drive it to its HALT -> assert the findings block in scratchpad.
+#
+# Build the ROM image first (from docs/ti99book/):
+#
+#   ../../target/release/libre99asm code/ch11/syschk.a99 --name 'SYSCHK' \
+#       --format bin -o build/SYSCHKC.bin --symbols build/syschk.map.json
+#
+# then:  code/bench/target/release/bench99 code/ch11/syschk.bench
+#
+# START = >6122 and HALT = >61B2 are SYSCHK's entry and park labels (read
+# them from build/syschk.map.json if the source changes and they shift).
+#
+# The findings block at >8320 (see syschk.a99 for the field map):
+#   >8320 DONE=>C0DE  >8322 FLOWR  >8324 FHIGH  >8326 F32K
+#   >8328 FVDP        >832A FVSIZE  >832C FDSRC  >832E FDSRM   >8330 FVERD
+# A green run reads DONE=>C0DE, FVDP=>FFFF, FVSIZE=>4000, FVERD=>0000.
+# On the bare bench: FLOWR/FHIGH/F32K=>FFFF (the emulator always fits 32 K),
+# and FDSRC/FDSRM=>0000 (no DSR ROM is installed in bench bare mode).
+load build/SYSCHKC.bin
+pc 6122
+u 61B2
+m 8320 20
+vdp

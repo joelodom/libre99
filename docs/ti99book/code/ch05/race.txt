@@ -1,0 +1,35 @@
+# race.txt — Lab 5: race the probe across all four neighborhoods.
+# Run from code/ch05/:  bench99 race.txt
+# (BENCH99 bare bench: pc/wp are ours, pokes hit RAM only.)
+
+load build/RIGC.bin        # mount the rig ROM at >6000
+pc 601C                    # aim the CPU at START
+u 6038                     # run START: plant the copies, break at DONE
+m 8340 6                   # confirm the plant: C0 40 A0 40 10 FF
+m 2000 6
+m A000 6
+
+# --- Lane 1: scratchpad (fast island), workspace in the pad -----------
+wp 8300
+pc 8340
+s 3                        # MOV, A, JMP  — all-pad
+
+# --- Lane 2: low expansion, workspace in the pad ----------------------
+wp 8300
+pc 2000
+s 3                        # code slow, operands fast
+
+# --- Lane 3: cartridge ROM, workspace in the pad ---------------------
+wp 8300
+pc 604A
+s 3                        # code slow (cart), operands fast
+
+# --- Lane 4: high expansion, workspace in the pad --------------------
+wp 8300
+pc A000
+s 3                        # code slow, operands fast
+
+# --- Lane 5: high expansion, workspace ALSO in high expansion --------
+wp A100
+pc A000
+s 3                        # all-slow: fetch and every operand tolled

@@ -1,0 +1,44 @@
+* PROFILE99.A99 — a profiling harness: measure lib99 calls in cycles.  (Ch. 22)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* Lab 22. On-machine profiling wants the 9901 interval timer — which the project
+* does not yet emulate (R-12, §22.6) — so we profile the way this book has all
+* along: labeled checkpoints and BENCH99's `cycles`. Each PN label sits just
+* after one lib99 call; the cycle delta between consecutive PN labels is that
+* call's cost (operand setup included). Combine with the Ch. 18 cookbook's
+* graphics costs for the full table.
+*
+*   P0->P1  STONE  (play one tone: latch period + data + attenuation)
+*   P1->P2  SVOL   (set one channel's attenuation)
+*   P2->P3  SSILNC (silence all four channels)
+*   P3->P4  IREAD  (read a joystick to a mask)
+*   P4->P5  IEDGE  (edge-detect one frame)
+*
+* Verify: load, pc START; u P0/cycles, u P1/cycles, ... (deltas = costs).
+* Build:  libre99asm code/ch22/profile99.a99 ...
+
+       COPY '../ch11/equates.inc'
+       COPY '../ch19/sndlib.inc'
+       COPY '../ch21/inplib.inc'
+
+WS     EQU  >8300
+STKTOP EQU  >8340
+
+START  LWPI WS
+       LI   R10,STKTOP
+       CLR  R0                 (settle: reach P0 with a fixed prologue)
+P0     LI   R0,0
+       LI   R1,254
+       LI   R2,2
+       BL   @STONE            play a tone
+P1     LI   R0,0
+       LI   R1,4
+       BL   @SVOL             set an attenuation
+P2     BL   @SSILNC           silence everything
+P3     CLR  R0
+       BL   @IREAD            read joystick 0
+P4     LI   R0,>0002
+       LI   R1,>0006
+       BL   @IEDGE            edge-detect
+P5     JMP  P5
+       END  START

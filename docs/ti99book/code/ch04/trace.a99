@@ -1,0 +1,19 @@
+* TRACE — Lab 4: six instructions under oath          (Ch. 4)
+* Runs as a cartridge; the workspace lives in the scratchpad so we
+* can watch the registers as plain RAM (BENCH99: `r`, then `m 8300 32`).
+
+WS     EQU  >8300            the workspace: sixteen words of honest, fast RAM
+
+START  LIMI 0               scaffolding: quiet machine
+       LWPI WS              scaffolding: registers where we can SEE them
+       LI   R3,>AAAA        scaffolding: a stage prop in R3
+* --------- the six, under oath ---------
+T1     LI   R1,>0005
+T2     LI   R2,>FFFB        (that's -5, wearing its unsigned coat)
+T3     A    R1,R2
+T4     MOVB R1,R3
+T5     SWPB R1
+T6     BL   @HALT
+* ---------------------------------------
+HALT   JMP  HALT
+       END

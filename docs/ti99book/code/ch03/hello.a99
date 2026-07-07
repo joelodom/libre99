@@ -1,0 +1,46 @@
+* HELLO, 1981 — first light                              (Ch. 3)
+* Assumes the standard character set is already in VDP RAM —
+* true when started from the master menu (as here) and under E/A.
+* The honest cold-start story belongs to Ch. 35.
+*
+* Entry point: START — libre99asm's default entry symbol, so the
+* synthesized cartridge header points the console menu at it.
+
+VDPWD  EQU  >8C00            VDP write-data port    (Ch. 2 map)
+VDPWA  EQU  >8C02            VDP write-address port
+
+START  LIMI 0                interrupts off: the machine is ours
+       LWPI >8300            workspace = the fast pad (squatting; see text)
+
+* --- clear the 768-cell screen (name table at >0000) --------
+       LI   R0,>0040         VDP address >0000 + write bit, byte-swapped
+       MOVB R0,@VDPWA        send low address byte   (>00)
+       SWPB R0
+       MOVB R0,@VDPWA        send high byte + >40: VDP poised to write at 0
+       LI   R1,>2000         ASCII space, parked in the HIGH byte
+       LI   R2,768           one full 32 x 24 screen
+CLS    MOVB R1,@VDPWD        write a space; VDP address auto-increments
+       DEC  R2
+       JNE  CLS
+
+* --- say it -------------------------------------------------
+       LI   R0,>6A41         screen cell >016A (row 11, col 10) + write bit
+       MOVB R0,@VDPWA
+       SWPB R0
+       MOVB R0,@VDPWA
+       LI   R3,MSG
+       LI   R2,11
+PUT    MOVB *R3+,@VDPWD      one character per write, auto-incrementing
+       DEC  R2
+       JNE  PUT
+
+* --- sign the frame: backdrop to dark blue ------------------
+       LI   R0,>0487         value >04 into VDP register 7 (>80 + 7)
+       MOVB R0,@VDPWA
+       SWPB R0
+       MOVB R0,@VDPWA
+
+HERE   JMP  HERE             spin forever; admire
+
+MSG    TEXT 'HELLO, 1981'
+       END

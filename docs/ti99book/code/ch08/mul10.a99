@@ -1,0 +1,31 @@
+* MUL10 — the times-ten showdown: hardware MPY versus shift-and-add.  (Ch. 8)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* Two ways to compute R1 = R1 * 10, behind a common BL interface, both
+* run from the cartridge with operands on the pad so the bench times them
+* in the same region. x*10 = x*8 + x*2 = (x<<3) + (x<<1).
+
+WS     EQU  >8300
+
+START  LWPI WS
+       LI   R1,>04D2         1234
+M1     BL   @MUL10A          bracket M1..M1E over the MPY form
+M1E    LI   R1,>04D2         reload
+M2     BL   @MUL10B          bracket M2..M2E over the shift-and-add form
+M2E    JMP  HALT
+
+* MUL10A — R1 * 10 via the hardware multiply. Product low word -> R1.
+MUL10A LI   R2,10
+       MPY  R2,R1            R1:R2 = R1 * 10  (R1 high, R2 low)
+       MOV  R2,R1            keep the low word (our inputs fit 16 bits)
+M10AX  RT
+
+* MUL10B — R1 * 10 via two shifts and an add.
+MUL10B MOV  R1,R2            R2 = x
+       SLA  R1,3             R1 = x * 8
+       SLA  R2,1             R2 = x * 2
+       A    R2,R1            R1 = x * 10
+M10BX  RT
+
+HALT   JMP  HALT
+       END  START

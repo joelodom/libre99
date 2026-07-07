@@ -1,0 +1,18 @@
+* RLEDEC.A99 — self-test for lib99's RLE decompressor.                (Ch. 38)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Decompresses an embedded stream to DEST and checks it. The stream
+*   >85 >41  (run: 5 x 'A')   >03 >42 >43 >44  (literal: B C D)   >00 (end)
+* must expand to "AAAAABCD" = 41 41 41 41 41 42 43 44 (8 bytes). Verify:
+*   load, pc START, x 200, m 2000 8   ->  41 41 41 41 41 42 43 44
+       COPY '../ch11/equates.inc'
+       COPY 'rlelib.inc'
+WS     EQU  >8300
+DEST   EQU  >2000            decompressed output lands here (peekable)
+START  LWPI WS
+       LI   R0,CDATA
+       LI   R1,DEST
+       BL   @RLEDEC
+HALT   JMP  HALT
+CDATA  BYTE >85,>41,>03,>42,>43,>44,>00
+       EVEN
+       END  START

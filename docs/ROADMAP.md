@@ -1,0 +1,338 @@
+# Libre99 — Feature Roadmap
+
+This document lays out where the emulator can go after the core machine is
+faithful and playable (milestones 0–9 in the archived
+[build plan](history/PLAN.md)). It is grounded in
+two reference points the project already respects:
+
+* **Classic99** (Tursi) — the gold-standard TI-99/4A emulator, whose *debugger*,
+  *disk manager*, and *cartridge handling* are the features TI users reach for
+  most. We already consult its source for hardware behavior (see
+  [CLAUDE.md](../CLAUDE.md)); this roadmap borrows its *product* ideas too.
+* **Modern multi-system emulators** (MAME, RetroArch, Mednafen, the bsnes
+  family) — for conveniences that have become table stakes: save-state slots,
+  rewind, fast-forward, run-ahead, shaders, input remapping, movie
+  recording, and screenshots.
+
+The goal of the roadmap is not only a list of features but a *shape* for adding
+them so the codebase stays clean and each capability is independent.
+
+---
+
+## Road to 0.1.0 — the first public release (early testing)
+
+**0.1.0 is the first source-available public drop, for early testers.** Its governing
+constraint is simple: **ship only what the project owns** — the pure-Rust emulator, the
+clean-room **libre99** firmware (ROM + GROM), the `libre99asm`/`libre99gpl` toolchain, and our
+original cartridges (Titris, Sokoban), with **zero TI or third-party bytes** anywhere in
+the tree, the binary, or the published history. The machine already boots and runs
+*fully* on the clean-room firmware by default, so a TI-IP-free build is a working
+product, not a stub. (Since 2026-07-06 that includes the disk: the clean-room
+disk DSR reads *and writes* by default — formerly a row of this table.)
+
+**Phase 1 is essentially done** — three further rows completed 2026-07-06 and
+left the table: **media loads on demand** (zero embedded media; the console
+boots bare; `--cartridge`/`--disk` take file paths and `F9` opens the
+**OS-native file chooser** — owner call: system chooser, not a custom
+browser); **the public/local test split** (~90 files now load authentic
+images at run time from the git-ignored `third-party/` directory via
+`libre99_core::third_party`, skipping green when absent — the book's bench tool
+included); and **the purge** (`roms/`, `cartridges/`, `disks/` moved out of
+version control into `third-party/`; the gallery generator renders only our
+titles; the two third-party README screenshots stay as static images per the
+owner decision). What remains of Phase 1 is the verification gate below.
+
+**Order of battle — the sequence is deliberate.** All blocking IP must leave the working
+tree **first**; *then* the rename to **Libre99**; and *immediately after the rename* the
+project **forks to a brand-new `libre99` repository whose history has never contained
+anyone's IP.** That fork is the decided answer to the git-history problem — a public repo
+has to be clean all the way back to its first commit, which scrubbing `HEAD` alone cannot
+achieve. So the work falls into three phases:
+
+- **Phase 1 · Sever all IP** (in the predecessor repo) — make the tree build and test
+  green with zero proprietary bytes. **Done 2026-07-06.**
+- **Phase 2 · Rename & fork** — rename to Libre99, then snapshot into the fresh repo.
+  **Done 2026-07-06.**
+- **Phase 3 · Polish & ship 0.1.0** (this repo) — the remaining, IP-free work.
+
+**Phases 1 and 2 completed 2026-07-06.** The rename made the project **Libre99**
+everywhere — the crates (`libre99-core`/`-app`/`-asm`/`-gpl`), the binaries
+(`libre99`, `libre99asm`, `libre99gpl`), the license's `Software:` line, the
+data directory (`~/.libre99/`, adopted from `~/.ti-99-emulator/` by a one-time
+automatic migration; the savestate keeps its machine-named `savestate.ti99`
+file and `TI99SAVE` magic, so old saves still load), all docs, and the book's
+toolchain references — while the machine is still called the **TI-99/4A**
+wherever the hardware is meant. The fork followed the same day: **this
+repository** was created fresh and seeded with a snapshot of the predecessor's
+IP-free tree (at its rebrand commit `b3db72f`, minus TI's Editor/Assembler
+manual PDF, which moved to the git-ignored `third-party/`), so its history has
+never contained a proprietary byte. The old private `ti-99-emulator`
+repository is discontinued and must never be published — its *history* still
+holds the firmware and media its tree shed.
+
+Gate tags below: **[blocker]** must land before 0.1.0 · **[decide]** an owner decision
+gates it.
+
+| # | Phase | Work item | What it involves — and why it sits here | Gate |
+|:--:|---|---|---|:--:|
+| 1 | **1 · Sever IP** | **Verify the tree is clean** | Push this repo and confirm public CI green with zero proprietary bytes on the runners' fresh checkouts; scan the whole tree to confirm no stray TI bytes remain. (Local equivalent verified 2026-07-06 — full suite green with `third-party/` hidden — and re-verified on this repo's snapshot at fork time; the real public-CI run is the remaining check.) *The gate that green-lights the public release.* | [blocker] |
+| 2 | **3 · Polish & ship** | **Save states: atomic + portable** | Replace the plain `fs::write` with temp-file-plus-rename (atomic on both OSes); store a **portable** media re-mount reference (name/relative path, not an absolute `C:\…` vs `/…` path); add a macOS↔Windows round-trip test. Core format already ports (little-endian, self-contained, version-magic-guarded). | [blocker] |
+| 3 | **3 · Polish & ship** | **Docs, in-app help & first-run** | **Revamp the `F1` help (`help.rs`) — explicitly still required before 0.1.0** (the 2026-07-06 media rework and rename made only accuracy edits to it — Joel); first-run onboarding on an empty console; README + USER-GUIDE pass; state plainly that **BASIC/XB need user-supplied authentic ROMs** and note the Video Vegas GROM-2 exception. | [blocker] |
+| 4 | **3 · Polish & ship** | **Legal notices** | "Not affiliated with or endorsed by Texas Instruments" trademark disclaimer (TI marks used nominatively only); a top-level `NOTICE` carrying the OFL font licenses (Silkscreen, IBM Plex Mono) and the Microban level credit. | [blocker] |
+| 5 | **3 · Polish & ship** | **Package & release** | Set the workspace to **0.1.0**, add a `CHANGELOG`, tag; ship prebuilt Windows + macOS binaries via GitHub Releases (incl. the macOS `.app` bundle); final crash/robustness pass (first run, missing dir, bad input, no media). | [blocker] |
+
+**Open decisions (owner)** — each rides on the row noted:
+- **Save-slot split** (row 2): keep the single auto-slot (F6/F8 today), or add multiple
+  named/manual slots? Whatever the shape, slot naming must be cross-platform-safe.
+- **system-roms README "no TI bytes" headline wording** — still open from earlier.
+
+> **Decided 2026-07-06 (owner, via "rebrand everything"):** the data directory is
+> `~/.libre99/` with the `libre99.toml` / `libre99.log` names; startup adopts an
+> existing `~/.ti-99-emulator/` automatically (one-time rename), and the
+> savestate keeps its machine-named `savestate.ti99` file, so nothing is lost in
+> the move. This retired the former "data-dir rename & migration" open decision.
+
+> **Decided 2026-07-06 (owner):** *no* content is bundled with the application —
+> not even our own cartridges. Media enters only via the command line or the
+> system file chooser. (This retired the former "default bundled content"
+> decision; Titris and Sokoban stay in the repo as sources + built `.ctg`s to
+> mount by hand.)
+
+> The git-history question is **resolved and executed**: rather than scrub or squash
+> the old repository, the project forked — this repo's history starts at its own
+> commit 1 and has never contained a proprietary byte. That is why IP removal had to
+> fully precede the fork.
+
+### Definition of done for 0.1.0
+The fresh **libre99** repository — history clean back to commit 1 — builds from a clean
+checkout a binary named **libre99** that contains **no TI or third-party bytes**, boots
+the clean-room firmware, loads cartridges and disks from user-supplied files (command
+line + the system file chooser; nothing bundled), reads *and writes* disks on the
+clean-room DSR, saves and restores state portably across macOS and Windows, passes a
+public CI with no proprietary inventory, ships refreshed docs and in-app help, and is
+downloadable as a prebuilt binary for both platforms.
+
+---
+
+## Design principles (so features stay modular and cherry-pickable)
+
+1. **The core stays pure `std`, zero-dependency.** Anything that needs a crate
+   (file dialogs, gamepads, image/audio encoders) lives in `libre99-app`. New
+   *emulated hardware* (speech, cassette, more RAM) belongs in `libre99-core` and
+   must come with unit tests, like every existing chip.
+2. **Each feature is a self-contained module.** A feature adds a module
+   (`input_layout`, `menu`, `speed`, …) and wires into `app.rs` in one small,
+   additive place. That keeps feature commits independent enough to **cherry-pick
+   onto `main` individually**.
+3. **UI is drawn, not toolkited.** On-screen overlays use the `text::Canvas`
+   framework (a bitmap font + rectangle/dim helpers) introduced with the
+   keyboard reference. No GUI dependency is required for menus, the debugger
+   view, or HUD indicators.
+4. **The save-state format is versioned.** `state.rs` carries a magic + version;
+   any change to what is serialized bumps the version and stays
+   backward-detectable (a foreign/old file is rejected cleanly, never
+   mis-read).
+5. **Persisted choices go through `config.rs`.** New preferences extend the
+   resiliently-parsed TOML (missing/invalid keys fall back to defaults).
+
+---
+
+## Themes & features
+
+Each item is tagged: **[done]** implemented and merged to `main` ·
+**[next]** designed and high-priority · **[later]** valuable, larger ·
+**[stretch]** ambitious.
+
+> **⚠ Clean-room firmware — the big gap: TI BASIC (milestone M6).** The clean-room
+> rewrite (our from-scratch console firmware, **now the default**)
+> **does not run TI BASIC or Extended BASIC programs.** It deliberately ships
+> **TI PYTHON in TI BASIC's menu slot** and has not reimplemented the shared
+> **BASIC-era GPL library** those interpreters call to tokenize and execute a line
+> (console GROM 2, ~5.5 KiB, currently 0 bytes implemented). So by default,
+> Extended BASIC reaches `READY` but `PRINT "HELLO"` does nothing.
+> This is **milestone M6 (BASIC)** of the ROM-rewrite track — the largest remaining
+> piece and a major effort (a whole interpreter's worth of console services; the
+> superset of the L8 Video Vegas one-routine gap). Until it lands, **BASIC needs the
+> authentic ROMs** (now selected via `--system-rom` / `--system-grom` — this is a
+> firmware-rewrite limitation, not an emulator one). Detail:
+> [`original-content/system-roms/LIMITATIONS.md`](../original-content/system-roms/LIMITATIONS.md)
+> L9; user-facing note in [`KNOWN-ISSUES.md`](KNOWN-ISSUES.md). **[later — large]**
+
+### 1. Input & control
+- **Host keyboard layout translation (QWERTY / Dvorak / …).** Toggle between
+  *positional* mapping (host physical key → same TI position, best for games and
+  joystick-style control) and *character* mapping (host **logical** key → TI key,
+  so a Dvorak or AZERTY typist gets the letters they actually typed). **[done]**
+- Full key/joystick **remapping** from the config file. **[next]**
+- **Gamepad** support (via a frontend crate such as `gilrs`). **[later]**
+- **Paste-to-type**: inject host clipboard text as TI keystrokes. **[later]**
+
+### 2. Media management (Classic99-grade)
+- **Media from arbitrary file paths** — `--cartridge <path>` / `--disk <path>`
+  on the command line, and the **OS-native file chooser** on `F9` (`rfd`;
+  starts in the last-mounted-from directory, remembered in the preferences);
+  `F2`/`F3` eject. This **replaced** the earlier embedded-media pickers (the
+  on-screen browser and F2/F3/F4 cycling) when the media embeds were removed
+  with the third-party IP (2026-07-06; owner call: system chooser over a
+  custom browser). Nothing is bundled — the console boots bare. **[done]**
+- **Create / format blank disks**; **import/export** files to and from TI disk
+  images (TIFILES / FIAD). **[later]**
+- **Recently-used** media list; per-title default disk. **[later]**
+- **Fast console-menu cartridge scan (fidelity, firmware).** *(bug/roadmap note,
+  Joel 2026-07-06.)* Our rewritten console GROM menu takes ~1–2 s to build a
+  cartridge's program list and paints a **`SCANNING`** row while it works. The
+  **authentic** menu is fast and shows **no such word** — so both the slowness
+  and the cue are our-side artifacts, not fidelity. Our scan is slow because it
+  re-writes the GROM address per byte over a 512-byte (or full-slot) window
+  (`RECON.md` §10); the `SCANNING` cue was added deliberately to mask that wait
+  (`original-content/system-roms/LIMITATIONS.md` **L5**, whose "the authentic
+  menu has the same cost" assumption this report **corrects**). Fix: speed the
+  `SCANW` walk in `original-content/system-roms/grom/console.gpl` (e.g. bulk
+  copy / fewer address rewrites) to authentic speed, then **remove the
+  `SCANNING`/`BLANK8` cue** so the list simply appears. **[later]**
+
+### 3. Emulation control
+- **Variable speed**: fast-forward / turbo, slow motion, **pause**, and
+  **single-frame advance**, with an on-screen state indicator. **[done]**
+- **Save state** (one self-contained snapshot; auto-saved on exit and resumed at
+  launch) and **screenshots** (PNG). **[done]**
+- **Rewind**: a ring buffer of recent save states scrubbed with a key. **[later]**
+- **Run-ahead** for lower input latency. **[stretch]**
+
+### 4. Debugging & development (Classic99's debugger is the standout)
+- On-screen **debugger overlay**: CPU registers (WP/PC/ST), the workspace, and a
+  memory peek window — a live, non-modal panel. **[done]** (live disassembly at
+  PC and breakpoints are the natural next step.)
+- **Breakpoints**, single-step, and watchpoints driven from the overlay. **[later]**
+- **VDP inspector**: pattern/sprite/name-table and palette viewers. **[later]**
+- **GROM/GPL trace** and a memory editor. **[later]**
+- **Assembler & cartridge builder** (`libre99asm`, crate `libre99-asm`): a from-scratch,
+  Editor/Assembler-compatible TMS9900 assembler that emits bootable `.ctg`
+  cartridges, so new software — and AI agents — can author cartridges for the
+  emulator end to end. User guide and language reference:
+  **[ASSEMBLER.md](../assembler/ASSEMBLER.md)**; pairs with the `libre99-app
+  --cartridge-file <path>` flag to close the build-run loop (relates to §2's
+  "arbitrary file paths"). **[done]** (full TMS9900 ISA; the playable
+  [Titris](../original-content/cartridges/titris/README.md) and
+  [Sokoban](../original-content/cartridges/sokoban/README.md) cartridges prove
+  the pipeline; the bootstrap record is archived at
+  [docs/history/ASSEMBLER-POC-PLAN.md](history/ASSEMBLER-POC-PLAN.md).)
+
+### 5. Video & audio
+- **Beam-accurate (scanline) VDP rendering**: each of the 192 active lines is
+  rasterized from live VRAM at the moment the beam crosses it, interleaved with
+  that line's ~190.84 CPU cycles; the frame interrupt rises at end of active
+  display (line 192 of 262) and 5S/coincidence latch per line — so mid-frame
+  VRAM writes, flashing text, and screen splits render as on hardware (gates in
+  `libre99-core/tests/beam.rs`; the Parsec in-game garble first pinned on this
+  turned out to be firmware — the `>004A` lower-case loader, see
+  KNOWN-ISSUES — but the beam model is hardware-true and stands). **[done]**
+  (2026-07-06 — was QUALITY-EVALUATION §3.2 A1 / the "scanline-stepped VDP
+  behind the existing seam" deferral.) Two Classic99 refinements deliberately
+  remain:
+  - **Sub-instruction status-read catch-up** (Classic99 `Tiemul.cpp:5155`):
+    advance the VDP to the exact mid-instruction cycle on status reads, for
+    software that polls the F bit with interrupts enabled (fbForth's RNG) —
+    our F/5S/C changes are quantized to instruction boundaries. **[later]**
+  - **Real-time fifth-sprite-number counting** (Classic99 `tivdp.cpp:2641`):
+    when no fifth sprite exists the status low bits count the last sprite
+    scanned, in real time; Miner 2049er reads it mid-frame. We latch the
+    number only with 5S (P2.3). **[later]**
+- **CRT presentation**: aspect correction, selectable smooth scaling, and
+  optional scanline/shader *filters* (a look, unrelated to the beam-accurate
+  rasterizer above). **[later]**
+- Selectable **palettes** (TI, the perceptual Classic99 set, greyscale). **[later]**
+- **Screenshot** (PNG) — see §3 — and **GIF/video** capture. **[later]**
+- **Audio recording** to WAV. **[later]**
+- **F18A** enhanced VDP (extra modes, palette, GPU). **[stretch]**
+
+### 6. Hardware & peripherals
+- **TMS5220 speech synthesizer** (the Speech Synthesizer module). **[later]**
+- **Cassette (CS1/CS2)** in/out (load/save programs to a `.wav`/sound file).
+  **[later]** — *not yet emulated:* `crates/libre99-core/src/cru.rs` leaves the
+  cassette motor/level CRU outputs "not wired" and provides no read-data input,
+  so the console's cassette DSR can prompt but never transfers a byte. This
+  blocks loading a file from **CS1** (e.g. a Tunnels of Doom scenario from tape);
+  the **disk (DSK1)** path is the supported alternative. Building this means
+  modeling the CRU cassette bits (22/23 motor, 24 audio gate, 25 out, 27 in),
+  the 9901 interval timer the tape loops rely on, + a tape image/`.wav` source
+  feeding the read-data bit the DSR polls. **Decision (Joel, 2026-07-02):**
+  the console-ROM rewrite (decision record in the archived
+  `original-content/system-roms/history/ROM-REWRITE-PLAN.md`
+  §10.2) ships **interface-correct CS1/CS2 error behavior only** — its ROM-side
+  tape transport (bit engines + timer ISR) is deferred until this hardware
+  exists; when someone builds this item, commission the ROM transport with it.
+- **Alpha-lock switch input.** `cru.rs` models alpha-lock only as the P5 output
+  latch; the console ROM reads the physical switch by driving P5 low and testing
+  CRU bit 7 (`SBZ 21 / TB 7 / SBO 21` — pinned in
+  `original-content/system-roms/rom/RECON.md` §23). With no switch input the
+  line idles high ("not locked"), so lowercase-capable keytabs never fold — under
+  the authentic ROM and the rewrite alike. Building this: latch a host toggle
+  (Caps Lock) as the switch state, return it on CRU bit 7 while the P5 latch is
+  low (keyboard row 4 otherwise), and reproduce the real-hardware quirk that an
+  engaged alpha lock interferes with joystick-up (Classic99 models it). The ROM
+  side is already written and differentially gated (`libre99-gpl/tests/rom_kscan.rs`);
+  this item makes the fold functional under both ROMs. **[later]**
+  - **Decoupled prerequisite win (do first): ship the authentic lowercase
+    keytab.** Extended BASIC currently types **uppercase** because our GROM's
+    unshifted keytab (`crates/libre99-gpl/src/keymap.rs`) stores uppercase where the
+    real machine stores lowercase (see `docs/KNOWN-ISSUES.md` "Extended BASIC …
+    types UPPERCASE"). Because the switchless line already idles "not locked,"
+    flipping the table to lowercase makes native-mode typing lowercase (real
+    behavior) **with zero new hardware** — the menu still folds to uppercase in
+    state 0. The alpha-lock *host toggle* above is only needed to let a user
+    *lock* back to uppercase; it is **not** required for lowercase-by-default.
+    **[next]**
+- Memory options: **SAMS/AMS** expansion beyond the 32K. **[later]**
+- Multiple **console ROM revisions**, and the TI-99/4 (vs 4A) keyboard. **[later]**
+- More **PEB cards**: RS232/serial, p-code. **[stretch]**
+
+### 7. Quality of life & packaging
+- macOS **`.app` bundle** (milestone 10) and an optional **native menu bar** that
+  mirrors the in-app overlays. **[next]**
+- A **settings overlay** to edit preferences without leaving the app. **[later]**
+- **Cheats / poke editor** (RAM patches with a small database). **[later]**
+- **Netplay** over the `Bus`/input seam. **[stretch]**
+
+### 8. Assurance & hardening
+- **Disk-DSR assurance follow-through.** The clean-room disk DSR shipped as the
+  default (2026-07-06) with 24 differential gates green, but several
+  instruments from its plan's own definition-of-done remain: the random-PAB
+  differential **fuzz** (the highest-value item — corruption protection beyond
+  the hand-written gates), parameterizing the pre-existing disk test estate
+  over `[TI_DSR, OUR_DSR]`, the all-bundled-disks catalog/read sweep, a TI
+  BASIC scripted file-I/O parity gate, the op-surface completeness sweep +
+  entry-census tripwire, the perf tripwire, a manual xdt99 round-trip, plus
+  source hygiene (mojibake repair in `disk-dsr.asm` + an encoding tripwire)
+  and doc sync. **Explicitly not required for 0.1.0** (Joel, 2026-07-06) —
+  the DSR's differential evidence already supports daily use; this deepens
+  it. Full execution plan for a working session:
+  [`original-content/system-roms/disk-dsr/DSR-ASSURANCE-PLAN.md`](../original-content/system-roms/disk-dsr/DSR-ASSURANCE-PLAN.md)
+  (its A0 hygiene/doc chunk is cheap and pull-forward-able any time). **[later]**
+
+---
+
+## Status — implemented (merged to `main`)
+
+Each feature below landed as a single, self-contained commit that **builds and
+runs on its own** — designed so any one could be cherry-picked independently — and
+the slice has since been merged to `main`. This table is updated in the same commit
+that lands a feature.
+
+| Feature | Module(s) | Commit |
+|---|---|---|
+| Roadmap (this document) | `docs/ROADMAP.md` | `a81148c` |
+| Host keyboard layout translation (Dvorak/QWERTY) | `input` (`KeyLayout`), `config` | `e698ff8` |
+| In-app media browser + metadata | `menu` | `22a644d` |
+| Variable speed (turbo / pause / frame-advance) | `speed` | `4bfba1d` |
+| Screenshot (built-in PNG encoder) | `screenshot` | `980550b` |
+| Save state (single; auto-save on exit + resume at launch) | `app`, `config` | `2ad3d05` |
+| Live CPU inspector overlay (registers + memory) | `debug` | `e681a7a` |
+| Assembler & cartridge builder — full TMS9900 ISA (`libre99asm`) | `libre99-asm` | `93055a6` |
+| Mount a `.ctg` from disk (`--cartridge-file`) | `cli`, `app` (main) | `a034949` |
+| Public/local test split — runtime `third-party/` media loading, skip-when-absent | `libre99-core` (`third_party`), all test suites | `e5fef69` |
+| Zero embedded media — CLI paths + the system file chooser (`F9`), `F2`/`F3` eject | `media`, `cli`, `app`, `config` | `b41a03e` |
+
+> The list above is the *committed* slice of the roadmap; everything tagged
+> **[next]/[later]/[stretch]** is future work, captured here so the design intent
+> is recorded even where the code isn't written yet.

@@ -1,0 +1,22 @@
+# Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+# with Commons Clause — see LICENSE.md at the repository root.
+#
+# BENCH99 — the book's lab bench. A tiny monitor/driver over the emulator core
+# (libre99-core) with the assembler crate's disassembler for trace listings.
+# Built and used from Chapter 2 onward; see the book's Chapter 3, section 3.8.
+
+# A standalone crate (not a member of the emulator's workspace).
+[workspace]
+
+[package]
+name = "bench99"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libre99-core = { path = "../../../../crates/libre99-core" }
+libre99-asm = { path = "../../../../crates/libre99-asm" }
+
+[[bin]]
+name = "bench99"
+path = "src/main.rs"

@@ -1,0 +1,63 @@
+* TEXTLIB.A99 — self-test harness for textlib.inc.                     (Ch. 13)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* The lib99 composition chain in action: this consumer COPYs equates, then
+* vdplib.inc, then textlib.inc — dependencies first — and supplies START.
+*
+* The test: bring up Graphics I with TXMODE, print "C0DE" with TXHEX at (1,1)
+* and "DEAD" with TXPUTS at (2,1), then self-check by reading the name table
+* back with VSBR and paint the border via VWTR — GREEN >02 pass / RED >06 fail.
+* Cross-check on the bench:  screen  (shows the name table as text) and
+* vram 0980 8 / vram 0A08 8  (the loaded '0' and 'A' glyphs).
+
+       COPY '../ch11/equates.inc'      ports + GREEN/RED
+       COPY '../ch12/vdplib.inc'       the VDP core
+       COPY 'textlib.inc'              the text engine under test
+
+WS     EQU  >8300            harness workspace
+STKTOP EQU  >8340            stack top (grows down, below CURPOS at >8342)
+DONEMK EQU  >8344            completion marker
+
+START  LWPI WS
+       LI   R10,STKTOP
+       BL   @TXMODE          Graphics I up, font loaded, screen cleared
+
+       LI   R0,1             cursor to (row 1, col 1)
+       LI   R1,1
+       BL   @TXLOC
+       LI   R1,>C0DE         print "C0DE" as four hex digits
+       BL   @TXHEX
+
+       LI   R0,2             cursor to (row 2, col 1)
+       LI   R1,1
+       BL   @TXLOC
+       LI   R1,SDEAD         print the string "DEAD"
+       BL   @TXPUTS
+
+* self-check: name cell (1,1) = 1*32+1 = >0021 should hold 'C' (>43).
+* VSBR returns the byte in R1's HIGH half (low half unspecified) — compare
+* with CB (byte), not CI (word).
+       LI   R0,>0021
+       BL   @VSBR
+       LI   R5,>4300        expected 'C' in the high half
+       CB   R1,R5
+       JNE  FAIL
+* name cell (2,1) = 2*32+1 = >0041 should hold 'D' (>44)
+       LI   R0,>0041
+       BL   @VSBR
+       LI   R5,>4400        expected 'D'
+       CB   R1,R5
+       JNE  FAIL
+
+PASS   LI   R0,7
+       LI   R1,GREEN
+       JMP  PAINT
+FAIL   LI   R0,7
+       LI   R1,RED
+PAINT  BL   @VWTR
+       LI   R0,>C0DE
+       MOV  R0,@DONEMK
+SPIN   JMP  SPIN
+
+SDEAD  DATA >4445,>4144,>0000    "DEAD" (D E A D) + null terminator
+       END  START

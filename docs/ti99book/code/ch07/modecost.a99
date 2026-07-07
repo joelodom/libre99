@@ -1,0 +1,22 @@
+* MODECOST — the five doors, priced                             (Ch. 7)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* One MOV per addressing mode, destination held constant in a register,
+* everything on the fast island so the differences are the modes' own
+* cycle add-ons (no funnel). Step under BENCH99 and read per-instruction
+* cycles from the trace.
+
+WS     EQU  >8300            workspace (fast pad)
+DAT    EQU  >8360            a pad word to point at
+
+START  LWPI WS
+       LI   R1,DAT           R1 -> a pad word
+       LI   R4,2             a nonzero index (R0 may not index)
+       MOV  R3,R2            (1) Rn        — register direct
+       MOV  *R1,R2           (2) *Rn       — indirect
+       MOV  *R1+,R2          (3) *Rn+      — indirect autoincrement
+       LI   R1,DAT           reset R1 (it stepped)
+       MOV  @DAT,R2          (4) @LABEL    — symbolic
+       MOV  @DAT(R4),R2      (5) @LABEL(Rn) — indexed
+HALT   JMP  HALT
+       END  START

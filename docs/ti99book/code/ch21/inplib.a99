@@ -1,0 +1,58 @@
+* INPLIB.A99 — self-test harness for lib99's input layer.             (Ch. 21)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* Proves inplib on BENCH99. The edge detector is pure logic, so it is checked
+* against known prev/cur masks; the live joystick read is checked to return
+* IDLE (>0000) on the bare bench, where — as ch10 established — no switch can be
+* pressed (BENCH99's `k` injects keys only in boot mode). Together these cover
+* both halves: the CRU read executes and reads idle, and the edge math is right.
+* Green (>02) if every case passes.
+*
+*   case A  prev=LEFT, cur=LEFT+RIGHT    -> pressed=RIGHT, released=none
+*   case B  prev=LEFT+RIGHT, cur=RIGHT   -> pressed=none,  released=LEFT
+*   case C  live IREAD joystick 0        -> >0000 (idle)
+*
+* Build:  libre99asm code/ch21/inplib.a99 ...
+* Verify: load, pc START, x 200, then  vdp  (R7=>02 pass)
+
+       COPY '../ch11/equates.inc'
+       COPY '../ch12/vdplib.inc'
+       COPY 'inplib.inc'
+
+WS     EQU  >8300
+STKTOP EQU  >8340
+
+START  LWPI WS
+       LI   R10,STKTOP
+
+* case A: prev = LEFT (>02), cur = LEFT+RIGHT (>06)
+       LI   R0,INLEFT
+       LI   R1,>0006
+       BL   @IEDGE
+       CI   R2,INRGHT        pressed must be RIGHT
+       JNE  BAD
+       CI   R3,0            released must be none
+       JNE  BAD
+* case B: prev = LEFT+RIGHT (>06), cur = RIGHT (>04)
+       LI   R0,>0006
+       LI   R1,INRGHT
+       BL   @IEDGE
+       CI   R2,0            pressed none
+       JNE  BAD
+       CI   R3,INLEFT       released LEFT
+       JNE  BAD
+* case C: live joystick 0 read is idle on the bare bench
+       CLR  R0
+       BL   @IREAD
+       CI   R1,0
+       JNE  BAD
+
+       LI   R0,7            all cases pass
+       LI   R1,GREEN
+       BL   @VWTR
+       JMP  HALT
+BAD    LI   R0,7
+       LI   R1,RED
+       BL   @VWTR
+HALT   JMP  HALT
+       END  START

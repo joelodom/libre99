@@ -1,0 +1,42 @@
+* COOKBOOK.A99 — measure the canonical VDP operations, for the §18.6     (Ch. 18)
+* bandwidth cookbook.  Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* A straight-line sequence of the operations Part III leans on, each ending at a
+* labeled point, so the bench can bracket every one with `cycles`:
+*   C0  one register write     (VWTR)
+*   C1  one VRAM byte           (VSBW = aim + 1 byte)
+*   C2  256 bytes bulk          (VMBW)
+*   C3  768 raw streamed bytes  (aim once, MOVB loop — a name-table clear)
+* Measure: u C0 / cycles ; u C1 / cycles ; u C2 / cycles ; u C3 / cycles ;
+* u C4 / cycles. Each delta is that operation's cost.
+*
+* Build:  libre99asm code/ch18/cookbook.a99 ...
+
+       COPY '../ch11/equates.inc'
+       COPY '../ch12/vdplib.inc'
+
+WS     EQU  >8300
+STKTOP EQU  >8340
+
+START  LWPI WS
+       LI   R10,STKTOP
+C0     LI   R0,7             one register write
+       LI   R1,>0100
+       BL   @VWTR
+C1     LI   R0,>0100         one VRAM byte (aim + write)
+       LI   R1,>AA00
+       BL   @VSBW
+C2     LI   R0,>0200         256 bytes, bulk
+       LI   R1,SRC
+       LI   R2,256
+       BL   @VMBW
+C3     LI   R0,0             768 raw streamed bytes (aim once, then MOVB)
+       BL   @VWA
+       LI   R1,>2000
+       LI   R2,768
+CKLP   MOVB R1,@VDPWD
+       DEC  R2
+       JNE  CKLP
+C4     JMP  C4
+SRC    BSS  256
+       END  START

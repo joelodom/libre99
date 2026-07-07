@@ -1,0 +1,21 @@
+* MMIO — a plain MOVB is a conversation with hardware          (Ch. 5)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* No OS, no driver, no permission: a handful of MOVB instructions, and
+* a device answers. We aim the GROM's address pointer, then read it back
+* twice — and the two reads DISAGREE, because each read advances the
+* port's byte selector. On this machine, reading is not looking.
+
+WS     EQU  >8300            our workspace (fast pad)
+GRMWA  EQU  >9802            GROM read-address port
+GRMSA  EQU  >9C02            GROM write-address port
+
+START  LWPI WS               a workspace of our own
+       LI   R0,>6000         an address to aim the GROM at
+       MOVB R0,@GRMSA        write the address, high byte first ...
+       SWPB R0
+       MOVB R0,@GRMSA        ... then the low byte
+       MOVB @GRMWA,R1        read it back (one byte) ...
+       MOVB @GRMWA,R2        ... read again: a DIFFERENT byte
+HALT   JMP  HALT             stop here
+       END  START

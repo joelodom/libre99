@@ -1,0 +1,25 @@
+[package]
+name = "libre99-app"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Desktop frontend for the TI-99/4A emulator (window, audio, input)."
+
+[[bin]]
+name = "libre99"
+path = "src/main.rs"
+
+[dependencies]
+libre99-core = { path = "../libre99-core" }
+winit = "0.30"
+softbuffer = "0.4"
+cpal = "0.15"
+log = "0.4"
+simplelog = "0.12"
+toml = "0.8"
+# Glyph rasterizer for the native-resolution help overlay. Pure Rust; lets the
+# overlay draw the embedded Silkscreen / IBM Plex Mono faces (assets/fonts/) at
+# any window size. The "zero third-party deps" rule is `libre99-core`'s alone.
+ab_glyph = "0.2"
+rfd = "0.17.2"

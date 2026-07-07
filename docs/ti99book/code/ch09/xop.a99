@@ -1,0 +1,37 @@
+* XOP — the "extended operation": a BLWP whose vector you do NOT own.   (Ch. 9)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* XOP n (n = 0..15) traps through the vector at >0040 + n*4 = {WP, PC}, saving
+* the caller's WP/PC/ST into the new R13/R14/R15 exactly like BLWP. TWO things
+* make it different, and this file proves both by single-stepping ONE XOP:
+*
+*   1. It passes the operand's EFFECTIVE ADDRESS in the new R11 (a pointer to
+*      the argument, not the argument) — so an XOP handler is handed a operand
+*      by reference for free.
+*   2. It sets the ST "X" bit (status bit 6), the CPU's XOP-in-progress flag.
+*
+* The catch that decides everything: on a stock TI-99/4A the sixteen XOP
+* vectors live at >0040-007F, which is CONSOLE ROM — read-only. You cannot
+* install your own XOP the way you point a BLWP vector anywhere in your RAM.
+* The console owns all sixteen. That is exactly why this book's calling
+* conventions (Ch. 9.3) are built on BLWP, not XOP.
+*
+* HOW TO RUN: this program cannot paint a verdict — after the XOP it is inside
+* the console's ROM handler, not back here. Single-step it and read the
+* transfer, don't run it to completion:
+*     load build/xopc.bin
+*     pc <START> ; s ; s          (past LWPI and LI)
+*     s ; r                        (the XOP: watch PC/WP jump, R11 = &OPND)
+* The XOP-0 vector on the loaded console reads {WP=>280A, PC=>0C1C}; verify it
+* first with  m 0040 4  — your console ROM decides where XOP 0 actually goes.
+
+WS     EQU  >8300            our workspace (fast island)
+
+START  LWPI WS
+       LI   R1,>1234         a marker, so the register file is not all zero
+       XOP  @OPND,0          trap through the console's XOP-0 vector at >0040
+* --- execution never falls through to here on a stock console: the ROM
+*     handler runs in ITS workspace and returns (or not) on ITS terms ---
+HALT   JMP  HALT
+OPND   DATA >BEEF            the operand; XOP puts its ADDRESS (not >BEEF) in R11
+       END  START

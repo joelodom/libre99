@@ -13,6 +13,18 @@ target
 # Contains mutation testing data
 **/mutants.out*/
 
+# Claude Code local config
+.claude/
+.mcp.json
+
+# Third-party media (TI firmware, commercial cartridge/disk images) —
+# NOT the project's to redistribute; never tracked. Maintainers keep local
+# copies here so the differential test suites can run (docs/DEVELOPMENT.md).
+/third-party/
+
+# Assembler POC build artifacts (hand-written .asm, generated .ctg/.bin, etc.)
+assembler/poc/
+
 # RustRover
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore

@@ -1,0 +1,77 @@
+* TEXTLIB40.A99 — self-test harness for lib99's 40-column text engine. (Ch. 14)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* Proves textlib40 (and its 6-pixel font) on BENCH99. Brings up TEXT mode, then
+* prints the whole alphabet and digits (so `pixels 1` can read every glyph), a
+* pangram (all 26 letters in one 39-char line), and a hex value via TX40HX.
+* Then it reads cell (0,0) back with VSBR and checks it is 'A' (>41), and paints
+* the border-verdict into R7: white-on-GREEN (>F2) pass / white-on-RED (>F6).
+*
+* Build:  libre99asm code/ch14/textlib40.a99 ...
+* Verify: load, pc START, x 30000, then  vdp  (R7=>F2 pass) /  screen  /  pixels 1
+
+       COPY '../ch11/equates.inc'
+       COPY '../ch12/vdplib.inc'
+       COPY 'textlib40.inc'
+
+WS     EQU  >8300            this program's workspace (R0-R15)
+STKTOP EQU  >8340            R10 software stack top (grows down, below CUR40)
+
+START  LWPI WS
+       LI   R10,STKTOP
+       BL   @TX40MD          TEXT mode, font, colours, cleared screen
+
+* --- row 0: the alphabet; row 1: the digits (the font, laid bare) ---
+       CLR  R0
+       CLR  R1
+       BL   @TX40LC
+       LI   R1,SALPHA
+       BL   @TX40PS
+       LI   R0,1
+       CLR  R1
+       BL   @TX40LC
+       LI   R1,SDIGS
+       BL   @TX40PS
+
+* --- row 3: a pangram — every letter, once, on one line ---
+       LI   R0,3
+       CLR  R1
+       BL   @TX40LC
+       LI   R1,SPAN
+       BL   @TX40PS
+
+* --- row 5: a label and a hex value through TX40HX ---
+       LI   R0,5
+       CLR  R1
+       BL   @TX40LC
+       LI   R1,SHEX
+       BL   @TX40PS
+       LI   R1,>C0DE
+       BL   @TX40HX
+
+* --- self-check: cell (0,0) must read back 'A' (>41), high half (VSBR law) ---
+       CLR  R0
+       BL   @VSBR            R1 high = VRAM[0]
+       LI   R5,>4100         'A' in the high half
+       CB   R1,R5
+       JNE  BAD
+
+       LI   R0,7             PASS: white on green
+       LI   R1,>F200
+       BL   @VWTR
+       JMP  HALT
+BAD    LI   R0,7             FAIL: white on red
+       LI   R1,>F600
+       BL   @VWTR
+HALT   JMP  HALT
+
+SALPHA TEXT 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+       BYTE 0
+SDIGS  TEXT '0123456789'
+       BYTE 0
+SPAN   TEXT 'PACK MY BOX WITH FIVE DOZEN LIQUOR JUGS'
+       BYTE 0
+SHEX   TEXT 'HEX C0DE READS '
+       BYTE 0
+       EVEN
+       END  START

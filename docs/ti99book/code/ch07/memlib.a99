@@ -1,0 +1,133 @@
+* MEMLIB — copy, fill, compare, scan (v0), with self-test        (Ch. 7)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* The first deposit toward lib99 (Ch. 11). Leaf routines: BL @NAME in,
+* RT out. Arguments ride R0-R2 and may be clobbered. Byte-sized cargo
+* rides the HIGH half of its register (the high-byte law, promoted to
+* calling convention). START (below the library) is the self-test
+* harness: it exercises every routine and paints the verdict on the
+* screen border — green for pass, red for fail (§7.7). Ch. 11 lifts the
+* routines above the rule into code/lib99/ unchanged.
+
+WS     EQU  >8300            harness workspace (fast pad)
+VDPWA  EQU  >8C02            VDP address/register write port
+GREEN  EQU  >0200            border color: medium green, in the high half
+RED    EQU  >0600            border color: dark red, in the high half
+
+* ===================== the library ==============================
+
+* MEMCPY — copy R0 words from R1 to R2.
+MEMCPY MOV  R0,R0            zero words? nothing to do (a move is a test)
+       JEQ  MCPYX
+MCPYL  MOV  *R1+,*R2+        the pump: one word, both pointers step
+       DEC  R0
+       JNE  MCPYL
+MCPYX  RT                    ; back to caller
+
+* MEMCPB — copy R0 bytes from R1 to R2 (any count, any parity).
+MEMCPB MOV  R0,R0
+       JEQ  MCPBX
+MCPBL  MOVB *R1+,*R2+        byte pump: steps by one
+       DEC  R0
+       JNE  MCPBL
+MCPBX  RT                    ; back to caller
+
+* MEMFIL — stamp the word in R1 into R0 words at R2.
+MEMFIL MOV  R0,R0
+       JEQ  MFILX
+MFILL  MOV  R1,*R2+          stamp, step the destination
+       DEC  R0
+       JNE  MFILL
+MFILX  RT                    ; back to caller
+
+* MEMCMP — compare R0 words at R1 vs R2. Returns R0 = 0 if equal,
+* else the address (R1 side) of the first mismatching word.
+MEMCMP MOV  R0,R0
+       JEQ  MCMPEQ
+MCMPL  C    *R1+,*R2+        compare a word, both pointers step
+       JNE  MCMPNE
+       DEC  R0
+       JNE  MCMPL
+MCMPEQ CLR  R0               all equal
+       RT                    ; back to caller
+MCMPNE DECT R1               R1 stepped past; back up to the mismatch
+       MOV  R1,R0            report its address
+       RT                    ; back to caller
+
+* MEMSCN — find the byte in R2's HIGH half among R0 bytes at R1.
+* Returns R1 = match address, or 0 if the byte is absent.
+MEMSCN MOV  R0,R0
+       JEQ  MSCNNO
+MSCNL  CB   *R1+,R2          byte at R1 vs R2's high half
+       JEQ  MSCNHT
+       DEC  R0
+       JNE  MSCNL
+MSCNNO CLR  R1               absent
+       RT                    ; back to caller
+MSCNHT DEC  R1               back up to the matching byte
+       RT                    ; back to caller
+
+* ===================== the self-test ===========================
+* Known vectors live in ROM; buffers live in the pad.
+SRC    DATA >1111,>2222,>3333,>4444
+SRCLEN EQU  4
+FILEXP DATA >ABCD,>ABCD,>ABCD,>ABCD
+SCANB  BYTE >41,>42,>43,>44,>45,>00
+       EVEN
+SCLEN  EQU  6
+
+WORK   EQU  >8320            copy destination (pad)
+WORK2  EQU  >8330            fill destination (pad)
+
+START  LWPI WS               registers on the fast island
+* test 1 — MEMCPY then MEMCMP: WORK must equal SRC
+       LI   R0,SRCLEN
+       LI   R1,SRC
+       LI   R2,WORK
+       BL   @MEMCPY
+       LI   R0,SRCLEN
+       LI   R1,SRC
+       LI   R2,WORK
+       BL   @MEMCMP
+       MOV  R0,R0            0 = equal
+       JNE  FAIL
+* test 2 — MEMFIL then MEMCMP: WORK2 must equal FILEXP
+       LI   R0,4
+       LI   R1,>ABCD
+       LI   R2,WORK2
+       BL   @MEMFIL
+       LI   R0,4
+       LI   R1,WORK2
+       LI   R2,FILEXP
+       BL   @MEMCMP
+       MOV  R0,R0
+       JNE  FAIL
+* test 3 — MEMSCN hit: 'C' (>43) is the third byte of SCANB
+       LI   R0,SCLEN
+       LI   R1,SCANB
+       LI   R2,>4300         target byte in the high half
+       BL   @MEMSCN
+       CI   R1,SCANB+2       matched at the third byte?
+       JNE  FAIL
+* test 4 — MEMSCN miss: 'z' (>7A) is not present
+       LI   R0,SCLEN
+       LI   R1,SCANB
+       LI   R2,>7A00
+       BL   @MEMSCN
+       MOV  R1,R1            0 = absent
+       JNE  FAIL
+* all tests passed
+PASS   LI   R0,GREEN
+       BL   @BORDER
+PSPIN  JMP  PSPIN            green: PASS
+FAIL   LI   R0,RED
+       BL   @BORDER
+FSPIN  JMP  FSPIN            red: FAIL
+
+* BORDER — paint the screen border. R0's high half = the color; we then
+* select VDP register 7 (backdrop). Two byte writes to the address port.
+BORDER MOVB R0,@VDPWA        the color byte ...
+       LI   R0,>8700         ... register 7, write bit set
+       MOVB R0,@VDPWA
+       RT                    ; back to caller
+       END  START

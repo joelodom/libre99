@@ -1,0 +1,42 @@
+* RECORD — arrays and records by hand                           (Ch. 7)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* A 4-entry table of 6-byte records (X word, Y word, HP byte, FLAGS
+* byte), read in the RECORD costume (register base, EQU'd field offset),
+* plus a word array and a byte array read in the ARRAY costume (label
+* base, register index) — the word case showing the x2 scaling.
+
+WS     EQU  >8300            workspace (fast pad)
+XOFF   EQU  0                record field offsets
+YOFF   EQU  2
+HPOFF  EQU  4
+FLOFF  EQU  5
+RECSIZ EQU  6
+ENT3   EQU  3*RECSIZ         entry-3 offset, precomputed (libre99asm has no
+*                            operator precedence: TABLE+3*RECSIZ would be
+*                            read left-to-right as (TABLE+3)*RECSIZ)
+
+TABLE  DATA >0064,>0032      entry 0: X=100  Y=50
+       BYTE >0A,>01                  HP=10  FLAGS=1
+       DATA >00C8,>0096      entry 1: X=200  Y=150
+       BYTE >14,>00
+       DATA >012C,>00FA      entry 2: X=300  Y=250
+       BYTE >1E,>81
+       DATA >0190,>012C      entry 3: X=400  Y=300
+       BYTE >28,>02
+WARR   DATA >1111,>2222,>3333,>4444
+BARR   BYTE >AA,>BB,>CC,>DD
+       EVEN
+
+START  LWPI WS
+* record costume: read entry 3's X (word) and HP (byte, high half)
+       LI   R9,TABLE+ENT3        R9 -> entry 3's base
+       MOV  @XOFF(R9),R1         R1 = entry3.X = >0190
+       MOVB @HPOFF(R9),R2        R2 high = entry3.HP = >28
+* array costume: word table needs the index doubled; byte table does not
+       LI   R4,2*2               element 2 of a WORD table -> offset 4
+       MOV  @WARR(R4),R3         R3 = WARR[2] = >3333
+       LI   R5,2                 element 2 of a BYTE table -> offset 2
+       MOVB @BARR(R5),R6         R6 high = BARR[2] = >CC
+HALT   JMP  HALT
+       END  START
