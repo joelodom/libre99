@@ -92,7 +92,7 @@ header. **Add the right header to every new source file.**
 
 **Versioning.** The book is versioned to **track the Libre99 project version** —
 the single source of truth is the workspace `version` in the repo-root
-`Cargo.toml` (**currently 0.0.1**). The book's `README.md` shows that number;
+`Cargo.toml` (**currently 0.1.0**). The book's `README.md` shows that number;
 keep it in sync when the project bumps (the book releases in lock-step with the
 toolchain it documents). This is a *release* version — distinct from the
 outline's editorial `v1.x` amendments, which track manuscript revisions, not
