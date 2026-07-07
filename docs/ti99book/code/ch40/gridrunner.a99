@@ -1,0 +1,1289 @@
+* GRIDRUNNER.A99 — Capstone II: the fixed-screen maze chase.        (Ch. 40)
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
+*
+* Part IX's second complete title — and a CONSTRAINT STUDY. Where METEOR BELT
+* (Ch.39) parked its entity tables at >A000, GRIDRUNNER must run on a BARE
+* console: 256 bytes of CPU RAM, no 32K, an 8K cartridge. So the whole game
+* lives in the scratchpad + VRAM. Two famine tricks carry it:
+*   (1) the WALLS ARE AN ALGORITHM (WALLAT), not a table — zero bytes of RAM;
+*   (2) the NAME TABLE IS THE PELLET DATABASE — a cell holds a pellet glyph
+*       until eaten, so no pellet bitmap sits in the pad either.
+* Only five actors (player + four chasers) and a handful of scalars occupy the
+* pad. On top: the SKELETON99 phase machine, TARGET-TILE enemy AI with four
+* personalities, scatter/chase MODE timers, a speed-tier difficulty ramp, a
+* three-channel sound identity, and a recorded-input ATTRACT demo.
+*
+* Like DODGE (Ch.16) and METEOR BELT (Ch.39), the interactive layer (real
+* joystick, the frame-timed loop under the beam) belongs to the running machine;
+* here START drives the engine through a DETERMINISTIC script so every subsystem
+* is provable on the bench, then paints the border verdict: GREEN (>02) if every
+* assertion holds, RED (>06) with a failure id in FAILID otherwise.
+*
+* Verify: load, pc START, x 400000, then  vdp  (VR7 = >02 = all systems pass)
+* and  m 8360 2  (FAILID = 0). See gridrunner.bench for the scripted assertions.
+*
+* Build:  libre99asm code/ch40/gridrunner.a99 --format bin -o build/GRIDC.bin
+
+       COPY '../ch11/equates.inc'      ports, colours, the fast island
+       COPY '../ch12/vdplib.inc'       VWTR/VWA/VSBW/VMBW/VSBR
+       COPY '../ch16/spritelib.inc'    SINIT/SPAT/SPUT/SMOV/SHIDE
+       COPY '../ch19/sndlib.inc'       STONE/SVOL/SNOISE/SSILNC
+
+* ================= the fast island: workspace, stack, hot scalars =========
+* Everything the game owns fits below the firmware zone (Ch.24): the workspace,
+* a small stack, the scalars, the five-actor table, and the AI scratch.
+WS     EQU  >8300            workspace (>8300-831F)
+STKTOP EQU  >8340            R10 software stack top (grows down, Ch.9)
+STATE  EQU  >8342            phase: 0 ATTRACT / 1 PLAY / 2 OVER
+SIG    EQU  >8344            running phase's signature (dispatch proof)
+SEED   EQU  >8346            LFSR state (unused by the deterministic test)
+SCORE  EQU  >8348            score
+LIVES  EQU  >834A            lives remaining
+LEVEL  EQU  >834C            current level (1..), drives the speed tier
+DOTS   EQU  >834E            pellets remaining (0 -> level clear)
+MODE   EQU  >8350            0 = scatter, 1 = chase
+MODET  EQU  >8352            ticks left in this scatter/chase phase
+FRIGHT EQU  >8354            frightened ticks remaining (0 = normal)
+SPEED  EQU  >8356            pixels/frame this level (divides 8)
+EATEN  EQU  >8358            verify: pellets eaten
+CAUGHT EQU  >835A            verify: times the player was caught
+CLEARS EQU  >835C            verify: levels cleared
+TICKN  EQU  >835E            self-test tick counter (survives inner clobbers)
+FAILID EQU  >8360            self-test failure id (0 = pass)
+WANTD  EQU  >8362            player's desired direction (input or script)
+
+* ---- the five-actor table: player + four enemies, 8 bytes each -----------
+* Slot: +0 PX +1 PY (maze-relative pixels) +2 DIR +3 NDIR +4 PERS +5 pad
+*       +6 HX +7 HY (scatter-corner tile). This is SKELETON99's fixed-slot
+* table (Ch.36.4) returned to the pad where it was born.
+ACTBL  EQU  >8364            actor table base
+PLAYER EQU  >8364            slot 0 = the player
+ENEMS  EQU  >836C            slots 1-4 = the enemies (>8364 + 8)
+ENEMND EQU  >838C            first byte past the enemy table (loop sentinel)
+NENEM  EQU  4
+ASIZE  EQU  8
+
+* ---- AI scratch (the decision's working values) --------------------------
+ATX    EQU  >838C            deciding actor's tile column
+ATY    EQU  >838E            deciding actor's tile row
+AGX    EQU  >8390            target tile column
+AGY    EQU  >8392            target tile row
+ABD    EQU  >8394            best direction so far (STOP = none yet)
+ABDS   EQU  >8396            best distance so far
+ADC    EQU  >8398            direction currently being tried
+AIMAX  EQU  >839A            0 = pick nearest (chase), 1 = farthest (flee)
+DCUR   EQU  >839C            attract-demo cursor
+
+* ================= tuning: the game's balance, as constants ===============
+MW     EQU  19               maze width  (tiles)
+MH     EQU  19               maze height (tiles)
+MWM1   EQU  18               MW-1  (last column)
+MHM1   EQU  18               MH-1  (last row)
+MWM2   EQU  17               MW-2  (last interior column)
+MHM2   EQU  17               MH-2  (last interior row)
+COFF   EQU  6                maze-to-screen column offset
+ROFF   EQU  2                maze-to-screen row offset
+COFF8  EQU  48               COFF*8 (pixels)
+ROFF8  EQU  16               ROFF*8 (pixels)
+UP     EQU  0
+DOWN   EQU  1
+LEFT   EQU  2
+RIGHT  EQU  3
+STOP   EQU  4
+WALLCH EQU  >88              wall glyph (group 17)
+PELCH  EQU  >90              pellet glyph (group 18)
+PILLCH EQU  >91              power-pill glyph (group 18)
+LIVES0 EQU  3
+MODLEN EQU  120              length of each scatter/chase phase (ticks)
+FRTIME EQU  60               frightened duration (ticks)
+SHYR2  EQU  36               shy enemy's "close" radius, squared (6 tiles)
+DOTBON EQU  200              score for eating a frightened enemy
+
+* ================= the self-test script ==================================
+PLTICK EQU  24               player-only ticks driven in the scripted run
+
+* ===========================================================================
+START  LWPI WS
+       LI   R10,STKTOP
+* ---- bring up Graphics I: display on, 16K, 8x8 sprites --------------------
+       LI   R0,1
+       LI   R1,>E000
+       BL   @VWTR
+       LI   R0,0
+       LI   R1,0
+       BL   @VWTR
+       LI   R0,2
+       LI   R1,0
+       BL   @VWTR            name table  >0000
+       LI   R0,3
+       LI   R1,>0E00
+       BL   @VWTR            colour table >0380
+       LI   R0,4
+       LI   R1,>0100
+       BL   @VWTR            pattern gen  >0800
+       LI   R0,7
+       LI   R1,>0100
+       BL   @VWTR            black backdrop
+* ---- colour table: white on transparent for every group ------------------
+       LI   R0,>0380
+       BL   @VWA
+       LI   R1,>F000
+       LI   R2,32
+STCOL  MOVB R1,@VDPWD
+       DEC  R2
+       JNE  STCOL
+* ---- maze glyphs into the pattern table ----------------------------------
+       LI   R0,>0C40         pattern[>88 wall] = >0800 + >88*8
+       LI   R1,WALLG
+       LI   R2,8
+       BL   @VMBW
+       LI   R0,>0C80         pattern[>90 pellet]
+       LI   R1,PELG
+       LI   R2,8
+       BL   @VMBW
+       LI   R0,>0C88         pattern[>91 pill]
+       LI   R1,PILLG
+       LI   R2,8
+       BL   @VMBW
+* ---- digit font 0-9 for the HUD ------------------------------------------
+       LI   R0,>0980         pattern[>30 '0'] = >0800 + >30*8
+       LI   R1,FONT
+       LI   R2,80
+       BL   @VMBW
+* ---- sprite shapes and one full attribute list ---------------------------
+       BL   @SINIT
+       CLR  R0
+       LI   R1,PLSPR
+       BL   @SPAT            pattern 0 = the player
+       LI   R0,1
+       LI   R1,ENSPR
+       BL   @SPAT            pattern 1 = an enemy
+       LI   R0,2
+       LI   R1,FRSPR
+       BL   @SPAT            pattern 2 = a frightened enemy
+       CLR  R0
+       LI   R1,>C0
+       LI   R2,0
+       CLR  R3
+       LI   R4,11
+       BL   @SPUT            sprite 0 = player (light yellow)
+       LI   R8,1
+       LI   R9,NENEM
+STSPR  MOV  R8,R0
+       LI   R1,>C0
+       LI   R2,0
+       LI   R3,1
+       LI   R4,9
+       BL   @SPUT            enemy sprites (light red)
+       INC  R8
+       DEC  R9
+       JNE  STSPR
+       LI   R0,SATTR
+       AI   R0,20            sprite 5 Y = >D0 ends the active list
+       LI   R1,>D000
+       BL   @VSBW
+* ---- initialise the game and paint the maze ------------------------------
+       BL   @GINIT
+       BL   @MAZINI
+
+* ================= (a) prove the phase dispatch table =====================
+       CLR  @STATE
+       BL   @DISP
+       MOV  @SIG,R0
+       CI   R0,>4141        ATTRACT signature 'AA'
+       JEQ  $+6
+       B    @FDISP
+       LI   R0,2
+       MOV  R0,@STATE
+       BL   @DISP
+       MOV  @SIG,R0
+       CI   R0,>2A2A        OVER signature '**'
+       JEQ  $+6
+       B    @FDISP
+
+* ================= (b) an integrated PLAY frame runs =====================
+       BL   @GINIT
+       LI   R0,1
+       MOV  R0,@STATE
+       BL   @DISP           STATE=1 -> PHPLAY -> UPDATE (the whole frame)
+       MOV  @SIG,R0
+       CI   R0,>5050        PLAY signature 'PP'
+       JEQ  $+6
+       B    @FPLAY
+
+* ================= (c) scripted player run: move + eat ===================
+       BL   @GINIT
+       LI   R4,PLAYER
+       LI   R0,16           column 2 * 8
+       SWPB R0
+       MOVB R0,@0(R4)
+       LI   R0,32           row 4 * 8
+       SWPB R0
+       MOVB R0,@1(R4)
+       LI   R0,RIGHT
+       MOV  R0,@WANTD
+       CLR  @TICKN
+CLOOP  LI   R9,PLAYER
+       BL   @MOVEP
+       INC  @TICKN
+       MOV  @TICKN,R0
+       CI   R0,PLTICK
+       JNE  CLOOP
+       MOV  @EATEN,R0
+       CI   R0,3
+       JHE  $+6
+       B    @FEAT            at least three pellets eaten
+       MOV  @SCORE,R0
+       CI   R0,30
+       JHE  $+6
+       B    @FEAT           and the score credited
+
+* ================= (d) a wall stops the player ==========================
+       BL   @GINIT
+       LI   R4,PLAYER
+       LI   R0,8            column 1 * 8
+       SWPB R0
+       MOVB R0,@0(R4)
+       LI   R0,16           row 2 * 8
+       SWPB R0
+       MOVB R0,@1(R4)
+       LI   R0,UP
+       SWPB R0
+       MOVB R0,@2(R4)      heading UP into the wall at (1,1)
+       LI   R0,UP
+       MOV  R0,@WANTD
+       LI   R9,PLAYER
+       BL   @MOVEP
+       LI   R4,PLAYER      MOVEP's eat-sound (STONE) clobbers R4
+       MOVB @1(R4),R0
+       SRL  R0,8
+       CI   R0,16
+       JEQ  $+6
+       B    @FWALL          PY must be unchanged (blocked)
+       MOVB @2(R4),R0
+       SRL  R0,8
+       CI   R0,STOP
+       JEQ  $+6
+       B    @FWALL          and the player is now stopped
+
+* ================= (e) the chaser steers toward the player ==============
+       BL   @GINIT
+       LI   R0,1
+       MOV  R0,@MODE       chase mode
+       CLR  @FRIGHT
+       LI   R4,ENEMS
+       LI   R0,64          enemy at (8,2): col 8 * 8
+       SWPB R0
+       MOVB R0,@0(R4)
+       LI   R0,16          row 2 * 8
+       SWPB R0
+       MOVB R0,@1(R4)
+       LI   R0,DOWN
+       SWPB R0
+       MOVB R0,@2(R4)      currently heading DOWN
+       CLR  R0
+       MOVB R0,@4(R4)      personality 0 = CHASER
+       LI   R4,PLAYER
+       LI   R0,64          player at (8,8)
+       SWPB R0
+       MOVB R0,@0(R4)
+       LI   R0,64
+       SWPB R0
+       MOVB R0,@1(R4)
+       LI   R9,ENEMS
+       BL   @ENAI
+       MOVB @2(R9),R0
+       SRL  R0,8
+       CI   R0,DOWN
+       JEQ  $+6
+       B    @FAI            the nearest legal step toward the player is DOWN
+
+* ================= (f) the mode timer flips scatter -> chase =============
+       CLR  @MODE          scatter
+       LI   R0,1
+       MOV  R0,@MODET
+       CLR  @FRIGHT
+       BL   @MODEUP
+       MOV  @MODE,R0
+       CI   R0,1
+       JEQ  $+6
+       B    @FMODE          MODET expired -> chase
+
+* ================= (g) an enemy catches the player ======================
+       BL   @GINIT
+       CLR  @CAUGHT
+       CLR  @FRIGHT
+       LI   R0,3
+       MOV  R0,@LIVES
+       LI   R4,PLAYER
+       LI   R0,64
+       SWPB R0
+       MOVB R0,@0(R4)
+       LI   R0,64
+       SWPB R0
+       MOVB R0,@1(R4)
+       LI   R4,ENEMS
+       LI   R0,64
+       SWPB R0
+       MOVB R0,@0(R4)
+       LI   R0,64
+       SWPB R0
+       MOVB R0,@1(R4)
+       BL   @PCOLL
+       MOV  @CAUGHT,R0
+       CI   R0,1
+       JEQ  $+6
+       B    @FCATCH
+       MOV  @LIVES,R0
+       CI   R0,2
+       JEQ  $+6
+       B    @FCATCH         a life lost
+
+* ================= (h) a frightened enemy is eaten ======================
+       CLR  @SCORE
+       LI   R0,1
+       MOV  R0,@FRIGHT     frightened
+* park enemies 1,3,4 far away (column 1), enemy 2 on the player
+       LI   R4,ENEMS
+       LI   R5,NENEM
+HPARK  LI   R0,8
+       SWPB R0
+       MOVB R0,@0(R4)
+       AI   R4,ASIZE
+       DEC  R5
+       JNE  HPARK
+       LI   R4,PLAYER
+       LI   R0,64
+       SWPB R0
+       MOVB R0,@0(R4)
+       LI   R0,64
+       SWPB R0
+       MOVB R0,@1(R4)
+       LI   R4,ENEMS
+       LI   R0,64          enemy 1 (slot 0) onto the player
+       SWPB R0
+       MOVB R0,@0(R4)
+       LI   R0,64
+       SWPB R0
+       MOVB R0,@1(R4)
+       BL   @PCOLL
+       MOV  @SCORE,R0
+       CI   R0,DOTBON
+       JEQ  $+6
+       B    @FFRIT          eating a frightened enemy scores DOTBON
+
+* ================= (i) the last pellet clears the level =================
+       BL   @GINIT
+       LI   R0,1
+       MOV  R0,@DOTS       one pellet left
+       CLR  @CLEARS
+       LI   R0,1
+       MOV  R0,@LEVEL
+       LI   R0,2
+       MOV  R0,@ATX
+       LI   R0,6
+       MOV  R0,@ATY        the player sits on the pellet at (2,6)
+       BL   @PLREAT
+       MOV  @CLEARS,R0
+       CI   R0,1
+       JEQ  $+6
+       B    @FCLEAR
+       MOV  @LEVEL,R0
+       CI   R0,2
+       JEQ  $+6
+       B    @FCLEAR         level advanced
+
+* ================= (j) the last life ends the game ======================
+       LI   R0,1
+       MOV  R0,@LIVES
+       LI   R0,1
+       MOV  R0,@STATE
+       BL   @LOSELF
+       MOV  @LIVES,R0
+       JEQ  $+6
+       B    @FLIFE
+       MOV  @STATE,R0
+       CI   R0,2
+       JEQ  $+6
+       B    @FOVER
+
+* ================= (k) the attract demo replays recorded input ==========
+       BL   @GINIT
+       LI   R4,PLAYER
+       LI   R0,16          player at (2,4)
+       SWPB R0
+       MOVB R0,@0(R4)
+       LI   R0,32
+       SWPB R0
+       MOVB R0,@1(R4)
+       CLR  @DCUR
+       CLR  @STATE         ATTRACT
+       BL   @DISP
+       BL   @DISP
+       BL   @DISP
+       LI   R4,PLAYER      PHATTR's MOVEP clobbers R4 via STONE
+       MOVB @0(R4),R0
+       SRL  R0,8
+       CI   R0,16
+       JGT  $+6
+       B    @FDEMO          the demo script drove the player rightward
+
+* every system passed
+       LI   R0,7
+       LI   R1,GREEN
+       BL   @VWTR
+       B    @HALT
+
+FDISP  LI   R0,9
+       JMP  REDV
+FPLAY  LI   R0,10
+       JMP  REDV
+FEAT   LI   R0,1
+       JMP  REDV
+FWALL  LI   R0,2
+       JMP  REDV
+FAI    LI   R0,3
+       JMP  REDV
+FMODE  LI   R0,4
+       JMP  REDV
+FCATCH LI   R0,5
+       JMP  REDV
+FFRIT  LI   R0,6
+       JMP  REDV
+FCLEAR LI   R0,7
+       JMP  REDV
+FLIFE  LI   R0,8
+       JMP  REDV
+FOVER  LI   R0,8
+       JMP  REDV
+FDEMO  LI   R0,11
+REDV   MOV  R0,@FAILID
+       LI   R0,7
+       LI   R1,RED
+       BL   @VWTR
+HALT   B    @HALT
+
+* ===========================================================================
+* GINIT — fresh game: scalars to their starts, actors to their corners. Leaf-ish
+* (calls RESET). Non-leaf.
+GINIT  DECT R10
+       MOV  R11,*R10
+       CLR  @STATE
+       CLR  @SIG
+       CLR  @SCORE
+       CLR  @EATEN
+       CLR  @CAUGHT
+       CLR  @CLEARS
+       CLR  @FRIGHT
+       CLR  @WANTD
+       CLR  @DCUR
+       LI   R0,LIVES0
+       MOV  R0,@LIVES
+       LI   R0,1
+       MOV  R0,@LEVEL
+       LI   R0,2
+       MOV  R0,@SPEED       level-1 speed tier
+       CLR  @MODE
+       LI   R0,MODLEN
+       MOV  R0,@MODET
+       LI   R0,>ACE1
+       MOV  R0,@SEED
+       BL   @RESET
+       MOV  *R10+,R11
+       RT
+
+* ===========================================================================
+* RESET — reposition every actor from the ISTAB start table (tiles -> pixels).
+* Called on a new game, after a catch, and on a new level. Leaf.
+RESET  CLR  R4              R4 = actor index 0..4
+RSLP   MOV  R4,R5
+       SLA  R5,3            index * 8
+       AI   R5,ACTBL        R5 -> destination slot
+       MOV  R4,R6
+       SLA  R6,2
+       MOV  R4,R7
+       SLA  R7,1
+       A    R7,R6
+       AI   R6,ISTAB        R6 -> source record (index * 6)
+       MOVB *R6,R0
+       SRL  R0,8
+       SLA  R0,3           PX = sx * 8
+       SWPB R0
+       MOVB R0,*R5
+       MOVB @1(R6),R0
+       SRL  R0,8
+       SLA  R0,3           PY = sy * 8
+       SWPB R0
+       MOVB R0,@1(R5)
+       MOVB @2(R6),R0
+       MOVB R0,@2(R5)      DIR
+       CLR  R0
+       MOVB R0,@3(R5)      NDIR = 0
+       MOVB R0,@5(R5)      pad = 0
+       MOVB @3(R6),R0
+       MOVB R0,@4(R5)      PERS
+       MOVB @4(R6),R0
+       MOVB R0,@6(R5)      HX
+       MOVB @5(R6),R0
+       MOVB R0,@7(R5)      HY
+       INC  R4
+       CI   R4,5
+       JNE  RSLP
+       RT
+
+* ===========================================================================
+* DISP — run the current phase once, through the state-machine table. Non-leaf.
+DISP   DECT R10
+       MOV  R11,*R10
+       MOV  @STATE,R1
+       SLA  R1,1
+       MOV  @PTAB(R1),R2
+       BL   *R2
+       MOV  *R10+,R11
+       RT
+
+PTAB   DATA PHATTR,PHPLAY,PHOVER
+
+* PHATTR — attract: stamp the signature, then replay one recorded-input step so
+* the title screen shows the game playing itself. Non-leaf.
+PHATTR DECT R10
+       MOV  R11,*R10
+       LI   R0,>4141
+       MOV  R0,@SIG
+       MOV  @DCUR,R1
+       MOVB @DEMO(R1),R0
+       SRL  R0,8
+       MOV  R0,@WANTD      the next scripted direction
+       LI   R9,PLAYER
+       BL   @MOVEP
+       INC  @DCUR
+       MOV  @DCUR,R0
+       CI   R0,DEMOLN
+       JL   PHAX
+       CLR  @DCUR          wrap the demo loop
+PHAX   MOV  *R10+,R11
+       RT
+
+PHOVER LI   R0,>2A2A
+       MOV  R0,@SIG
+       RT
+
+* PHPLAY — one live PLAY frame. Non-leaf.
+PHPLAY DECT R10
+       MOV  R11,*R10
+       LI   R0,>5050
+       MOV  R0,@SIG
+       BL   @UPDATE
+       MOV  *R10+,R11
+       RT
+
+* ===========================================================================
+* UPDATE — one PLAY frame: player, enemies, timers, collide, sound, render.
+* Input (WANTD) is gathered by the caller (script here; joystick on the metal).
+* Non-leaf.
+UPDATE DECT R10
+       MOV  R11,*R10
+       LI   R9,PLAYER
+       BL   @MOVEP
+       LI   R9,ENEMS
+UPEN   BL   @MOVEE           (ENAI clobbers R8 -> walk by pointer, not a counter)
+       AI   R9,ASIZE
+       CI   R9,ENEMND
+       JNE  UPEN
+       BL   @MODEUP
+       MOV  @FRIGHT,R0
+       JEQ  UPNF
+       DEC  @FRIGHT
+UPNF   BL   @PCOLL
+       BL   @SNDSIR
+       BL   @RENDER
+       MOV  *R10+,R11
+       RT
+
+* ===========================================================================
+* MOVEP — advance the player (R9). At a tile boundary: eat, then choose the
+* buffered turn or stop at a wall. Then apply the motion. Non-leaf.
+MOVEP  DECT R10
+       MOV  R11,*R10
+       MOVB @0(R9),R0
+       SRL  R0,8
+       ANDI R0,7
+       JNE  MPMOV          not tile-aligned -> just keep moving
+       MOVB @1(R9),R0
+       SRL  R0,8
+       ANDI R0,7
+       JNE  MPMOV
+* aligned: cache the tile, eat any pellet here
+       MOVB @0(R9),R0
+       SRL  R0,11
+       MOV  R0,@ATX
+       MOVB @1(R9),R0
+       SRL  R0,11
+       MOV  R0,@ATY
+       BL   @PLREAT
+* try the buffered direction
+       MOV  @WANTD,R3
+       CI   R3,STOP
+       JEQ  MPCUR
+       SLA  R3,1
+       MOV  @ATX,R0
+       A    @DXTAB(R3),R0
+       MOV  @ATY,R1
+       A    @DYTAB(R3),R1
+       BL   @WALLAT
+       MOV  R2,R2
+       JNE  MPCUR          wanted way is a wall -> keep the current heading
+       MOV  @WANTD,R0
+       SWPB R0
+       MOVB R0,@2(R9)      turn
+* now stop if the (possibly new) heading faces a wall
+MPCUR  MOVB @2(R9),R3
+       SRL  R3,8
+       CI   R3,STOP
+       JEQ  MPMOV
+       SLA  R3,1
+       MOV  @ATX,R0
+       A    @DXTAB(R3),R0
+       MOV  @ATY,R1
+       A    @DYTAB(R3),R1
+       BL   @WALLAT
+       MOV  R2,R2
+       JEQ  MPMOV          open -> go
+       LI   R0,STOP
+       SWPB R0
+       MOVB R0,@2(R9)      wall ahead -> halt at the tile
+MPMOV  BL   @APPLYM
+       MOV  *R10+,R11
+       RT
+
+* ===========================================================================
+* MOVEE — advance one enemy (R9). At a tile boundary run the AI; then apply
+* the motion. Non-leaf.
+MOVEE  DECT R10
+       MOV  R11,*R10
+       MOVB @0(R9),R0
+       SRL  R0,8
+       ANDI R0,7
+       JNE  MEMOV
+       MOVB @1(R9),R0
+       SRL  R0,8
+       ANDI R0,7
+       JNE  MEMOV
+       BL   @ENAI
+MEMOV  BL   @APPLYM
+       MOV  *R10+,R11
+       RT
+
+* ===========================================================================
+* APPLYM — move actor R9 by SPEED pixels along DIR (STOP = stay put). Non-leaf.
+APPLYM DECT R10
+       MOV  R11,*R10
+       MOVB @2(R9),R3
+       SRL  R3,8
+       CI   R3,STOP
+       JEQ  APX
+       SLA  R3,1           DIR -> word offset
+       MOV  @DXTAB(R3),R0
+       MOV  @SPEED,R1
+       BL   @SCALE         R0 = SPEED * dx (signed)
+       MOVB @0(R9),R2
+       SRL  R2,8
+       A    R0,R2
+       SWPB R2
+       MOVB R2,@0(R9)      PX += dx
+       MOVB @2(R9),R3
+       SRL  R3,8
+       SLA  R3,1
+       MOV  @DYTAB(R3),R0
+       MOV  @SPEED,R1
+       BL   @SCALE
+       MOVB @1(R9),R2
+       SRL  R2,8
+       A    R0,R2
+       SWPB R2
+       MOVB R2,@1(R9)      PY += dy
+APX    MOV  *R10+,R11
+       RT
+
+* SCALE — R0 = R1 * sign(R0), where R0 is -1/0/+1. Leaf. Clobbers R0.
+SCALE  MOV  R0,R0
+       JEQ  SCX
+       JLT  SCNEG
+       MOV  R1,R0
+       RT
+SCNEG  MOV  R1,R0
+       NEG  R0
+SCX    RT
+
+* ===========================================================================
+* PLREAT — eat whatever pellet sits on the player's tile (@ATX,@ATY). The name
+* table is the database: read the cell, and if it is food, blank it and score.
+* Non-leaf.
+PLREAT DECT R10
+       MOV  R11,*R10
+       MOV  @ATX,R0
+       MOV  @ATY,R1
+       BL   @CELLAD        R2 = the cell's VRAM address
+       MOV  R2,R5          R5 = the address (survives VSBR/VSBW)
+       MOV  R2,R0
+       BL   @VSBR          R1 high = the glyph there
+       SRL  R1,8
+       CI   R1,PELCH
+       JEQ  PREPEL
+       CI   R1,PILLCH
+       JEQ  PREPIL
+       MOV  *R10+,R11
+       RT
+PREPEL LI   R6,10          R6 = score delta (survives CELLAD/VSBW)
+       CLR  R7             R7 = pill flag (0 = pellet)
+       JMP  PREEAT
+PREPIL LI   R6,50
+       LI   R7,1           a pill: trigger frightened
+PREEAT MOV  R5,R0
+       LI   R1,>2000
+       BL   @VSBW          blank the cell
+       DEC  @DOTS
+       INC  @EATEN
+       MOV  @SCORE,R0
+       A    R6,R0
+       MOV  R0,@SCORE
+       MOV  R7,R7
+       JEQ  PRECHM
+       LI   R0,FRTIME
+       MOV  R0,@FRIGHT
+       BL   @SNDPIL
+       JMP  PRECLR
+PRECHM BL   @SNDEAT
+PRECLR MOV  @DOTS,R0
+       JNE  PREX
+       BL   @NXTLVL        the maze is clear
+PREX   MOV  *R10+,R11
+       RT
+
+* ===========================================================================
+* WALLAT — is tile (R0=col,R1=row) a wall? Returns R2 (1 = wall, 0 = open). The
+* whole maze IS this routine: the border, plus a post at every odd/odd cell.
+* Zero bytes of RAM. Leaf; preserves R0/R1, clobbers R2/R3.
+WALLAT CI   R0,1
+       JLT  WAW
+       CI   R0,MWM2
+       JGT  WAW
+       CI   R1,1
+       JLT  WAW
+       CI   R1,MHM2
+       JGT  WAW
+       MOV  R0,R3
+       ANDI R3,1
+       JEQ  WAO           even column -> corridor
+       MOV  R1,R3
+       ANDI R3,1
+       JEQ  WAO           even row -> corridor
+WAW    LI   R2,1
+       RT
+WAO    CLR  R2
+       RT
+
+* ===========================================================================
+* CELLAD — VRAM name-table address of tile (R0=col,R1=row), offset onto the
+* screen. Leaf; preserves R0/R1, clobbers R2/R3.
+CELLAD MOV  R1,R2
+       AI   R2,ROFF
+       SLA  R2,5           (row+ROFF) * 32
+       MOV  R0,R3
+       AI   R3,COFF
+       A    R3,R2          + (col+COFF)
+       RT
+
+* ===========================================================================
+* DIST — squared distance R2 = R0*R0 + R1*R1 (dx,dy). Unsigned MPY gives the
+* right square for signed inputs (|d| < 256). Leaf; clobbers R2,R4-R7.
+DIST   MOV  R0,R4
+       MPY  R4,R4          R4:R5 = dx*dx
+       MOV  R5,R2
+       MOV  R1,R6
+       MPY  R6,R6          R6:R7 = dy*dy
+       A    R7,R2
+       RT
+
+* ===========================================================================
+* ENAI — decide enemy R9's direction: pick the legal, non-reversing step whose
+* neighbour tile is nearest the target (or farthest, when frightened). Non-leaf.
+ENAI   DECT R10
+       MOV  R11,*R10
+       MOVB @0(R9),R0
+       SRL  R0,11
+       MOV  R0,@ATX
+       MOVB @1(R9),R0
+       SRL  R0,11
+       MOV  R0,@ATY
+       MOV  @FRIGHT,R0
+       JEQ  ENNRM
+* frightened: flee the player (target = player tile, pick the FARTHEST step)
+       LI   R3,PLAYER
+       MOVB @0(R3),R0
+       SRL  R0,11
+       MOV  R0,@AGX
+       MOVB @1(R3),R0
+       SRL  R0,11
+       MOV  R0,@AGY
+       LI   R0,1
+       MOV  R0,@AIMAX
+       CLR  @ABDS
+       JMP  ENSCAN
+ENNRM  BL   @TARGET        sets AGX,AGY by mode + personality
+       CLR  @AIMAX
+       LI   R0,>7FFF
+       MOV  R0,@ABDS
+ENSCAN LI   R0,STOP
+       MOV  R0,@ABD
+       CLR  R8             R8 = direction index 0..3
+ENLP   MOV  R8,R1
+       SLA  R1,1
+       MOV  @DIRORD(R1),R0
+       MOV  R0,@ADC        d = DIRORD[i]
+       MOVB @2(R9),R1
+       SRL  R1,8
+       LI   R2,1
+       XOR  R2,R1          rev = DIR XOR 1
+       C    @ADC,R1
+       JEQ  ENNX           skip the reverse direction
+       MOV  @ADC,R3
+       SLA  R3,1
+       MOV  @ATX,R0
+       A    @DXTAB(R3),R0
+       MOV  @ATY,R1
+       A    @DYTAB(R3),R1
+       BL   @WALLAT
+       MOV  R2,R2
+       JNE  ENNX           wall -> skip
+       MOV  @AGX,R3
+       S    R0,R3
+       MOV  R3,R0          dx = AGX - ntx
+       MOV  @AGY,R3
+       S    R1,R3
+       MOV  R3,R1          dy = AGY - nty
+       BL   @DIST          R2 = distance
+       MOV  @AIMAX,R3
+       JNE  ENMAX
+       MOV  @ABDS,R0
+       C    R2,R0
+       JHE  ENNX           nearest: keep if strictly closer
+       JMP  ENUPD
+ENMAX  MOV  @ABDS,R0
+       C    R2,R0
+       JLE  ENNX           farthest: keep if strictly farther
+ENUPD  MOV  R2,@ABDS
+       MOV  @ADC,R0
+       MOV  R0,@ABD
+ENNX   INC  R8
+       CI   R8,4
+       JNE  ENLP
+       MOV  @ABD,R0
+       CI   R0,STOP
+       JNE  ENSET
+* dead end: reverse
+       MOVB @2(R9),R0
+       SRL  R0,8
+       LI   R1,1
+       XOR  R1,R0
+ENSET  SWPB R0
+       MOVB R0,@2(R9)
+       MOV  *R10+,R11
+       RT
+
+* ===========================================================================
+* TARGET — set (AGX,AGY) for enemy R9 by MODE + personality. Non-leaf (SHY
+* measures distance). One exit (TGX) restores the link.
+TARGET DECT R10
+       MOV  R11,*R10
+       MOV  @MODE,R0
+       JNE  TGCH
+* scatter: head for this enemy's corner
+       MOVB @6(R9),R0
+       SRL  R0,8
+       MOV  R0,@AGX
+       MOVB @7(R9),R0
+       SRL  R0,8
+       MOV  R0,@AGY
+       JMP  TGX
+TGCH   MOVB @4(R9),R1
+       SRL  R1,8
+       SLA  R1,1
+       MOV  @TGTAB(R1),R2
+       B    *R2
+
+TGTAB  DATA TGCHAS,TGAMB,TGFLNK,TGSHY
+
+* CHASER: aim straight at the player's tile.
+TGCHAS LI   R3,PLAYER
+       MOVB @0(R3),R0
+       SRL  R0,11
+       MOV  R0,@AGX
+       MOVB @1(R3),R0
+       SRL  R0,11
+       MOV  R0,@AGY
+       JMP  TGX
+* AMBUSH: aim four tiles ahead of the player.
+TGAMB  LI   R3,PLAYER
+       MOVB @0(R3),R4
+       SRL  R4,11
+       MOVB @1(R3),R5
+       SRL  R5,11
+       MOVB @2(R3),R1
+       SRL  R1,8
+       CI   R1,STOP
+       JEQ  TGAMS
+       SLA  R1,1
+       MOV  @DXTAB(R1),R0
+       SLA  R0,2
+       A    R4,R0
+       MOV  R0,@AGX
+       MOV  @DYTAB(R1),R0
+       SLA  R0,2
+       A    R5,R0
+       MOV  R0,@AGY
+       JMP  TGX
+TGAMS  MOV  R4,@AGX
+       MOV  R5,@AGY
+       JMP  TGX
+* FLANK: aim at the player's mirror image across the maze.
+TGFLNK LI   R3,PLAYER
+       MOVB @0(R3),R4
+       SRL  R4,11
+       LI   R0,MWM1
+       S    R4,R0
+       MOV  R0,@AGX
+       MOVB @1(R3),R5
+       SRL  R5,11
+       LI   R0,MHM1
+       S    R5,R0
+       MOV  R0,@AGY
+       JMP  TGX
+* SHY: chase from afar, but flee to the corner when close.
+TGSHY  LI   R3,PLAYER
+       MOVB @0(R3),R4
+       SRL  R4,11
+       MOVB @1(R3),R5
+       SRL  R5,11
+       MOV  @ATX,R0
+       S    R4,R0
+       MOV  @ATY,R1
+       S    R5,R1
+       BL   @DIST
+       CI   R2,SHYR2
+       JH   TGSHYP
+       MOVB @6(R9),R0
+       SRL  R0,8
+       MOV  R0,@AGX
+       MOVB @7(R9),R0
+       SRL  R0,8
+       MOV  R0,@AGY
+       JMP  TGX
+TGSHYP LI   R3,PLAYER
+       MOVB @0(R3),R0
+       SRL  R0,11
+       MOV  R0,@AGX
+       MOVB @1(R3),R0
+       SRL  R0,11
+       MOV  R0,@AGY
+TGX    MOV  *R10+,R11
+       RT
+
+* ===========================================================================
+* MODEUP — count down the scatter/chase timer; flip the mode when it expires.
+* Frozen while the enemies are frightened. Leaf.
+MODEUP MOV  @FRIGHT,R0
+       JNE  MUX
+       MOV  @MODET,R0
+       JEQ  MUFLIP
+       DEC  @MODET
+       MOV  @MODET,R0
+       JNE  MUX
+MUFLIP MOV  @MODE,R0
+       LI   R1,1
+       XOR  R1,R0
+       MOV  R0,@MODE
+       LI   R0,MODLEN
+       MOV  R0,@MODET
+MUX    RT
+
+* ===========================================================================
+* PCOLL — enemies vs the player (bounding box, < 8 px). A touch either eats the
+* enemy (frightened) or costs a life. Non-leaf.
+PCOLL  DECT R10
+       MOV  R11,*R10
+       LI   R7,ENEMS
+       LI   R8,NENEM
+PCLP   MOVB @0(R7),R0
+       SRL  R0,8
+       LI   R3,PLAYER
+       MOVB @0(R3),R1
+       SRL  R1,8
+       S    R1,R0
+       ABS  R0
+       CI   R0,8
+       JHE  PCNX
+       MOVB @1(R7),R0
+       SRL  R0,8
+       MOVB @1(R3),R1
+       SRL  R1,8
+       S    R1,R0
+       ABS  R0
+       CI   R0,8
+       JHE  PCNX
+       MOV  @FRIGHT,R0
+       JNE  PCEAT
+       INC  @CAUGHT
+       BL   @SNDCAT
+       BL   @LOSELF
+       JMP  PCX            player caught -> stop
+PCEAT  MOVB @6(R7),R0
+       SRL  R0,8
+       SLA  R0,3
+       SWPB R0
+       MOVB R0,@0(R7)      send the enemy home (corner * 8)
+       MOVB @7(R7),R0
+       SRL  R0,8
+       SLA  R0,3
+       SWPB R0
+       MOVB R0,@1(R7)
+       MOV  @SCORE,R0
+       AI   R0,DOTBON
+       MOV  R0,@SCORE
+PCNX   AI   R7,ASIZE
+       DEC  R8
+       JNE  PCLP
+PCX    MOV  *R10+,R11
+       RT
+
+* ===========================================================================
+* LOSELF — lose a life; at zero, go to OVER, otherwise reset positions. Non-leaf.
+LOSELF DECT R10
+       MOV  R11,*R10
+       DEC  @LIVES
+       JNE  LSRES
+       LI   R0,2
+       MOV  R0,@STATE
+       JMP  LSX
+LSRES  BL   @RESET
+LSX    MOV  *R10+,R11
+       RT
+
+* ===========================================================================
+* NXTLVL — level cleared: bump the counters, pick the new speed tier, repaint
+* the maze, reset positions and mode. Non-leaf.
+NXTLVL DECT R10
+       MOV  R11,*R10
+       INC  @CLEARS
+       INC  @LEVEL
+       MOV  @LEVEL,R1
+       DEC  R1
+       CI   R1,4
+       JL   NLSP
+       LI   R1,4
+NLSP   SLA  R1,1
+       MOV  @SPDTAB(R1),R0
+       MOV  R0,@SPEED
+       CLR  @MODE
+       LI   R0,MODLEN
+       MOV  R0,@MODET
+       CLR  @FRIGHT
+       BL   @MAZINI
+       BL   @RESET
+       MOV  *R10+,R11
+       RT
+
+* ===========================================================================
+* MAZINI — paint the maze into the name table and count the pellets. Walls come
+* from WALLAT; a small central room is left open for the enemies; the four
+* interior corners get power pills. Non-leaf.
+MAZINI DECT R10
+       MOV  R11,*R10
+       CLR  @DOTS
+* clear the whole screen to spaces first
+       LI   R0,0
+       BL   @VWA
+       LI   R1,>2000
+       LI   R2,768
+MZCLS  MOVB R1,@VDPWD
+       DEC  R2
+       JNE  MZCLS
+       CLR  R4             R4 = row
+MZROW  CLR  R5             R5 = col
+MZCOL  MOV  R5,R0
+       MOV  R4,R1
+       BL   @WALLAT
+       MOV  R2,R2
+       JEQ  MZOPEN
+       LI   R6,WALLCH
+       JMP  MZPUT
+MZOPEN CI   R5,7
+       JL   MZNCTR
+       CI   R5,11
+       JH   MZNCTR
+       CI   R4,7
+       JL   MZNCTR
+       CI   R4,11
+       JH   MZNCTR
+       LI   R6,>20         central room: no pellet
+       JMP  MZPUT
+MZNCTR CI   R5,2
+       JEQ  MZCC
+       CI   R5,16
+       JNE  MZPEL
+MZCC   CI   R4,2
+       JEQ  MZPILL
+       CI   R4,16
+       JNE  MZPEL
+MZPILL LI   R6,PILLCH
+       INC  @DOTS
+       JMP  MZPUT
+MZPEL  LI   R6,PELCH
+       INC  @DOTS
+MZPUT  MOV  R5,R0
+       MOV  R4,R1
+       BL   @CELLAD
+       MOV  R2,R0
+       MOV  R6,R1
+       SWPB R1
+       BL   @VSBW
+       INC  R5
+       CI   R5,MW
+       JNE  MZCOL
+       INC  R4
+       CI   R4,MH
+       JNE  MZROW
+       MOV  *R10+,R11
+       RT
+
+* ===========================================================================
+* RENDER — reflect the actors onto their sprites and refresh the HUD. Non-leaf.
+RENDER DECT R10
+       MOV  R11,*R10
+       LI   R9,PLAYER
+       MOVB @0(R9),R0
+       SRL  R0,8
+       AI   R0,COFF8
+       MOV  R0,R2
+       MOVB @1(R9),R0
+       SRL  R0,8
+       AI   R0,ROFF8
+       MOV  R0,R1
+       CLR  R0
+       BL   @SMOV          sprite 0 = player
+       LI   R9,ENEMS
+       LI   R8,NENEM
+       LI   R4,1           sprite number
+RNEN   MOVB @0(R9),R0
+       SRL  R0,8
+       AI   R0,COFF8
+       MOV  R0,R2
+       MOVB @1(R9),R0
+       SRL  R0,8
+       AI   R0,ROFF8
+       MOV  R0,R1
+       MOV  R4,R0
+       BL   @SMOV
+       INC  R4
+       AI   R9,ASIZE
+       DEC  R8
+       JNE  RNEN
+       BL   @HUD
+       MOV  *R10+,R11
+       RT
+
+* ===========================================================================
+* HUD — score (four hex digits) at the top-left, lives digit at the top-right.
+* Writes character codes straight into the name table. Non-leaf.
+HUD    DECT R10
+       MOV  R11,*R10
+       MOV  @SCORE,R5
+       LI   R6,4
+       LI   R7,1
+HUDL   MOV  R5,R1
+       SRL  R1,12
+       AI   R1,>30
+       CI   R1,>3A
+       JL   HUDD
+       AI   R1,7
+HUDD   MOV  R7,R0
+       SWPB R1
+       BL   @VSBW
+       INC  R7
+       SLA  R5,4
+       DEC  R6
+       JNE  HUDL
+       MOV  @LIVES,R1
+       AI   R1,>30
+       SWPB R1
+       LI   R0,28
+       BL   @VSBW
+       MOV  *R10+,R11
+       RT
+
+* ===========================================================================
+* sound identity (three channels + noise): a chomp, a pill blip, a death burst,
+* and the running chase siren. All are leaves over sndlib.
+SNDEAT LI   R0,0
+       LI   R1,300
+       LI   R2,4
+       B    @STONE
+SNDPIL LI   R0,1
+       LI   R1,180
+       LI   R2,2
+       B    @STONE
+SNDCAT LI   R0,4
+       LI   R1,2
+       B    @SNOISE
+* SNDSIR — a two-tone chase siren whose pitch tracks the mode. Leaf.
+SNDSIR MOV  @MODE,R0
+       JNE  SSCH
+       LI   R1,240
+       JMP  SSGO
+SSCH   LI   R1,200
+SSGO   LI   R0,2
+       LI   R2,6
+       B    @STONE
+
+* ===========================================================================
+* data-driven start table: one 6-byte record per actor
+*   sx sy DIR PERS HX HY   (tiles / codes)
+ISTAB  BYTE 8,16,4,0,0,0                 player: stopped, mid-lower maze
+       BYTE 8,8,0,0,2,2                  CHASER, NW corner
+       BYTE 10,8,0,1,16,2               AMBUSH, NE corner
+       BYTE 8,10,0,2,2,16               FLANK,  SW corner
+       BYTE 10,10,0,3,16,16             SHY,    SE corner
+
+* direction vectors, indexed by DIR (UP,DOWN,LEFT,RIGHT,STOP)
+DXTAB  DATA 0,0,>FFFF,1,0
+DYTAB  DATA >FFFF,1,0,0,0
+* the AI's tie-break order: UP, LEFT, DOWN, RIGHT
+DIRORD DATA 0,2,1,3
+* speed tier by level (clamped): pixels/frame, each dividing 8
+SPDTAB DATA 2,2,4,4,4
+* the attract demo: a recorded input reel (directions), replayed on a loop
+DEMO   BYTE 3,3,3,1,1,3,3,0,0,2,2,2
+DEMOLN EQU  12
+
+* ===========================================================================
+* glyphs (8 bytes each)
+WALLG  DATA >FFFF,>FFFF,>FFFF,>FFFF     a solid wall block
+PELG   DATA >0000,>1818,>1800,>0000     a small pellet
+PILLG  DATA >0000,>3C3C,>3C3C,>0000     a fat power pill
+* sprite shapes
+PLSPR  DATA >3C7E,>7EFF,>FF7E,>7E3C     the player
+ENSPR  DATA >3C7E,>DBFF,>FFFF,>DB99     a chaser
+FRSPR  DATA >3C7E,>A5FF,>FFFF,>A55A     a frightened chaser
+* HUD digit font 0-9 (five-by-seven glyphs, our own)
+FONT   DATA >7088,>98A8,>C888,>7000    '0'
+       DATA >2060,>2020,>2020,>7000    '1'
+       DATA >7088,>0830,>4080,>F800    '2'
+       DATA >F810,>2010,>0888,>7000    '3'
+       DATA >1030,>5090,>F810,>1000    '4'
+       DATA >F880,>F008,>0888,>7000    '5'
+       DATA >3040,>80F0,>8888,>7000    '6'
+       DATA >F808,>1020,>4040,>4000    '7'
+       DATA >7088,>8870,>8888,>7000    '8'
+       DATA >7088,>8878,>0810,>6000    '9'
+       END  START

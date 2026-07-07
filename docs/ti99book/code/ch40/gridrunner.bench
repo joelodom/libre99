@@ -1,0 +1,5 @@
+load build/GRIDC.bin
+pc 61FE
+x 400000
+vdp
+m 8342 40
