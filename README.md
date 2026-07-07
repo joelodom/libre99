@@ -28,11 +28,13 @@ right, and the firmware does the rest.
   regression test and a written root-cause analysis.
 - **Original clean-room firmware, booted by default.** The console ROM (the
   TMS9900 kernel + GPL interpreter) and console GROM (title screen, cartridge
-  menu, **TI PYTHON**, a system-information screen) were rewritten from
-  scratch as original work and differentially verified against the authentic
-  images. User-supplied authentic TI firmware is one flag away
-  (`--system-rom` / `--system-grom`) — and is still required for TI/Extended
-  BASIC ([why](docs/KNOWN-ISSUES.md)).
+  menu, **TI PYTHON** — a small Python-like language,
+  [spec](docs/TI-PYTHON.md) — and a system-information screen) were rewritten
+  from scratch as original work and differentially verified against the
+  authentic images. **Extended BASIC cartridges run on it end-to-end** (the
+  census-built XB substrate). User-supplied authentic TI firmware is one flag
+  away (`--system-rom` / `--system-grom`) — still required only for TI BASIC
+  itself ([why](docs/KNOWN-ISSUES.md)).
 - **Nothing embedded but our own firmware.** The binary carries zero
   third-party bytes; cartridges (`.ctg`) and disks (`.dsk`) load at run time
   from your own files — the command line or the system file chooser (`F9`).
@@ -107,7 +109,7 @@ cargo run --release -p libre99-app -- --disk vol.dsk              # insert a dis
 cargo run --release -p libre99-app -- --cartridge build/game.ctg  # run your own libre99asm build
 
 # Boot user-supplied authentic TI firmware instead of the clean-room default
-# (required for TI BASIC / Extended BASIC):
+# (required only for TI BASIC itself; Extended BASIC runs on the default):
 cargo run --release -p libre99-app -- --system-rom path/to/994aROM.Bin --system-grom path/to/994AGROM.Bin
 ```
 

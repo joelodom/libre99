@@ -24,9 +24,15 @@ and the v0 sketch in the archived GROM-rewrite plan §9):
    firmware run **TI Extended BASIC** (the `LIMITATIONS.md` L9 / milestone-M6
    gap).
 
-**Status (2026-07-07):** v0 is what ships (integer expressions, single-letter
-variables, three errors — and the input bugs of §4). v1 is this spec; nothing
-in §5 is implemented yet.
+**Status (2026-07-07, end of day): v1 IS IMPLEMENTED AND GATED.** The §5 plan
+was executed the same day the spec landed (commit `cbbcdb2` = P1, `7c2cae9` =
+P2–P6; twelve gates in `crates/libre99-gpl/tests/ti_python.rs`; deep-tier
+cartridge sweep green). Every §4 bug is fixed. The §6 feasibility study's F0
+census also ran — and its result beat the estimate: **Extended BASIC now runs
+end-to-end on the clean-room firmware** via a five-helper ROM substrate
+(~200 bytes at pinned authentic addresses), not the feared interpreter's worth
+of services. See `original-content/system-roms/XB-CENSUS.md` and §6.7 below.
+Implementation decisions that refined this spec are recorded in §5.9.
 
 **Versioning.** "v0/v1" are *language levels* used by this document. The
 version on the banner is the workspace's one `CARGO_PKG_VERSION` (spliced at
@@ -550,7 +556,39 @@ all gates above green; fast tier + deep tier green; clippy clean;
 `console-grom.bin` recommitted; `grom/README.md`, `USER-GUIDE.md`,
 `LIMITATIONS.md` L3 and the ROADMAP status table updated in the landing
 commits; the F1 in-app help checked for stale TI PYTHON wording (ROADMAP row
-3 owns the full revamp).
+3 owns the full revamp). **Met 2026-07-07** (commits `cbbcdb2`, `7c2cae9`,
+plus the docs-sweep commit).
+
+### 5.9 Implementation decisions (2026-07-07 — refinements this spec adopts)
+
+The plan was executed as written, with these judgment calls, now normative:
+
+- **Commit grouping**: P1 landed alone (the cherry-pickable bugfixes);
+  P2–P6 landed as one commit — a banner promising `EXIT()` should not ship
+  before `exit()` works.
+- **Blank lines advance one row** (the input row), not two — assignments
+  likewise; only lines with output (results, print, errors) take two rows.
+- **Errors always take a fresh row of their own.** A mid-`print` error
+  leaves its partial output on the row above (Python-style); nothing is
+  appended to a partially-printed row.
+- **Unterminated strings are refused before printing** — `print("OOPS`
+  emits nothing, then `SYNTAX ERROR` (the string is validated to its closing
+  quote before any character is echoed).
+- **ERR clears at line start**, not only inside EVAL — a stale `MEMORY
+  ERROR` shadowed every following line until this was caught by the
+  33rd-name gate.
+- **The assignment target parks in ANAME (`>8335-833F`)** across the RHS
+  evaluation, whose own name reads refill NAMEBUF (`AREA = 3 * RADIUS *
+  RADIUS` mis-bound RADIUS until the names gate caught it).
+- **A keyword read inside an expression** (`2 + PRINT`) reports
+  `NAME ERROR: PRINT`, not `SYNTAX ERROR` — keywords are only special in
+  statement position; as an assignment target they are `SYNTAX ERROR`
+  (per §3.4, unchanged).
+- **The scroll is a single VDP→VDP `MOVE`** (`>02E0` bytes, rows 1–23 up
+  one) — the assembler accepts the V-source form and the rewritten ROM's
+  MOVE handler executes it; no per-row bounce was needed.
+- The banner's third tagline reads `EXIT() QUITS. 16-BIT INTEGERS.` (32-col
+  fit chose the wording).
 
 ---
 
@@ -682,6 +720,26 @@ answer for users stays the authentic-ROM boot (`--system-rom`/`--system-grom`,
 `KNOWN-ISSUES.md`); and TI PYTHON is the right vehicle — every primitive gets
 a user the day it lands, which is exactly how the rest of this firmware got
 good.
+
+### 6.7 Outcome (2026-07-07 — F0 ran, and the substrate landed the same day)
+
+The census (`crates/libre99-gpl/examples/xb_census.rs`, built on a new CPU
+PC-coverage instrument) **overturned this study's own cost model, in the good
+direction**: for the XB in the local media set (`xb25.ctg`), the entire
+console gap was **five ROM helpers, ~200 bytes, called directly by address**
+from the cartridge ROM — no console-GROM BASIC library is touched at all
+(§6.1's GROM 1/2 rows were the L9 theory, not the measured reality), and the
+one stubbed interconnect slot XB calls (`>0032`) is tolerated. F1's Video
+Vegas routine therefore remains open but is **no longer on XB's critical
+path**. The helpers are implemented at their pinned authentic homes (the *XB
+substrate*, `original-content/system-roms/rom/console.asm`; census, interface
+dossier and the M6-policy justification:
+`original-content/system-roms/XB-CENSUS.md`), and **Extended BASIC runs
+end-to-end on the default clean-room boot** — gated by
+`libre99-asm/tests/xb_substrate.rs` and `libre99-gpl/tests/xb_smoke.rs`.
+§6.4's address-space conflict never materialized for XB (TI PYTHON keeps
+GROM 1); it returns only if TI BASIC proper (F4) is ever pursued. The F2/F3
+rows (floats, strings — the TI PYTHON growth path) stand as written.
 
 ---
 

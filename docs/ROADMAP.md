@@ -80,9 +80,27 @@ release-gating · **[decide]** an owner decision gates it.
 
 | # | Phase | Work item | What it involves — and why it sits here | Gate |
 |:--:|---|---|---|:--:|
-| 1 | **3 · Polish & ship** | **TI PYTHON — implement the v1 spec** | **Decided 2026-07-07 (owner): grow it.** The spec of record is now **[docs/TI-PYTHON.md](TI-PYTHON.md)** — a user's guide + language specification for **TI PYTHON v1**, *a language very loosely based on Python 3* (full-size variable names, `print(…)` with string literals, comments, `exit()`, Python floor `/`·`%`, and a startup banner that says plainly it's a super-simple Python-like interpreter), plus the **input-bug fixes** (fast typing drops keys; backspace is ignored — both root-caused in the spec's §4 to the v0 read loop, fixed by the KSCAN new-key protocol) and a milestone implementation plan (**§5, P1–P6**) a working session can execute directly. The same document's **§6 feasibility study** maps how TI PYTHON's primitives grow toward running **TI Extended BASIC** (the M6/L9 gap) — census-first, explicitly post-0.1.0. Occupies the same slot as the deferred M6 BASIC (callout below). | [target] |
-| 2 | **3 · Polish & ship** | **Docs, in-app help & first-run** | **Revamp the `F1` help (`help.rs`) — explicitly still required before 0.1.0** (the 2026-07-06 media rework and rename made only accuracy edits to it — Joel; the 2026-07-07 disk-persistence and save-state work likewise touched only its media/hotkey/state facts); first-run onboarding on an empty console; README + USER-GUIDE pass; state plainly that **BASIC/XB need user-supplied authentic ROMs** and note the Video Vegas GROM-2 exception. | [blocker] |
-| 3 | **3 · Polish & ship** | **Package & release** | Set the workspace to **0.1.0**, add a `CHANGELOG`, tag; ship prebuilt Windows + macOS binaries via GitHub Releases (incl. the macOS `.app` bundle); final crash/robustness pass (first run, missing dir, bad input, no media). | [blocker] |
+| 1 | **3 · Polish & ship** | **Docs, in-app help & first-run** | **Revamp the `F1` help (`help.rs`) — explicitly still required before 0.1.0** (the 2026-07-06 media rework and rename made only accuracy edits to it — Joel; the 2026-07-07 disk-persistence and save-state work likewise touched only its media/hotkey/state facts); first-run onboarding on an empty console; README + USER-GUIDE pass; state plainly that **TI BASIC needs user-supplied authentic ROMs** (Extended BASIC runs on the clean-room pair since 2026-07-07) and note the Video Vegas GROM-2 exception. | [blocker] |
+| 2 | **3 · Polish & ship** | **Package & release** | Set the workspace to **0.1.0**, add a `CHANGELOG`, tag; ship prebuilt Windows + macOS binaries via GitHub Releases (incl. the macOS `.app` bundle); final crash/robustness pass (first run, missing dir, bad input, no media). | [blocker] |
+
+**Landed 2026-07-07 — TI PYTHON v1 + Extended BASIC on the clean-room firmware
+(the former TI PYTHON row left the table).** The v1 spec
+([docs/TI-PYTHON.md](TI-PYTHON.md)) was implemented in full the day it was
+written: the input-bug fixes (fast typing dropped keys, backspace was ignored —
+the KSCAN new-key protocol replaced the v0 wait-for-release loop), the four-row
+banner + `>>> ` prompt, a scrolling terminal screen with a blinking cursor,
+full-size variable names (32 VRAM slots), Python floor `/`·`//`·`%` and a real
+unary minus (v0 silently mis-evaluated `2*-3`), `print(…)` with string
+literals, `#` comments, and `exit()`/`quit()` — twelve gates. **The spec's §6
+feasibility study also paid off immediately**: its census-first plan (F0) found
+Extended BASIC needs just **five small console-ROM helpers** — not the feared
+interpreter's worth — and the **XB substrate** implements them at their
+authentic addresses, so a user-supplied XB cartridge now runs end-to-end
+(PRINT, floats, RUN, LIST) on the default clean-room boot, differentially
+gated. TI BASIC proper stays deferred by policy. Dossier:
+[XB-CENSUS.md](../original-content/system-roms/XB-CENSUS.md); ledger:
+[LIMITATIONS](../original-content/system-roms/LIMITATIONS.md) L3 (resolved) +
+L9 (XB resolved).
 
 **Landed 2026-07-07 — save states: atomic, portable, snapshots (the former row 1
 [blocker] left the table).** Every state file is now written **atomically**
@@ -226,24 +244,22 @@ Each item is tagged: **[done]** implemented and merged to `main` ·
 **[next]** designed and high-priority · **[later]** valuable, larger ·
 **[stretch]** ambitious.
 
-> **⚠ Clean-room firmware — the big gap: TI BASIC (milestone M6).** The clean-room
-> rewrite (our from-scratch console firmware, **now the default**)
-> **does not run TI BASIC or Extended BASIC programs.** It deliberately ships
-> **TI PYTHON in TI BASIC's menu slot** and has not reimplemented the shared
-> **BASIC-era GPL library** those interpreters call to tokenize and execute a line
-> (console GROM 2, ~5.5 KiB, currently 0 bytes implemented). So by default,
-> Extended BASIC reaches `READY` but `PRINT "HELLO"` does nothing.
-> This is **milestone M6 (BASIC)** of the ROM-rewrite track — the largest remaining
-> piece and a major effort (a whole interpreter's worth of console services; the
-> superset of the L8 Video Vegas one-routine gap). Until it lands, **BASIC needs the
-> authentic ROMs** (now selected via `--system-rom` / `--system-grom` — this is a
-> firmware-rewrite limitation, not an emulator one). Detail:
-> [`original-content/system-roms/LIMITATIONS.md`](../original-content/system-roms/LIMITATIONS.md)
-> L9; user-facing note in [`KNOWN-ISSUES.md`](KNOWN-ISSUES.md). A **feasibility study**
-> for closing this gap *incrementally* — building the missing console primitives behind
-> TI PYTHON's own growth, census-first (phases F0–F5, sized, with the address-space
-> conflict and the ROM-M6 policy gate called out) — is **[TI-PYTHON.md §6](TI-PYTHON.md)**
-> (2026-07-07). **[later — large]**
+> **Clean-room firmware — where BASIC stands (milestone M6).** Since 2026-07-07
+> the clean-room rewrite (the default firmware) **runs Extended BASIC
+> end-to-end**: the census-first plan in [TI-PYTHON.md §6](TI-PYTHON.md)
+> measured XB's real console demand at **five small ROM helpers** (the old
+> "whole interpreter's worth of services" model was wrong — no console-GROM
+> BASIC library is touched at all), and the **XB substrate** implements them
+> at their pinned authentic addresses, differentially gated
+> ([XB-CENSUS.md](../original-content/system-roms/XB-CENSUS.md);
+> [LIMITATIONS](../original-content/system-roms/LIMITATIONS.md) L9). What
+> remains deferred **by policy** is **TI BASIC proper** — the console-resident
+> interpreter (TI PYTHON deliberately ships in its menu slot) and the ROM's
+> PARSE/EXEC half — plus the L8 Video Vegas GROM-2 routine (no longer on
+> XB's critical path). TI BASIC itself still needs the authentic ROMs
+> (`--system-rom` / `--system-grom`); an unusual BASIC-family cartridge can
+> be measured in one command (`cargo run -p libre99-gpl --example xb_census`).
+> **[TI BASIC proper: later — large, policy-gated]**
 
 ### 1. Input & control
 - **Host keyboard layout translation (QWERTY / Dvorak / …).** Toggle between
@@ -435,6 +451,9 @@ that lands a feature.
 | Zero embedded media — CLI paths + the system file chooser (`F9`), `F2`/`F3` eject | `media`, `cli`, `app`, `config` | `b41a03e` |
 | Live disk mount/eject + in-memory disk persistence, `F4` export/unload (save format v2) | `disk`, `machine`, `state` (core); `disks`, `media`, `app` | `c153aa8` |
 | Save states: resume state + snapshots + fresh start, atomic writes, portable format v3 (cartridge identity) | `machine` (core); `app`, `config`, `media`, `help` | `09f8fd8` |
+| Extended BASIC on the clean-room firmware — the XB substrate (census instrument + five pinned ROM helpers + differential gates) | `cpu` (PC coverage, core); `rom/console.asm`; `xb_census`, `xb_substrate`, `xb_smoke` | `0e692eb` |
+| TI PYTHON P1 — the new-key input engine (fixes dropped keys, backspace, junk echo, unbounded input) | `grom/console.gpl`; `ti_python.rs` | `cbbcdb2` |
+| TI PYTHON v1 — the spec'd Python-like mini-language (names, floor math, `print`, comments, `exit()`, scroll, cursor) | `grom/console.gpl`; `ti_python.rs`; spec `docs/TI-PYTHON.md` | `7c2cae9` |
 
 > The list above is the *committed* slice of the roadmap; everything tagged
 > **[next]/[later]/[stretch]** is future work, captured here so the design intent

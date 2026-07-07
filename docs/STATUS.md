@@ -4,10 +4,16 @@ Where the project stands, at a glance. Kept current: update this file in the
 same commit as any change that lands or retires a milestone-sized piece of
 work (see the documentation policy in [DEVELOPMENT.md](DEVELOPMENT.md)).
 
-_Last updated: 2026-07-07 — save states finished for 0.1.0: the automatic
+_Last updated: 2026-07-07 — **Extended BASIC runs on the clean-room
+firmware** (the XB substrate: five census-pinned ROM helpers;
+[XB-CENSUS](../original-content/system-roms/XB-CENSUS.md)) and **TI PYTHON
+grew to v1**, the spec'd Python-like mini-language ([spec](TI-PYTHON.md):
+full-size names, Python floor division, `print(…)`, a scrolling terminal —
+and the fast-typing/backspace input bugs fixed). Same date: save states
+finished for 0.1.0: the automatic
 **resume state** (`resume.ti99`) plus user-named **snapshots** (native
 dialogs), fresh-start delete (`Shift`+`F5`), atomic writes, and a portable
-format (v3 adds the cartridge's host identity). Same date: live disk
+format (v3 adds the cartridge's host identity); live disk
 mount/eject (no reboot) and the disk persistence model landed (host `.dsk`
 never written; in-memory images + `F4` export/unload; save-state format v2).
 2026-07-06: **this repository is the
@@ -45,7 +51,9 @@ loaded from disk by the genuine DSR, and the disk-boot title regression.
 |---|---|
 | Console GROM (title, menu, TI PYTHON, system info, GPLLNK services) | ✅ complete (M0–M7), 137/137 carts list & launch |
 | Console ROM (kernel, GPL interpreter, KSCAN, ISR, DSRLNK, FMT, floating point) | ✅ complete (M1–M5, M7, M8), differentially verified |
-| TI BASIC support (ROM M6 + the console GPL library) | ⬜ deferred indefinitely by policy — BASIC needs the authentic firmware |
+| **TI PYTHON v1** — the Python-like mini-language in TI BASIC's menu slot ([spec](TI-PYTHON.md)) | ✅ complete (2026-07-07): full-size names, Python floor `/`·`//`·`%`, `print(…)`, `#` comments, `exit()`, scrolling screen, cursor, and the new-key input engine — 12 gates |
+| **Extended BASIC on the clean-room pair** — the XB substrate (five census-pinned ROM helpers, [XB-CENSUS](../original-content/system-roms/XB-CENSUS.md)) | ✅ complete (2026-07-07): user-supplied XB boots, `PRINT`s, computes floats, stores/`RUN`s/`LIST`s programs — differential gates |
+| TI BASIC proper (ROM M6 interpreter half + the console GPL library) | ⬜ deferred indefinitely by policy — TI BASIC itself needs the authentic firmware |
 | Boot default | ✅ clean-room ROM + GROM boot **by default** (2026-07-06); user-supplied authentic TI images selected via `--system-rom` / `--system-grom` |
 
 One cartridge-compatibility exception is open under the rewrite: Video Vegas

@@ -2,10 +2,15 @@
 
 Honest ledger of what is built and verified. **Both tracks are complete**: the
 console-GROM rewrite (all planned milestones M0–M7) and the console-ROM
-rewrite (M1–M5, M7, M8; M6 — TI BASIC — deferred indefinitely by policy), and
-since **2026-07-06 the pair boots as the emulator's default firmware** (the
-authentic TI images stay bundled, selected via `--system-rom` /
-`--system-grom`). Open gaps live in [`LIMITATIONS.md`](./LIMITATIONS.md); the
+rewrite (M1–M5, M7, M8; M6 — TI BASIC proper — deferred indefinitely by
+policy, **minus the justified XB-substrate subset that landed 2026-07-07**:
+five BASIC-era ROM helpers at their authentic addresses, census-bounded in
+[`XB-CENSUS.md`](./XB-CENSUS.md), with which **Extended BASIC runs end-to-end
+on the clean-room pair** — L9). Since **2026-07-06 the pair boots as the
+emulator's default firmware** (the authentic TI images stay bundled, selected
+via `--system-rom` / `--system-grom`). **TI PYTHON grew from the v0 integer
+REPL to the spec'd v1 mini-language the same day** (docs/TI-PYTHON.md;
+L3 resolved). Open gaps live in [`LIMITATIONS.md`](./LIMITATIONS.md); the
 interface facts everything rests on in [`RECON.md`](./RECON.md) and
 [`rom/RECON.md`](./rom/RECON.md); the debugging method in
 [`GROM-DEBUGGING-GUIDE.md`](./GROM-DEBUGGING-GUIDE.md) +
@@ -40,7 +45,7 @@ execution ledgers are archived in [`history/`](./history/).
 | **M1 — recreated master title screen** | ✅ | `crates/libre99-gpl/tests/title_screen.rs`; `grom/console.gpl`; screenshots via `examples/title_shot.rs` (authentic recon in `examples/title_recon.rs`) |
 | **M2 — the selection list** | ✅ | `crates/libre99-gpl/tests/menu.rs`: lists console GROM 1 (TI PYTHON) + cartridge GROM/ROM programs, reads a digit, launches GPL carts (sub-stack trampoline) and ML carts (`XML >F0`). Needed the keyboard scan-code table (`src/keymap.rs`, RECON §9). |
 | **M3 — cartridge compatibility sweep** | ✅ | `crates/libre99-gpl/tests/sweep.rs`: sample carts across every class + an ignored full sweep — **137/137** bundled images list exactly (the two far-list outliers, `starpeg`/`xb25`, now covered — L2 Resolved). |
-| **M4 — TI PYTHON REPL** | ✅ | `crates/libre99-gpl/tests/ti_python.rs`: integer-expression REPL (console GROM 1) — spec in [`grom/README.md`](./grom/README.md). |
+| **M4 — TI PYTHON** (v1 since 2026-07-07) | ✅ | `crates/libre99-gpl/tests/ti_python.rs` (12 gates): the Python-like mini-language in console GROM 1 — full-size names (VRAM table), Python floor `/`·`//`·`%`, real unary minus, `print(…)`/strings/`#` comments/`exit()`, `>>> ` prompt, scrolling screen, block cursor, and the KSCAN new-key input engine. Spec of record: [`docs/TI-PYTHON.md`](../../docs/TI-PYTHON.md). |
 | **ISR / interrupts (sound, sprites, QUIT)** | ✅ | `crates/libre99-gpl/tests/interrupts.rs`: `START` arms the 9901 VDP interrupt (CRU bit 2) with a GPL `IO`, so the console ROM's VBLANK ISR runs — the Tunnels of Doom splash tune plays and QUIT (`FCTN`+`=`) reboots to our title (`tests/sweep.rs::quit_returns_to_our_title`). Root-cause trace in `DEBUGGING.md` case study 1. |
 | **Emulator integration (M6)** | ✅ | `--system-grom`/`--system-rom` flags; committed `grom/console-grom.bin`; `grom/README.md` |
 | **M7 — console device I/O (disk loading)** | ✅ | `crates/libre99-gpl/tests/device_io.rs`: the interconnect table + an original **DSRLNK** (slot `>0010` → `>1200`) and a boot **peripheral DSR power-up scan** let a cartridge load a file from disk — Tunnels of Doom loads a QUEST scenario from `Tunnels.Dsk` and reaches `NEW DUNGEON`. Both delegate device work to the kept ROM via `XML >19/1A`; clean-room from the traced interface (`RECON.md` "Console device I/O"; `DEBUGGING.md` case study 2). Closes the disk path of `LIMITATIONS.md` L6. |
@@ -149,7 +154,12 @@ still **executes** those forms correctly for foreign carts that use them
   breadcrumb; ~130 differential microtests + the 256-opcode sweep + fuzz
   soaks + the firmware matrix). **M6 — the TI BASIC ROM half — is deferred
   indefinitely by policy**, with a tripwire test enforcing the written-
-  justification rule ([`LIMITATIONS.md`](./LIMITATIONS.md) L9). The committed
+  justification rule — **one justified subset is in (2026-07-07): the XB
+  substrate**, five BASIC-era helpers at their authentic addresses that make
+  **Extended BASIC run end-to-end on the clean-room pair** (census, dossier
+  and justification: [`XB-CENSUS.md`](./XB-CENSUS.md); gates:
+  `libre99-asm/tests/xb_substrate.rs` + `libre99-gpl/tests/xb_smoke.rs`;
+  [`LIMITATIONS.md`](./LIMITATIONS.md) L9). The committed
   artifact `rom/console-rom.bin` **boots by default** paired with our GROM
   (decision 2026-07-06). Status detail, the test estate, the maintenance
   layout ledger, and the house rules: [`rom/README.md`](./rom/README.md);

@@ -172,57 +172,49 @@ source anywhere in this project, so the syntax is ours by fiat:
 - `BR`/`BS` are 13-bit **slot-absolute** (same 8 KiB slot only); `B`/`CALL`
   take 16-bit absolute GROM addresses (RECON R1).
 
-## TI PYTHON v0 — the language
+## TI PYTHON — the language
 
-An interactive, immediate-mode **integer calculator with variables**, living in
-GROM 1 where TI BASIC lived. Deliberately tiny; no stored programs, control
-flow, functions, strings, or floats. Reached as `1 FOR TI PYTHON` from the
-menu; QUIT (`FCTN`+`=`) returns to the title.
+**The spec of record is [`docs/TI-PYTHON.md`](../../../docs/TI-PYTHON.md)** —
+user's guide, normative v1 language specification, and growth plan. Summary:
+an interactive, immediate-mode language **very loosely based on Python 3**,
+living in GROM 1 where TI BASIC lived; reached as `1 FOR TI PYTHON` from the
+menu; `exit()`/`quit()` return to the menu, QUIT (`FCTN`+`=`) to the title.
 
-```
-line       := assignment | expression
-assignment := NAME '=' expression
-expression := term   (('+' | '-') term)*
-term       := factor (('*' | '/' | '%') factor)*
-factor     := NUMBER | NAME | '(' expression ')' | ('+'|'-') factor
-NAME       := a single uppercase letter A–Z   (16 variable slots)
-NUMBER     := digit+                          (decimal)
-```
+v1 (2026-07-07, the executed spec): 16-bit signed integers with **Python
+floor `/` `//` and divisor-signed `%`**, a real right-associative unary
+minus, parentheses; **full-size variable names** (letters/digits/`_`, ≤ 10
+chars, 32 slots in a **VRAM table** at `>1000–11FF`, cleared per entry);
+`print(items…)` with string literals; `#` comments; a four-row banner, the
+`>>> ` prompt, a **scrolling terminal screen**, a blinking block cursor
+(char `>1E`), and the **KSCAN new-key input engine** (rolled typing delivers
+every key; `FCTN`+`S` backspace, `FCTN`+`3` ERASE, row-edge input cap).
+Errors — `SYNTAX ERROR`, `NAME ERROR: <name>`, `ZERO DIVISION ERROR`,
+`TOO COMPLEX`, `MEMORY ERROR` — report on their own row and re-prompt.
 
-Semantics (pinned by `crates/libre99-gpl/tests/ti_python.rs`):
-
-- Values are **16-bit two's-complement**; wraparound is defined
-  (`32767+1` → `-32768`; `-32768` has a special print path).
-- `/` and `%` **truncate toward zero** (C semantics, *not* CPython floor):
-  `10/3=3`, `-10/3=-3`, `-10%3=-1`. A deliberate v0 deviation from Python.
-- Errors re-prompt without crashing: `SYNTAX ERROR`, `NAME ERROR`
-  (unset variable read), `ZERO DIVISION ERROR`, and `TOO COMPLEX` (expression
-  nested past the evaluator's operand/operator stacks — see `LIMITATIONS.md` L3).
-- Implementation: an iterative **shunting-yard** evaluator with two scratchpad
-  stacks (cell map in `console.gpl`'s REPL comment block); the screen row is
-  the line buffer (input is tokenized by reading the row back from VDP RAM).
+Implementation: an iterative **shunting-yard** evaluator with two scratchpad
+stacks (the authoritative cell map is `console.gpl`'s REPL comment block);
+the screen row is the line buffer (input is tokenized by reading the row
+back from VDP RAM). Pinned by the twelve gates in
+`crates/libre99-gpl/tests/ti_python.rs`.
 
 ```
 >>> 2 + 3 * 4
 14
->>> X = 7
->>> X * (X - 1)
-42
->>> Y
-NAME ERROR
->>> 10 / 0
-ZERO DIVISION ERROR
+>>> RADIUS = 30
+>>> PRINT("AREA =", 3 * RADIUS * RADIUS)
+AREA = 2700
+>>> -7 // 2
+-4
+>>> BOGUS
+NAME ERROR: BOGUS
 ```
-
-Known v0 gaps (paths forward in [`../LIMITATIONS.md`](../LIMITATIONS.md) L3/L4):
-no backspace/line editing (needs the `FCTN` keymap block), single-letter
-variable names.
 
 ## What works today
 
 Everything in [`../STATUS.md`](../STATUS.md): title, menu (137/137 carts list
 and launch — L2 resolved; the one post-launch exception is LIMITATIONS L8, Video
-Vegas), TI PYTHON, and the ISR-driven
+Vegas), TI PYTHON v1, **Extended BASIC end-to-end** (with the console ROM's XB
+substrate — [`../XB-CENSUS.md`](../XB-CENSUS.md)), and the ISR-driven
 behaviours (sound, sprite motion, QUIT) since the boot arms the 9901 VDP
 interrupt. The rewrite is the emulator's default boot since 2026-07-06; pass
 `--system-grom roms/994AGROM.Bin` to boot the authentic GROM instead.

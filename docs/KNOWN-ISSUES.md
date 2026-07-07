@@ -21,37 +21,39 @@ ever added to the controller, the authentic path starts working too.
 
 ---
 
-## ⚠ Extended BASIC / TI BASIC programs don't run on the clean-room ROMs — boot the authentic ROMs for BASIC (by design)
+## Extended BASIC **runs** on the clean-room ROMs (since 2026-07-07); TI BASIC itself still needs the authentic firmware (by design)
 
-**Symptom.** Under the clean-room firmware (**the default** since 2026-07-06),
-Extended BASIC starts and you can type at the `READY` prompt, but
-**entered lines don't execute** — `PRINT "HELLO"` produces no output, and a
-nonsense line produces no `SYNTAX ERROR`. The same applies to TI BASIC and other
-TI-BASIC-based cartridges.
+**Was (2026-07-06).** Under the clean-room firmware (**the default**),
+Extended BASIC reached `READY` and echoed typing, but **entered lines didn't
+execute** — no output, no `SYNTAX ERROR`.
 
-**Why — this is by design, not a regression.** Our clean-room console rewrite
-**deliberately does not reimplement TI BASIC** or the shared **BASIC-era GPL
-library** it uses (it ships TI PYTHON in that menu slot). Extended BASIC brings up
-its own prompt but hands each entered line off to those console routines to
-tokenize and execute — and under our firmware they aren't there, so nothing
-happens (no output, and no error either, because the routine that would report
-`SYNTAX ERROR` is part of the same missing library). Full detail:
-[`original-content/system-roms/LIMITATIONS.md`](../original-content/system-roms/LIMITATIONS.md)
-**L9**.
+**Fixed for Extended BASIC (2026-07-07) — the XB substrate.** A measured
+census of what XB actually asks of the console
+([`XB-CENSUS.md`](../original-content/system-roms/XB-CENSUS.md)) found the
+whole gap was **five small console-ROM helpers XB calls directly by
+address** — not the feared full BASIC library. They're implemented at their
+authentic addresses in the clean-room ROM, and **Extended BASIC now works
+end-to-end on the default boot**: immediate `PRINT`, floating-point
+arithmetic, stored programs, `RUN`, `LIST` — verified screen-identical to the
+authentic firmware (`crates/libre99-gpl/tests/xb_smoke.rs`). Mount your own
+XB cartridge image as usual (`F9` or `--cartridge`).
 
-**Workaround — the authentic ROMs run BASIC perfectly.** Boot them explicitly:
+**Still by design: TI BASIC itself doesn't run on the clean-room firmware.**
+The console-resident TI BASIC interpreter (`1 FOR TI BASIC`) is deliberately
+not reimplemented — **TI PYTHON** (a small Python-like language,
+[`docs/TI-PYTHON.md`](TI-PYTHON.md)) ships in that menu slot. An unusual
+BASIC-family cartridge that leans on more of the console's BASIC half than
+Extended BASIC does could still hit stubs — the census tool
+(`cargo run -p libre99-gpl --example xb_census`) measures any cartridge in
+one command, and
+[`LIMITATIONS.md`](../original-content/system-roms/LIMITATIONS.md) **L9**
+records the method and the remaining deferred surface.
+
+**For TI BASIC, boot the authentic ROMs** (user-supplied):
 
 ```bash
 cargo run --release -p libre99-app -- --system-rom roms/994aROM.Bin --system-grom roms/994AGROM.Bin
 ```
-
-Making BASIC run under the clean-room firmware is a major future milestone
-(M6, deferred indefinitely by policy — see [`docs/ROADMAP.md`](ROADMAP.md) and
-[`LIMITATIONS.md`](../original-content/system-roms/LIMITATIONS.md) L9).
-
-**Not caused by the keyboard fix.** This surfaced right after the 2026-07-06
-Extended BASIC lowercase keytab fix — that fix only made typing work well enough
-to reach the point where XB tries to execute; the execution gap is pre-existing.
 
 ---
 

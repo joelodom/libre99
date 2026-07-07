@@ -84,8 +84,12 @@ preferences file** for that run.
 By default the emulator boots this project's **own clean-room firmware**
 ([Libre99](../original-content/system-roms/README.md)): an original console
 ROM and GROM that boot to an original title screen, list and launch mounted
-cartridges, and ship **TI PYTHON** (an original integer REPL) plus a
-**system-information screen** (press `S` on the selection menu).
+cartridges — **including Extended BASIC**, which runs end-to-end on the
+clean-room pair (since 2026-07-07) — and ship **TI PYTHON** (a small language
+very loosely based on Python 3: full-size variable names, Python-style
+arithmetic, `print(…)`, comments — the user's guide is
+[TI-PYTHON.md](TI-PYTHON.md)) plus a **system-information screen** (press `S`
+on the selection menu).
 
 The **authentic TI firmware is not distributed with this project** — it is
 Texas Instruments' copyrighted work. If you own the images, boot them with:
@@ -96,11 +100,12 @@ cargo run --release -p libre99-app -- --system-rom path/to/994aROM.Bin --system-
 
 Two things to know:
 
-- **TI BASIC / Extended BASIC need the authentic firmware.** The clean-room
-  rewrite deliberately does not reimplement TI BASIC or the console GPL
-  library BASIC-family cartridges call into — under it, Extended BASIC reaches
-  `READY` but entered lines do nothing. This is a documented firmware-rewrite
-  limitation, not an emulator bug — see
+- **TI BASIC itself needs the authentic firmware.** The clean-room rewrite
+  deliberately does not reimplement the console-resident TI BASIC interpreter
+  (TI PYTHON stands in its menu slot). **Extended BASIC cartridges do run**
+  on the clean-room firmware — the console services XB calls were measured
+  and implemented (the *XB substrate*) — but an unusual BASIC-family
+  cartridge could still lean on unimplemented console services; see
   [KNOWN-ISSUES](KNOWN-ISSUES.md) and
   [LIMITATIONS L9](../original-content/system-roms/LIMITATIONS.md).
 - **The system-information screen knows its host.** The emulator stamps its

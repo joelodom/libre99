@@ -119,47 +119,37 @@ equivalent) is execution-verified.
 
 ---
 
-## L3 — TI PYTHON v0 gaps · **DEFERRED by decision (2026-07-02) — the TI PYTHON track**
+## L3 — TI PYTHON v0 gaps · ✅ **RESOLVED (2026-07-07) — the TI PYTHON v1 track, executed**
 
-**Joel's call (2026-07-02): this project is about the emulation, not TI
-PYTHON.** Everything TI-PYTHON-specific is deferred to a later track — do
-not work these items under the current closure plan
-([`history/QUALITY-ASSESSMENT.md`](./history/QUALITY-ASSESSMENT.md) §7.2). As the
-user-facing signal that the REPL is early, its banner now reads
-**`TI PYTHON 0.0.1`** (bump it when this track lands improvements).
+**Was.** Deferred by decision 2026-07-02 ("this project is about the emulation,
+not TI PYTHON"): the v0 REPL had no backspace or line editing, dropped keys
+under fast (rolled) typing, echoed control codes as junk glyphs, had no input
+length cap, and knew only single-letter variables. The evaluator stack guards
+landed early (2026-07-05, the `TOO COMPLEX` bound — QUALITY-EVALUATION §8.2
+G1); everything else waited for the track to open.
 
-TI PYTHON (M4) is implemented and passes its gate (`tests/ti_python.rs`): integer
-`+ - * / %`, parentheses, variables, and the three errors, with truncating
-divide/modulo and 16-bit wrap. The deferred track:
+**Joel opened the track 2026-07-07** (the spec of record:
+[`docs/TI-PYTHON.md`](../../docs/TI-PYTHON.md)) and **v1 landed the same day**
+(commits `cbbcdb2` P1, `7c2cae9` P2–P6):
 
-- **No backspace / line editing.** A typo can only be fixed by pressing ENTER
-  (which reports SYNTAX ERROR) and retyping. Backspace is `FCTN`+`S` → code
-  `>08`, which the REPL currently ignores. The `FCTN` keyboard block now
-  ships (**resolved L4**), so this is unblocked — it needs only a "back up
-  the cursor" branch in the read loop.
-- **Variables are a single uppercase letter** (`A`–`Z`), 16 slots. Multi-letter
-  names would need the parser to accumulate a name and the table to key on it.
-- **Robustness (latent, found by inspection — QUALITY-ASSESSMENT.md §5 items
-  1–3):** the evaluator's operand stack (8 words, `>8350`) and operator stack
-  (16 bytes, `>8360`) were pushed **without bound checks** — deep nesting
-  (≈9 operand levels / ≈17 parens) walked into `>8370–8373` (VRAM-top and the
-  GPL data/sub-stack pointers) and could crash the console; and the `RDK` input
-  loop echoes with no length cap, so a very long line scribbles VRAM past the
-  row. Fixes are a few compare-and-error instructions each, sketched in §5.
-  **✅ Stack guards RESOLVED (2026-07-05, QUALITY-EVALUATION §8.2 G1).** Every
-  operand push (`CHE @>8310,>60`) and operator push (`CHE @>8311,>70`) now
-  bounds-checks its pointer and aborts to a new `TOO COMPLEX` error (`EV_OVF`,
-  ERR = 4) **before** any write reaches `>8370–8373`, so the interpreter cells
-  stay intact and the REPL re-prompts. Gate:
-  `crates/libre99-gpl/tests/ti_python.rs::deep_nesting_overflows_cleanly_and_the_repl_survives`
-  (red→green demonstrated against the unguarded build). The `RDK` input-length
-  cap remains deferred TI-PYTHON-track work (below).
+- **Input engine (P1)** — the KSCAN new-key protocol (`>837C` bit `>20`, one
+  event per changed key) replaces the wait-for-release loop, so rolled typing
+  delivers every character; backspace (`FCTN`+`S` — the host Backspace) and
+  ERASE (`FCTN`+`3`) edit the line; control codes are ignored, never echoed;
+  input caps at the row edge; blank lines re-prompt.
+- **The v1 language (P2–P6)** — four-row banner + `>>> ` prompt, a scrolling
+  terminal screen with a blinking block cursor, **full-size names** (≤ 10
+  chars, 32 slots in a VRAM table at `>1000–11FF`), **Python floor `/` `//`
+  and divisor-signed `%`**, a real right-associative unary minus (v0 silently
+  evaluated `2*-3` as `-3`), `print(…)` with string literals, `#` comments,
+  and `exit()`/`quit()` back to the menu. Errors gained `NAME ERROR: <name>`
+  and `MEMORY ERROR`.
 
-**Path forward (when Joel opens this track).** Backspace case in `RDK`
-(`DDEC` the cursor, redraw a space — unblocked since resolved L4); the input
-length bound and both stack guards (§5 items 1–3); multi-letter names in
-`PNUM`/`VLOAD`/`VSTORE` or a recorded single-letter spec; bump the `0.0.1`
-banner as things land.
+Gates: the twelve-test suite in `crates/libre99-gpl/tests/ti_python.rs`
+(reference session, overlapped-typing regression, editing, cap, scroll,
+cursor, names, the floor/mod identity matrix, print/comments/exit, and the
+kept stack-guard test). The banner still carries the workspace's one version
+number by design (the `sysinfo_block` splice).
 
 ---
 
@@ -427,47 +417,51 @@ with `cargo run -p libre99-gpl --example isr_regression_probe`.
 
 ---
 
-## L9 — TI BASIC / Extended BASIC programs don't execute under the rewrite (by-design; the largest clean-room gap) · ⚠ **OPEN by design**
+## L9 — TI BASIC / Extended BASIC under the rewrite · ✅ **Extended BASIC RESOLVED (2026-07-07, the XB substrate)**; TI BASIC proper stays deferred by policy
 
-**Symptom (Joel, 2026-07-06).** Launch **Extended BASIC** (or any TI-BASIC-based
-cartridge) under our firmware (`--system-grom` / `--system-rom`): the `READY`
-prompt appears and typing echoes normally, but pressing ENTER on a line does
-**nothing** — `PRINT "HELLO"` prints nothing, and a nonsense word raises no
-`* SYNTAX ERROR`. Statements never execute. (Confirmed **not** a case / ALPHA-LOCK
-issue — uppercase `PRINT` fails identically.)
+**Was (Joel, 2026-07-06).** Under the clean-room pair, Extended BASIC reached
+`READY` and echoed typing, but entered lines did **nothing** — no output, no
+`SYNTAX ERROR`. The working theory blamed the unimplemented console GROM-2
+"BASIC-era GPL library" (~5.5 KiB) plus the TI BASIC interpreter core — "a
+whole interpreter's worth of console services."
 
-**Root cause — deliberate scope, not a bug.** Extended BASIC is not
-self-contained: it brings up its own prompt and line editor, but hands the
-**tokenizing, executing, number/string formatting, and error reporting** of each
-entered line to the console's **shared BASIC-era GPL library** (console GROM 2,
-~5.5 KiB) and the TI BASIC interpreter core. The rewrite **deliberately does not
-reimplement** any of that: GROM 1 ships **TI PYTHON** in TI BASIC's menu slot
-(Joel's decision — `QUALITY-ASSESSMENT.md`: *"TI BASIC is deliberately not
-reimplemented; TI PYTHON stands in its menu slot"*), and GROM 2's BASIC + GPL
-library is **0 bytes implemented** (only `FONT2` lives there). So XB's execution
-hand-off lands on absent/stubbed routines — no output, no error. This is the
-**same missing GROM-2 library behind L8** (Video Vegas needed one routine); XB
-exercises essentially all of it.
+**The theory was wrong, and the F0 census proved it**
+([`XB-CENSUS.md`](./XB-CENSUS.md), 2026-07-07). Measured with the GROM
+read-coverage and new CPU PC-coverage instruments across a scripted XB session
+under the authentic pair: XB touches **no console-GROM BASIC code at all**
+(header bytes only), tolerates the one stubbed interconnect slot it calls
+(`>0032`), and needs exactly **five tiny console-ROM helpers (~200 bytes)** it
+calls **directly by address** from its cartridge ROM — a symbol-chain search
+and four VDP/stack primitives. Everything else it uses (GPL interpreter,
+KSCAN, DSR search, the whole radix-100 FP + conversion package) the rewrite
+already shipped.
 
-**Scope — the clean-room firmware only.** This is a limitation of the *clean-room
-rewrite firmware*, which the desktop app now **boots by default**
-(`crates/libre99-app/src/main.rs`) — so BASIC does not run out of the box. The
-**authentic TI ROMs**, which run Extended BASIC perfectly, stay bundled and are
-selectable via `--system-grom` / `--system-rom`, so a user who wants BASIC boots
-them explicitly (`--system-rom roms/994aROM.Bin --system-grom roms/994AGROM.Bin`).
+**Resolved for XB: the five helpers are implemented** — original code at the
+pinned authentic addresses (`SYMSRC >15E0`, `RDCELL >187C/>1880`, `RDVAL8
+>1890`, `WRWORD >18AA/>18AE`, `STKON/STKOFF >1E7A/>1E8C`, `VPOPAG >1FA8`; the
+**XB substrate** section of [`rom/console.asm`](./rom/console.asm), commit
+`0e692eb`). **Extended BASIC now runs end-to-end on the default clean-room
+boot**: `PRINT "HELLO"` prints, floats assign and compute (`X=1.5` /
+`PRINT X*2` → `3`), programs store, `RUN` executes, `LIST` lists —
+screen-identical to the authentic pair. Gates:
+`crates/libre99-asm/tests/xb_substrate.rs` (per-helper differential
+microtests) and `crates/libre99-gpl/tests/xb_smoke.rs` (the end-to-end
+session, with an authentic differential leg).
 
-**Path forward — milestone M6 (BASIC), a major effort.** Making TI BASIC / XB run
-under our firmware means reimplementing the TI BASIC interpreter and the shared
-GPL library they call (the `>0010-005F` service grid vectors into it) — the
-largest remaining piece of the rewrite (`STATUS.md` M6). Not a targeted fix like
-L8's single routine; it is a whole interpreter's worth of console services. Until
-it lands, **TI-BASIC-based cartridges require the authentic ROMs** (now selected
-via the `--system-rom` / `--system-grom` overrides).
-Tracked on `docs/ROADMAP.md`; user-facing note in `docs/KNOWN-ISSUES.md`.
+**What remains deferred (by policy, unchanged):** **TI BASIC proper** — the
+console GROM 1/2 interpreter (the `1 FOR TI BASIC` experience; TI PYTHON
+stands in that menu slot) and the ROM's PARSE/CONT/EXEC/RTNB half with the
+`>1C9C` tables and the `XML >13-18`/`>1B` symbol entries (still loud stubs).
+A cartridge that leans on more of the BASIC half than xb25 does would need
+its own census-first pass — `XB-CENSUS.md` §6 records the candidates
+(`PGMCH`, `SMB`/`SYM`, `VPUSH`) and the method. The authentic TI images
+remain selectable via `--system-rom` / `--system-grom` for TI BASIC itself.
 
-**Not caused by the keytab fix.** Surfaced 2026-07-06 immediately after the
-Extended BASIC lowercase keytab fix (which made typing work well enough to reach
-the execute step); the execution gap is pre-existing and by-design.
+**Verification scope note.** "Extended BASIC" here is `xb25.ctg` (Extended
+BASIC V2.5), the XB in the local third-party media set — never committed to
+this repository. The census instrument
+(`cargo run -p libre99-gpl --example xb_census`) re-measures any other
+XB-family cartridge in one command.
 
 ---
 
