@@ -484,10 +484,10 @@ fn grom_coverage_sweep() {
     );
     // Invariant 2 — the differential health panel: our console must never leave a
     // cart *less* alive than the authentic console does (the "our GROM went dead
-    // after launch" bug class — VBLANK/ISR, case studies 1/6/7/9). One documented
-    // exception, VideovegasC (LIMITATIONS L8): it hard-depends on an unshipped
-    // console GROM-2 library routine (an on-demand L6-class gap), so our graceful
-    // service RTNs leave it wedged. Waived by name so a *new* regression still fails.
+    // after launch" bug class — VBLANK/ISR, case studies 1/6/7/9). The waiver
+    // list is empty since 2026-07-07: VideovegasC's dead-console symptom cleared
+    // when the XB substrate populated formerly-zero console-ROM addresses on its
+    // data-driven launch path (LIMITATIONS L8) — so all 137 carts now gate.
     let unexpected: Vec<&String> = isr_regressions
         .iter()
         .filter(|n| !KNOWN_ISR_REGRESSIONS.contains(&n.as_str()))
@@ -515,14 +515,9 @@ fn grom_coverage_sweep() {
 
 /// Carts whose console the authentic GROM keeps alive but ours leaves wedged —
 /// documented, waived regressions (each a `LIMITATIONS.md` entry). A regression
-/// *not* in this list fails the gate.
-const KNOWN_ISR_REGRESSIONS: &[&str] = &[
-    // VideovegasC hard-depends on an unshipped console GROM-2 library routine (an
-    // on-demand L6-class gap): it CALLs interconnect slots >002C/>0032 for a
-    // routine's side effect that our graceful RTN cannot supply, and wedges with
-    // the display off. LIMITATIONS.md L8; probe examples/isr_regression_probe.rs.
-    "VideovegasC",
-];
+/// *not* in this list fails the gate. **Empty since 2026-07-07** (VideovegasC's
+/// wedge cleared with the XB substrate — L8): every bundled cart now gates.
+const KNOWN_ISR_REGRESSIONS: &[&str] = &[];
 
 /// Cart-facing interface-data (DATA-MUST-MATCH) homes: the standard font at
 /// `>04B4`, the thin font at `>06B4`, and the lower-case (small caps) font at

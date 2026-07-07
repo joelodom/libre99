@@ -301,13 +301,26 @@ the click plays while polling for the next key). Gate:
 
 ---
 
-## L8 — Video Vegas launches to a dead console (unshipped GROM-2 library) · ⚠ **OPEN** (documented; on-demand fix)
+## L8 — Video Vegas launches to a dead console (unshipped GROM-2 library) · ✅ **symptom cleared 2026-07-07** (incidentally, by the XB substrate; the library routine itself is still a stub)
 
-**Symptom.** Selecting `2 FOR VIDEO VEGAS` from the menu launches to a **dead
-console** under our GROM: the display turns off (VDP R1 = `>05`) and the 9901 VDP
-interrupt is masked, so there is no ISR, no sound, and QUIT is dead. Under the
-authentic GROM the same cart runs. Video Vegas (`VideovegasC.ctg`) is the **only**
-one of the 137 bundled carts that regresses.
+> **Update (2026-07-07).** The dead-console regression **no longer
+> reproduces**: the 137-cart differential health panel now passes with an
+> **empty waiver list** (`coverage_sweep.rs` — Video Vegas ends display-on
+> with the ISR ticking, like authentic). Nothing was done *for* this cart —
+> the **XB substrate** (`XB-CENSUS.md`) populated console-ROM addresses that
+> were zeros in our layout, and Video Vegas's data-driven launch divergence
+> ("a console value it reads is non-zero under authentic, zero under ours" —
+> below) evidently read one of them. The `>002C`/`>0032` interconnect slots
+> are **still graceful `ILRTN` stubs**; a "console alive" verdict is not a
+> gameplay verdict, so a GUI eyeball of actual play is the remaining
+> confirmation, and the original analysis below stays for the record. If the
+> symptom ever returns, the panel fails loudly by name.
+
+**Symptom (as filed).** Selecting `2 FOR VIDEO VEGAS` from the menu launched to
+a **dead console** under our GROM: the display turned off (VDP R1 = `>05`) and
+the 9901 VDP interrupt was masked, so there was no ISR, no sound, and QUIT was
+dead. Under the authentic GROM the same cart runs. Video Vegas
+(`VideovegasC.ctg`) was the **only** one of the 137 bundled carts regressing.
 
 **How it surfaced.** The 2026-07-04 ship review strengthened the coverage sweep's
 post-launch check. The old gate asserted only *"did not reboot to our title,"* and

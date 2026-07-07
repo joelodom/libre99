@@ -56,10 +56,11 @@ loaded from disk by the genuine DSR, and the disk-boot title regression.
 | TI BASIC proper (ROM M6 interpreter half + the console GPL library) | ⬜ deferred indefinitely by policy — TI BASIC itself needs the authentic firmware |
 | Boot default | ✅ clean-room ROM + GROM boot **by default** (2026-07-06); user-supplied authentic TI images selected via `--system-rom` / `--system-grom` |
 
-One cartridge-compatibility exception is open under the rewrite: Video Vegas
-(GROM-2 library dependency,
-[LIMITATIONS L8](../original-content/system-roms/LIMITATIONS.md)). Detail and
-evidence: [original-content/system-roms/STATUS.md](../original-content/system-roms/STATUS.md)
+The 137-cart differential health panel passes with **zero waivers** since
+2026-07-07 — the former Video Vegas exception cleared incidentally with the
+XB substrate ([LIMITATIONS L8](../original-content/system-roms/LIMITATIONS.md);
+a gameplay eyeball remains the final confirmation). Detail and evidence:
+[original-content/system-roms/STATUS.md](../original-content/system-roms/STATUS.md)
 and [rom/README.md](../original-content/system-roms/rom/README.md).
 
 ## The toolchain and original content

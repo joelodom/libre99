@@ -158,8 +158,11 @@ deferral policy's required written justification.
   `GOSUB`, `DEF`, file I/O to disk) may surface additional direct-entry
   helpers; run the census before assuming.
 * The GROM slot `>0032` remains an `ILRTN` stub — XB calls it and tolerates
-  the no-op (differentially verified end-to-end). Video Vegas (L8) still
-  wants that routine's side effect; unchanged here.
+  the no-op (differentially verified end-to-end). Video Vegas (L8), the other
+  known caller, **stopped wedging** once the substrate populated
+  formerly-zero ROM addresses on its data-driven launch path — the 137-cart
+  health panel now passes with an empty waiver list (see L8's update note);
+  the slot's routine itself is still unimplemented.
 
 ## 7. Reproduce
 
