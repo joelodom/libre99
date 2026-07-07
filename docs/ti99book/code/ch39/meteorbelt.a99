@@ -1,0 +1,700 @@
+* METEORBELT.A99 — Capstone I: the scrolling shooter.               (Ch. 39)
+* Copyright (c) 2026 Joel Odom. All rights reserved.
+*
+* Part IX's first complete title, built on SKELETON99 (Ch. 36) + lib99. This
+* file is METEOR BELT's ENGINE: the phase state machine (ATTRACT -> PLAY ->
+* OVER), the data-driven WAVE DIRECTOR, two fixed-slot entity tables (enemies
+* and player shots) advanced in 8.8 fixed-point, bounding-box collision, and
+* the player systems that give the genre its texture — LASER HEAT with a
+* lockout, FUEL that drains and refuels, and LIVES. It productionizes the Ch.17
+* pattern-shift scroll and renders through Ch.16 spritelib.
+*
+* Like DODGE (Ch.16), the interactive layer (real joystick, the frame-timed
+* loop under the beam) belongs to the running machine; here START drives the
+* engine through a DETERMINISTIC script so every subsystem is provable on the
+* bench, then paints the border-verdict light: GREEN (>02) if every assertion
+* holds, RED (>06) with a failure id in FAILID otherwise.
+*
+* Verify: load, pc START, x 400000, then  vdp  (VR7 = >02 = all systems pass)
+* and  m 8360 2  (FAILID = 0). See meteorbelt.bench for the scripted assertions.
+*
+* Build:  libre99asm code/ch39/meteorbelt.a99 --format bin -o build/METEORC.bin
+
+       COPY '../ch11/equates.inc'      ports, colours, the fast island
+       COPY '../ch12/vdplib.inc'       VWTR/VWA/VSBW/VMBW
+       COPY '../ch16/spritelib.inc'    SINIT/SPAT/SPUT/SMOV/SHIDE
+
+* ================= the fast island: workspace, stack, hot scalars =========
+* Per Ch.24/37 doctrine the per-frame scalars live in the scratchpad; the
+* iterated entity tables (warm data) sit in expansion RAM below.
+WS     EQU  >8300            workspace (>8300-831F)
+STKTOP EQU  >8340            R10 software stack top (grows down, Ch.9)
+STATE  EQU  >8342            phase: 0 ATTRACT / 1 PLAY / 2 OVER
+SIG    EQU  >8344            running phase's signature (dispatch proof)
+SEED   EQU  >8346            LFSR state (Ch.8)
+SCORE  EQU  >8348            score
+LIVES  EQU  >834A            lives remaining
+FUEL   EQU  >834C            fuel (drains per tick, refuel resets)
+HEAT   EQU  >834E            laser heat 0..HMAX
+LOCK   EQU  >8350            laser lockout (0 = ready, 1 = cooling)
+SPHASE EQU  >8352            scroll sub-pixel phase 0..7 (Ch.17)
+WVCUR  EQU  >8354            wave-script cursor (byte offset into WSCRPT)
+WVTMR  EQU  >8356            ticks to next wave event
+PX     EQU  >8358            player x (pixels)
+PY     EQU  >835A            player y (pixels)
+TRIG   EQU  >835C            fire trigger this tick (1 = firing)
+KILLS  EQU  >835E            enemies destroyed (verify counter)
+FAILID EQU  >8360            self-test failure id (0 = pass)
+HITLOK EQU  >8362            latched: the laser locked at least once
+FIRED  EQU  >8364            shots actually launched (verify counter)
+TICKN  EQU  >8366            self-test tick counter (survives DISP's clobbers)
+
+* ================= warm entity tables: expansion RAM ======================
+* Slot = 12 bytes: X(8.8) Y(8.8) DX(8.8) DY(8.8) TYPE LIVE AUX pad. This is
+* SKELETON99's fixed-slot table (Ch.36.4) with the velocity fields widened to
+* full 8.8 words so objects move at shooter speeds. ENEMS and SHOTS are laid
+* out contiguously so one clear-loop zeroes both.
+ENEMS  EQU  >A000            6 enemy slots
+NENEM  EQU  6
+SHOTS  EQU  >A048            4 player-shot slots (>A000 + 6*12)
+NSHOT  EQU  4
+ESIZE  EQU  12               bytes per slot
+TABWDS EQU  60               (6+4)*12/2 words to clear
+
+* slot field offsets (used as @off(R4))
+* 0 = X.hi/X.lo   2 = Y.hi/Y.lo   4 = DX   6 = DY   8 = TYPE   9 = LIVE   10 = AUX
+
+* ================= tuning tables (the game's balance, as data) ============
+PLAYX  EQU  120              player start column
+PLAYY  EQU  160              player row (fixed; steers horizontally)
+LIVES0 EQU  3
+FUELMX EQU  200              full tank
+FUELDN EQU  1                fuel burned per tick
+HINC   EQU  8                heat added per shot
+HMAX   EQU  32               overheat threshold -> lockout
+HCOOL  EQU  2                heat shed per idle tick
+HRST   EQU  8                cooled to here -> laser ready again
+SHOTDY EQU  >FC00            shot velocity: -4.00 px/frame (8.8)
+ENEMPT EQU  25               score per enemy
+TOP    EQU  8                shots above this row are spent
+SCHAR  EQU  >0808            scroll character's pattern (char 1 @ >0800+8)
+
+* ================= the script the self-test runs ==========================
+NTICKS EQU  30               play-phase ticks driven
+FIREN  EQU  6                trigger held for the first FIREN ticks
+
+* ===========================================================================
+START  LWPI WS
+       LI   R10,STKTOP
+* ---- bring up Graphics I, blank background, sprites (Ch.13/16) ----
+       LI   R0,0
+       LI   R1,0
+       BL   @VWTR            VR0 = 0
+       LI   R0,1
+       LI   R1,>E000
+       BL   @VWTR            VR1 = >E0 : display on, 16K, 8x8 sprites
+       LI   R0,2
+       LI   R1,0
+       BL   @VWTR            VR2 = 0  : name table  >0000
+       LI   R0,3
+       LI   R1,>0E00
+       BL   @VWTR            VR3 = >0E: colour table >0380
+       LI   R0,4
+       LI   R1,>0100
+       BL   @VWTR            VR4 = >01: pattern gen  >0800
+       LI   R0,7
+       LI   R1,>0400
+       BL   @VWTR            VR7 = >04: dark-blue backdrop
+* colour group 0 = white on transparent (the scroll band, char 1)
+       LI   R0,>0380
+       LI   R1,>F000
+       BL   @VSBW
+* ---- sprite shapes and the initial attribute list ----
+       BL   @SINIT
+       CLR  R0
+       LI   R1,SHIP
+       BL   @SPAT            pattern 0 = the player ship
+       LI   R0,1
+       LI   R1,ROCK
+       BL   @SPAT            pattern 1 = an enemy rock
+       LI   R0,2
+       LI   R1,BOLT
+       BL   @SPAT            pattern 2 = a laser bolt
+* SPUT sprites 0..10 once (shape + colour); RENDER only SMOVs them after.
+       CLR  R0
+       LI   R1,PLAYY
+       LI   R2,PLAYX
+       CLR  R3
+       LI   R4,15
+       BL   @SPUT            sprite 0 = player (white)
+       LI   R8,1            R8 = sprite number
+       LI   R9,NENEM        R9 = how many enemy sprites
+SPRE   MOV  R8,R0
+       LI   R1,>C0          parked off-screen
+       LI   R2,0
+       LI   R3,1
+       LI   R4,9            enemy colour = medium red
+       BL   @SPUT
+       INC  R8
+       DEC  R9
+       JNE  SPRE
+       LI   R9,NSHOT
+SPRS   MOV  R8,R0
+       LI   R1,>C0
+       LI   R2,0
+       LI   R3,2
+       LI   R4,11           bolt colour = light yellow
+       BL   @SPUT
+       INC  R8
+       DEC  R9
+       JNE  SPRS
+       LI   R0,SATTR
+       AI   R0,44           sprite 11 Y = >D0 ends the active list
+       LI   R1,>D000
+       BL   @VSBW
+* ---- the scroll band: fill row 20 with char 1 (Ch.17 pattern-shift host) --
+       LI   R0,0
+       BL   @VWA            aim at name cell 0
+       CLR  R1
+       LI   R2,768
+SNCLR  MOVB R1,@VDPWD       blank the whole name table
+       DEC  R2
+       JNE  SNCLR
+       LI   R0,640          row 20 * 32
+       BL   @VWA
+       LI   R1,>0100        character 1
+       LI   R2,32
+SBAND  MOVB R1,@VDPWD
+       DEC  R2
+       JNE  SBAND
+
+* ---- initialise game state ----
+       BL   @GINIT
+
+* ================= (a) prove the phase dispatch table =====================
+* ATTRACT and OVER route directly (no gameplay side effects); PLAY is proven
+* by the scenario below.
+       CLR  @STATE
+       BL   @DISP
+       MOV  @SIG,R0
+       CI   R0,>4141        ATTRACT signature 'AA'
+       JNE  FDISP
+       LI   R0,2
+       MOV  R0,@STATE
+       BL   @DISP
+       MOV  @SIG,R0
+       CI   R0,>2A2A        OVER signature '**'
+       JNE  FDISP
+
+* ================= (b) run the PLAY scenario =============================
+       BL   @GINIT          fresh state
+       LI   R0,1
+       MOV  R0,@STATE       enter PLAY
+       CLR  @TICKN         the tick counter lives in memory: DISP's inner
+PLOOP  MOV  @TICKN,R0      loops (COLLID/PCOLL) use R7-R8 as scratch (R-16)
+       CI   R0,FIREN        hold the trigger for the first FIREN ticks
+       JHE  PNOFIR
+       LI   R0,1
+       MOV  R0,@TRIG
+       JMP  PTICK
+PNOFIR CLR  @TRIG
+PTICK  BL   @DISP           one PLAY frame (PHPLAY -> UPDATE)
+       INC  @TICKN
+       MOV  @TICKN,R0
+       CI   R0,NTICKS
+       JNE  PLOOP
+
+* ================= (c) assertions ========================================
+       MOV  @KILLS,R0
+       JEQ  FKILL           the shot must have destroyed the enemy
+       MOV  @SCORE,R0
+       CI   R0,ENEMPT
+       JL   FSCORE          score credited for the kill
+       MOV  @HITLOK,R0
+       JEQ  FHEAT           the laser must have overheated and locked
+       MOV  @LOCK,R0
+       JNE  FLOCK           and then cooled back to ready
+       MOV  @FUEL,R0
+       CI   R0,FUELMX
+       JHE  FFUEL           fuel must have drained
+       BL   @REFUEL
+       MOV  @FUEL,R0
+       CI   R0,FUELMX
+       JNE  FREFL           refuel must top the tank
+* game-over transition: last life lost -> STATE becomes OVER
+       LI   R0,1
+       MOV  R0,@LIVES
+       LI   R0,1
+       MOV  R0,@STATE
+       BL   @LOSELF
+       MOV  @LIVES,R0
+       JNE  FLIFE
+       MOV  @STATE,R0
+       CI   R0,2
+       JNE  FOVER
+
+* every system passed
+       LI   R0,7
+       LI   R1,GREEN
+       BL   @VWTR
+       JMP  HALT
+
+FDISP  LI   R0,9
+       JMP  REDV
+FKILL  LI   R0,1
+       JMP  REDV
+FSCORE LI   R0,2
+       JMP  REDV
+FHEAT  LI   R0,3
+       JMP  REDV
+FLOCK  LI   R0,4
+       JMP  REDV
+FFUEL  LI   R0,5
+       JMP  REDV
+FREFL  LI   R0,6
+       JMP  REDV
+FLIFE  LI   R0,7
+       JMP  REDV
+FOVER  LI   R0,8
+REDV   MOV  R0,@FAILID
+       LI   R0,7
+       LI   R1,RED
+       BL   @VWTR
+HALT   JMP  HALT
+
+* ===========================================================================
+* GINIT — reset the game to a fresh PLAY start; clear both entity tables. Leaf.
+GINIT  CLR  @STATE
+       CLR  @SIG
+       CLR  @SCORE
+       CLR  @KILLS
+       CLR  @HEAT
+       CLR  @LOCK
+       CLR  @HITLOK
+       CLR  @FIRED
+       CLR  @SPHASE
+       CLR  @WVCUR
+       CLR  @TRIG
+       CLR  @FAILID
+       LI   R0,LIVES0
+       MOV  R0,@LIVES
+       LI   R0,FUELMX
+       MOV  R0,@FUEL
+       LI   R0,>ACE1
+       MOV  R0,@SEED
+       LI   R0,PLAYX
+       MOV  R0,@PX
+       LI   R0,PLAYY
+       MOV  R0,@PY
+       MOV  @WSCRPT,R0      WVTMR = first record's delay
+       MOV  R0,@WVTMR
+       LI   R4,ENEMS
+       LI   R5,TABWDS
+GICLR  CLR  *R4+
+       DEC  R5
+       JNE  GICLR
+       RT
+
+* ===========================================================================
+* DISP — run the current phase once, through the state-machine table. Non-leaf.
+DISP   DECT R10
+       MOV  R11,*R10
+       MOV  @STATE,R1
+       SLA  R1,1            phase index * 2 -> word offset
+       MOV  @PTAB(R1),R2
+       BL   *R2
+       MOV  *R10+,R11
+       RT
+
+PTAB   DATA PHATTR,PHPLAY,PHOVER
+
+* ---- phase routines: each stamps its signature (SKELETON99 discipline) ----
+PHATTR LI   R0,>4141        'AA'
+       MOV  R0,@SIG
+       RT
+PHOVER LI   R0,>2A2A        '**'
+       MOV  R0,@SIG
+       RT
+PHPLAY DECT R10
+       MOV  R11,*R10
+       LI   R0,>5050        'PP'
+       MOV  R0,@SIG
+       BL   @UPDATE
+       MOV  *R10+,R11
+       RT
+
+* ===========================================================================
+* UPDATE — one PLAY frame: scroll, waves, fire, cool, move, cull, collide,
+* fuel, render. Non-leaf.
+UPDATE DECT R10
+       MOV  R11,*R10
+       BL   @SCROLL
+       BL   @WAVE
+       MOV  @TRIG,R0
+       JEQ  UPNOF
+       BL   @SHOOT
+UPNOF  BL   @COOL
+       LI   R4,ENEMS
+       LI   R5,NENEM
+       BL   @STEP
+       LI   R4,SHOTS
+       LI   R5,NSHOT
+       BL   @STEP
+       BL   @CULL
+       BL   @COLLID
+       BL   @PCOLL
+* burn fuel (floor at zero)
+       MOV  @FUEL,R0
+       CI   R0,FUELDN
+       JL   UPFZ
+       AI   R0,-FUELDN
+       JMP  UPFST
+UPFZ   CLR  R0
+UPFST  MOV  R0,@FUEL
+       BL   @RENDER
+       MOV  *R10+,R11
+       RT
+
+* ===========================================================================
+* SCROLL — advance the sub-pixel phase and redraw the scroll character shifted
+* one pixel, the Ch.17.5 "Parsec method": ~a dozen port writes slides the whole
+* band, not 768 name cells. Non-leaf (calls VWA).
+SCROLL DECT R10
+       MOV  R11,*R10
+       LI   R0,SCHAR
+       BL   @VWA
+       LI   R1,>0080        one lit pixel ...
+       MOV  @SPHASE,R2     ... walked right by SPHASE
+       JEQ  SCDRAW
+SCSH   SRL  R1,1
+       DEC  R2
+       JNE  SCSH
+SCDRAW SWPB R1
+       LI   R2,8
+SCROW  MOVB R1,@VDPWD       eight identical rows = a vertical rule
+       DEC  R2
+       JNE  SCROW
+       INC  @SPHASE
+       MOV  @SPHASE,R0
+       ANDI R0,7
+       MOV  R0,@SPHASE
+       MOV  *R10+,R11
+       RT
+
+* ===========================================================================
+* WAVE — the data-driven director. Count down to the next scripted event; when
+* it fires, spawn that record's enemy and load the following delay. Non-leaf.
+WAVE   DECT R10
+       MOV  R11,*R10
+       MOV  @WVTMR,R0
+       JEQ  WVNOW
+       DEC  @WVTMR
+       JMP  WVX
+WVNOW  MOV  @WVCUR,R1
+       AI   R1,WSCRPT       R1 -> current record's DELAY word
+       MOV  *R1,R0
+       CI   R0,>FFFF
+       JEQ  WVSTOP          sentinel: script exhausted
+       INCT R1              step past DELAY -> the spawn fields
+       BL   @SPAWN          R1 -> {XPIX,YPIX,DX,DY,TYPE}
+       MOV  @WVCUR,R0
+       AI   R0,ESIZE        records are ESIZE bytes wide
+       MOV  R0,@WVCUR
+       MOV  R0,R1
+       AI   R1,WSCRPT
+       MOV  *R1,R0          the next record's delay
+       CI   R0,>FFFF
+       JEQ  WVSTOP
+       MOV  R0,@WVTMR
+       JMP  WVX
+WVSTOP LI   R0,>7FFF        no more spawns for a long time
+       MOV  R0,@WVTMR
+WVX    MOV  *R10+,R11
+       RT
+
+* ===========================================================================
+* SPAWN — R1 -> {XPIX,YPIX,DX,DY,TYPE}. Fill the first free enemy slot; if the
+* table is full the spawn is dropped (a fairness limit, not a crash). Leaf.
+SPAWN  LI   R4,ENEMS
+       LI   R5,NENEM
+SPSCAN MOVB @9(R4),R6
+       JEQ  SPGO
+       AI   R4,ESIZE
+       DEC  R5
+       JNE  SPSCAN
+       RT                   ; full: drop it
+SPGO   MOV  *R1+,R0
+       SLA  R0,8            XPIX -> 8.8
+       MOV  R0,@0(R4)
+       MOV  *R1+,R0
+       SLA  R0,8            YPIX -> 8.8
+       MOV  R0,@2(R4)
+       MOV  *R1+,@4(R4)     DX (already 8.8)
+       MOV  *R1+,@6(R4)     DY
+       MOV  *R1+,R0         TYPE
+       SWPB R0
+       MOVB R0,@8(R4)       type byte
+       LI   R0,>0100
+       MOVB R0,@9(R4)       LIVE = 1
+       MOVB R0,@10(R4)      AUX (hit points) = 1
+       RT
+
+* ===========================================================================
+* STEP — advance every live slot in the table at R4 (R5 slots) by its 8.8
+* velocity. The SKELETON99 entity loop, widened to word velocities. Leaf.
+STEP   MOVB @9(R4),R6       live?
+       JEQ  STNEXT
+       MOV  @0(R4),R0
+       A    @4(R4),R0       X += DX
+       MOV  R0,@0(R4)
+       MOV  @2(R4),R0
+       A    @6(R4),R0       Y += DY
+       MOV  R0,@2(R4)
+STNEXT AI   R4,ESIZE
+       DEC  R5
+       JNE  STEP
+       RT
+
+* ===========================================================================
+* CULL — retire shots that have climbed past the top of the screen. Leaf.
+CULL   LI   R4,SHOTS
+       LI   R5,NSHOT
+CULLLP MOVB @9(R4),R6
+       JEQ  CULLNX
+       MOVB @2(R4),R0       Y high byte = pixel row
+       SRL  R0,8
+       CI   R0,TOP
+       JHE  CULLNX          still on screen
+       CLR  R6
+       MOVB R6,@9(R4)       spent
+CULLNX AI   R4,ESIZE
+       DEC  R5
+       JNE  CULLLP
+       RT
+
+* ===========================================================================
+* SHOOT — launch a player shot if the laser is ready; add heat, and lock out
+* the laser if it overheats. A full shot table simply drops the shot. Leaf.
+SHOOT  MOV  @LOCK,R0
+       JNE  SHX             locked out -> no shot
+       LI   R4,SHOTS
+       LI   R5,NSHOT
+SHSCAN MOVB @9(R4),R6
+       JEQ  SHGO
+       AI   R4,ESIZE
+       DEC  R5
+       JNE  SHSCAN
+       JMP  SHX             no free slot
+SHGO   MOV  @PX,R0
+       SLA  R0,8
+       MOV  R0,@0(R4)       X = PX (8.8)
+       MOV  @PY,R0
+       SLA  R0,8
+       MOV  R0,@2(R4)       Y = PY (8.8)
+       CLR  @4(R4)          DX = 0
+       LI   R0,SHOTDY
+       MOV  R0,@6(R4)       DY = -4.0
+       LI   R0,>0100
+       MOVB R0,@9(R4)       LIVE = 1
+       INC  @FIRED
+* heat up; overheat -> lock
+       MOV  @HEAT,R0
+       AI   R0,HINC
+       MOV  R0,@HEAT
+       CI   R0,HMAX
+       JL   SHX
+       LI   R0,1
+       MOV  R0,@LOCK
+       MOV  R0,@HITLOK      latch that we overheated (verify)
+SHX    RT
+
+* ===========================================================================
+* COOL — on an idle tick, shed heat; a locked laser re-arms once it has cooled
+* to HRST. Leaf.
+COOL   MOV  @TRIG,R0
+       JNE  COX             fired this tick -> no cooling
+       MOV  @HEAT,R0
+       CI   R0,HCOOL
+       JL   COZERO
+       AI   R0,-HCOOL
+       JMP  COSET
+COZERO CLR  R0
+COSET  MOV  R0,@HEAT
+       MOV  @LOCK,R1
+       JEQ  COX
+       CI   R0,HRST
+       JH   COX
+       CLR  @LOCK           cooled enough -> ready again
+COX    RT
+
+* ===========================================================================
+* COLLID — player shots vs enemies, bounding box (|dx| and |dy| < 8 px). On a
+* hit, retire both, credit the score, count the kill. Leaf (nested loops).
+COLLID LI   R4,SHOTS
+       LI   R5,NSHOT
+COSH   MOVB @9(R4),R6       shot live?
+       JEQ  COSHNX
+       LI   R7,ENEMS
+       LI   R8,NENEM
+COEN   MOVB @9(R7),R6       enemy live?
+       JEQ  COENNX
+       MOVB @0(R4),R0
+       SRL  R0,8
+       MOVB @0(R7),R1
+       SRL  R1,8
+       S    R1,R0
+       ABS  R0
+       CI   R0,8
+       JHE  COENNX          |dx| >= 8 -> miss
+       MOVB @2(R4),R0
+       SRL  R0,8
+       MOVB @2(R7),R1
+       SRL  R1,8
+       S    R1,R0
+       ABS  R0
+       CI   R0,8
+       JHE  COENNX          |dy| >= 8 -> miss
+       CLR  R6
+       MOVB R6,@9(R4)       shot consumed
+       MOVB R6,@9(R7)       enemy destroyed
+       INC  @KILLS
+       MOV  @SCORE,R0
+       AI   R0,ENEMPT
+       MOV  R0,@SCORE
+       JMP  COSHNX          this shot is spent
+COENNX AI   R7,ESIZE
+       DEC  R8
+       JNE  COEN
+COSHNX AI   R4,ESIZE
+       DEC  R5
+       JNE  COSH
+       RT
+
+* ===========================================================================
+* PCOLL — enemies vs the player: a touch destroys the enemy and costs a life.
+* Non-leaf (calls LOSELF).
+PCOLL  DECT R10
+       MOV  R11,*R10
+       LI   R7,ENEMS
+       LI   R8,NENEM
+PCEN   MOVB @9(R7),R6
+       JEQ  PCENNX
+       MOVB @0(R7),R0
+       SRL  R0,8
+       MOV  @PX,R1
+       S    R1,R0
+       ABS  R0
+       CI   R0,8
+       JHE  PCENNX
+       MOVB @2(R7),R0
+       SRL  R0,8
+       MOV  @PY,R1
+       S    R1,R0
+       ABS  R0
+       CI   R0,8
+       JHE  PCENNX
+       CLR  R6
+       MOVB R6,@9(R7)       enemy destroyed on impact
+       BL   @LOSELF
+PCENNX AI   R7,ESIZE
+       DEC  R8
+       JNE  PCEN
+       MOV  *R10+,R11
+       RT
+
+* ===========================================================================
+* LOSELF — lose a life; at zero lives, transition to OVER. Leaf.
+LOSELF DEC  @LIVES
+       JNE  LSX
+       LI   R0,2
+       MOV  R0,@STATE       out of lives -> game over
+LSX    RT
+
+* ===========================================================================
+* REFUEL — the fuel-tunnel reward: top the tank. Leaf.
+REFUEL LI   R0,FUELMX
+       MOV  R0,@FUEL
+       RT
+
+* ===========================================================================
+* RENDER — reflect the live entities onto their sprites; park the dead. The
+* player is sprite 0, enemies 1..NENEM, shots after. Non-leaf. R8 = slot count,
+* R9 = sprite number (both survive SMOV/SHIDE, which clobber R0/R5/R6).
+RENDER DECT R10
+       MOV  R11,*R10
+       CLR  R0
+       MOV  @PY,R1
+       MOV  @PX,R2
+       BL   @SMOV           player
+       LI   R4,ENEMS
+       LI   R8,NENEM
+       LI   R9,1
+RENEN  MOVB @9(R4),R6
+       JEQ  RENHID
+       MOVB @2(R4),R1
+       SRL  R1,8
+       MOVB @0(R4),R2
+       SRL  R2,8
+       MOV  R9,R0
+       BL   @SMOV
+       JMP  RENENX
+RENHID MOV  R9,R0
+       BL   @SHIDE
+RENENX AI   R4,ESIZE
+       INC  R9
+       DEC  R8
+       JNE  RENEN
+       LI   R4,SHOTS
+       LI   R8,NSHOT
+RESH   MOVB @9(R4),R6
+       JEQ  RESHID
+       MOVB @2(R4),R1
+       SRL  R1,8
+       MOVB @0(R4),R2
+       SRL  R2,8
+       MOV  R9,R0
+       BL   @SMOV
+       JMP  RESHNX
+RESHID MOV  R9,R0
+       BL   @SHIDE
+RESHNX AI   R4,ESIZE
+       INC  R9
+       DEC  R8
+       JNE  RESH
+       MOV  *R10+,R11
+       RT
+
+* ===========================================================================
+* RANDX — a 16-bit LFSR step -> a column 0..248 in R0 (attract/variety use;
+* the scripted self-test stays deterministic). Leaf-ish (clobbers R0/R1).
+RANDX  MOV  @SEED,R1
+       SRL  R1,1
+       MOV  @SEED,R0
+       ANDI R0,1
+       JEQ  RXOK
+       XOR  @RXTAP,R1
+RXOK   MOV  R1,@SEED
+       ANDI R1,>00F8
+       MOV  R1,R0
+       RT
+RXTAP  DATA >B400
+
+* ===========================================================================
+* The wave script — the director's database. Record = 6 words:
+*   DELAY  ticks after the previous spawn
+*   XPIX   YPIX   spawn column/row (pixels)
+*   DX     DY     8.8 velocity
+*   TYPE   enemy class
+* Terminated by a DELAY of >FFFF. Editing this table re-choreographs the game
+* with no code change — the data-driven director of Ch.36.6.
+WSCRPT DATA 0,120,40,0,>0200,1           tick 0 dead ahead down 2.0
+       DATA 30,60,40,0,>0180,1           +30 left lane down 1.5
+       DATA 30,180,40,0,>0180,2          +30 right lane down 1.5
+       DATA >FFFF,0,0,0,0,0              end of script
+
+* ===========================================================================
+* sprite shapes (8 bytes each = one 8x8 pattern)
+SHIP   DATA >1818,>3C7E,>FFDB,>2400     a little arrowhead ship
+ROCK   DATA >3C7E,>FFFF,>FFFF,>7E3C     a round meteor
+BOLT   DATA >1818,>1818,>1818,>1818     a vertical laser bolt
+       END  START

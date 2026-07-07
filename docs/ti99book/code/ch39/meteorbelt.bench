@@ -1,0 +1,20 @@
+# meteorbelt.bench — drive METEOR BELT's engine through its deterministic
+# self-test on BENCH99 and assert every subsystem out of the scratchpad.
+# Build the ROM image first (from docs/ti99book/):
+#
+#   ../../target/release/libre99asm code/ch39/meteorbelt.a99 --name 'METEOR BELT' \
+#       --format bin -o build/METEORC.bin --symbols build/meteor.map.json
+#
+# then:  code/bench/target/release/bench99 code/ch39/meteorbelt.bench
+#
+# START = >6154 and HALT = >637C (read them from build/meteor.map.json if the
+# source shifts). The state block from >8342 (see meteorbelt.a99 field map):
+#   >8342 STATE  >8344 SIG   >8348 SCORE  >834A LIVES  >834C FUEL
+#   >834E HEAT   >8350 LOCK  >835E KILLS  >8360 FAILID >8362 HITLOK >8364 FIRED
+# GREEN run: FAILID = >0000, VR7 = >02; KILLS >= 1, HITLOK = >FFFF-ish (1),
+# LOCK = 0, and STATE ends at >0002 (OVER, from the last-life assertion).
+load build/METEORC.bin
+pc 6154
+u 637C
+m 8342 40
+vdp
