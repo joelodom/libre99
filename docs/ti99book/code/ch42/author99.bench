@@ -1,0 +1,7 @@
+load C:/ClaudeShared/libre99/docs/ti99book/build/AUTHC.bin
+pc 62F0
+x 100000
+vdp
+m 8348 2
+m A200 12
+m A300 12

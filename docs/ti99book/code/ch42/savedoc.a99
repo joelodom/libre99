@@ -1,0 +1,74 @@
+* SAVEDOC.A99 — §42.5: write the document to a DV80 disk file.       (Ch. 42)
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
+*
+* AUTHOR99's documents are DV80 files — DISPLAY, VARIABLE, 80 — the interchange
+* format TI-Writer itself reads and writes, so a file saved here opens there and
+* vice versa. Each line of the document becomes one variable-length record. This
+* listing stages a DV80 OUTPUT PAB, copies one flattened line up to a VRAM
+* buffer, sets its length, and writes it through filelib (Ch. 31); a real editor
+* loops over the document's lines.
+*
+* NOT bench-runnable: BENCH99 has no card at >4000 (R-12). The write path is
+* verified at the Rust-harness tier (device_io.rs) and by decoding real .dsk
+* images (Part VII); this file proves the save path ASSEMBLES and is the §42.5
+* listing.
+
+       COPY '../ch11/equates.inc'      ports, the fast island
+       COPY '../ch12/vdplib.inc'       VMBW / VSBW
+       COPY '../ch30/dsrlib.inc'       DSRLNK
+       COPY '../ch31/filelib.inc'      the PAB and the opcode wrappers
+
+WS     EQU  >8300
+STKTOP EQU  >8340
+PABADR EQU  >1000            PAB base in VRAM
+RECBUF EQU  >1100            the record's characters, in VRAM (PAB+2 points here)
+LINELN EQU  9                bytes in this line ("AUTHOR 99")
+NMLN   EQU  8                length of "DSK1.DOC"
+
+START  LWPI WS
+       LI   R10,STKTOP
+* copy this line's characters up into the VRAM record buffer
+       LI   R0,RECBUF
+       LI   R1,LINE
+       LI   R2,LINELN
+       BL   @VMBW
+* stage the PAB in VRAM
+       LI   R0,PABADR
+       LI   R1,PABIMG
+       LI   R2,PABLEN
+       BL   @VMBW
+* set the character count (PAB+5) = this record's length
+       LI   R0,PABADR
+       AI   R0,PCOUNT
+       LI   R1,LINELN
+       SWPB R1                 count into the high half for VSBW
+       BL   @VSBW
+* open DSK1.DOC (DV80, OUTPUT), write the record, close
+       LI   R0,PABADR
+       LI   R1,OPOPEN
+       BL   @FDOP
+       LI   R0,PABADR
+       LI   R1,OPWRIT
+       BL   @FDOP
+       LI   R0,PABADR
+       LI   R1,OPCLOS
+       BL   @FDOP
+HALT   JMP  HALT
+
+* ---- the DV80 OUTPUT PAB image (offsets from filelib.inc's field names) ----
+PABIMG BYTE OPOPEN              >0  opcode (FDOP sets it too)
+       BYTE FVARIA+FOUTPT       >1  DISPLAY, VARIABLE, OUTPUT (>12)
+       DATA RECBUF              >2  VDP data buffer
+       BYTE 80                  >4  record length (the "80" of DV80)
+       BYTE 0                   >5  character count (set at run time)
+       DATA 0                   >6  record number
+       BYTE 0                   >8  screen offset
+       BYTE NMLN                >9  name length
+       BYTE >44,>53,>4B,>31,>2E  the name: D S K 1 .
+       BYTE >44,>4F,>43                    D O C
+PABLEN EQU  $-PABIMG
+
+* one flattened document line (a real editor flattens the gap buffer to here)
+LINE   BYTE >41,>55,>54,>48,>4F,>52,>20,>39,>39    "AUTHOR 99"
+       END  START

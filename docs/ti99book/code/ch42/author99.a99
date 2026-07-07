@@ -1,0 +1,249 @@
+* AUTHOR99.A99 — Capstone IV: the productivity program (a text editor). (Ch. 42)
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
+*
+* Part IX's fourth title, built on lib99's 40-column text engine (textlib40,
+* Ch. 14). AUTHOR99 is a 40-column screen editor in the TI-Writer tradition, and
+* its heart is the GAP BUFFER: the document is a run of bytes with a movable
+* GAP at the cursor, so an insert or delete at the cursor is O(1) — you write
+* into the gap or grow it — and only moving the cursor shuffles bytes, one at a
+* time, across the gap. On a 3 MHz machine that trade is exactly right: typing
+* is constant-time, and cursoring pays only for the distance it travels.
+*
+* Like the sibling capstones, the interactive layer (the live keyboard, the
+* frame-timed redraw) belongs to the running machine; here START drives the
+* editor through a DETERMINISTIC edit session — type, cursor, insert, delete,
+* cursor, type — then proves it three ways and paints the border verdict:
+* GREEN (>02) if every assertion holds, RED (>06) with a FAILID otherwise.
+*   (a) the gap buffer, flattened, reads "AUTHOR 99";
+*   (b) that line serialises to a DV80 record (a length byte + the chars);
+*   (c) it renders through textlib40 to the 40-column screen.
+*
+* Verify: load, pc START, x 100000, then  vdp  (VR7 = >02 = all systems pass)
+* and  m 8348 2  (FAILID = 0). See author99.bench for the scripted assertions.
+*
+* Build:  libre99asm code/ch42/author99.a99 --format bin -o build/AUTHC.bin
+
+       COPY '../ch11/equates.inc'      ports, colours, the fast island
+       COPY '../ch12/vdplib.inc'       VWTR/VWA/VSBW/VMBW/VSBR
+       COPY '../ch14/textlib40.inc'    the 40-column screen engine (owns CUR40)
+
+* ================= the fast island: workspace, stack, scalars =============
+WS     EQU  >8300            workspace (>8300-831F)
+STKTOP EQU  >8340            R10 software stack top (grows down, Ch.9)
+GAPS   EQU  >8342            gap start: one past the last char BEFORE the cursor
+GAPE   EQU  >8344            gap end:   the first char AFTER the cursor
+*                            >8346 = CUR40, owned by textlib40 — leave it alone
+FAILID EQU  >8348            self-test failure id (0 = pass)
+
+* ================= the document buffer: expansion RAM =====================
+* Pre-gap text [GBUF..GAPS), the gap [GAPS..GAPE), post-gap text [GAPE..GEND).
+* Cursor position = GAPS - GBUF; document length = (GAPS-GBUF) + (GEND-GAPE).
+GBUF   EQU  >A000            buffer base
+GBSZ   EQU  256              buffer size (VRAM-as-swap holds bigger docs, §42.3)
+GEND   EQU  >A100            GBUF + GBSZ
+FBUF   EQU  >A200            flatten target (contiguous text + a 0 terminator)
+DBUF   EQU  >A300            DV80 record image ([length byte][chars])
+
+* ===========================================================================
+START  LWPI WS
+       LI   R10,STKTOP
+
+* ================= (a) a scripted edit session ===========================
+       BL   @GINIT
+       LI   R1,STRAU        type "AUTHOR"
+       BL   @GTYPE
+       BL   @GLEFT          cursor back over "OR"
+       BL   @GLEFT
+       LI   R1,>5800        insert 'X'  -> "AUTHX|OR"
+       BL   @GINS
+       BL   @GDEL           backspace the 'X' -> "AUTH|OR"
+       BL   @GRIGHT         cursor forward over "OR"
+       BL   @GRIGHT
+       LI   R1,STR99        type " 99" -> "AUTHOR 99"
+       BL   @GTYPE
+* flatten and assert the document reads "AUTHOR 99"
+       LI   R1,FBUF
+       BL   @GFLAT          R0 = length
+       MOV  R0,R5
+       LI   R2,FBUF
+       A    R0,R2
+       CLR  R1
+       MOVB R1,*R2          0-terminate for the renderer
+       CI   R5,9
+       JEQ  $+6
+       B    @FGAP           length must be 9
+       MOVB @FBUF,R1
+       SRL  R1,8
+       CI   R1,>41
+       JEQ  $+6
+       B    @FGAP           [0] = 'A'
+       LI   R2,FBUF
+       AI   R2,6
+       MOVB *R2,R1
+       SRL  R1,8
+       CI   R1,>20
+       JEQ  $+6
+       B    @FGAP           [6] = ' '
+       LI   R2,FBUF
+       AI   R2,8
+       MOVB *R2,R1
+       SRL  R1,8
+       CI   R1,>39
+       JEQ  $+6
+       B    @FGAP           [8] = '9'
+
+* ================= (b) serialise to a DV80 record ========================
+       LI   R1,FBUF
+       MOV  R5,R2
+       BL   @DVSER          DBUF = [len][chars]
+       MOVB @DBUF,R1
+       SRL  R1,8
+       CI   R1,9
+       JEQ  $+6
+       B    @FDV            the record's length byte = 9
+       LI   R2,DBUF
+       INC  R2
+       MOVB *R2,R1
+       SRL  R1,8
+       CI   R1,>41
+       JEQ  $+6
+       B    @FDV            first data byte = 'A'
+
+* ================= (c) render to the 40-column screen ====================
+       BL   @TX40MD         text mode, font, colours, clear
+       CLR  R0
+       CLR  R1
+       BL   @TX40LC         cursor to (0,0)
+       LI   R1,FBUF
+       BL   @TX40PS         paint the flattened line
+       CLR  R0
+       BL   @VSBR           read name cell 0
+       SRL  R1,8
+       CI   R1,>41
+       JEQ  $+6
+       B    @FREN           the glass shows 'A' at (0,0)
+       LI   R0,6
+       BL   @VSBR           read name cell 6
+       SRL  R1,8
+       CI   R1,>20
+       JEQ  $+6
+       B    @FREN           and a space at column 6
+
+* ---- every system passed ----
+       LI   R0,7
+       LI   R1,GREEN
+       BL   @VWTR
+       JMP  HALT
+
+FGAP   LI   R0,1
+       JMP  REDV
+FDV    LI   R0,2
+       JMP  REDV
+FREN   LI   R0,3
+REDV   MOV  R0,@FAILID
+       LI   R0,7
+       LI   R1,RED
+       BL   @VWTR
+HALT   JMP  HALT
+
+* ===========================================================================
+* GINIT — empty document: the whole buffer is gap. Leaf.
+GINIT  LI   R0,GBUF
+       MOV  R0,@GAPS
+       LI   R0,GEND
+       MOV  R0,@GAPE
+       RT
+
+* GINS — insert the char in R1(hi) at the cursor. O(1): write into the gap and
+* shrink it. A full gap drops the char (no overflow). Leaf.
+GINS   MOV  @GAPS,R2
+       C    R2,@GAPE
+       JHE  GINSX           gap full -> ignore
+       MOVB R1,*R2
+       INC  R2
+       MOV  R2,@GAPS
+GINSX  RT
+
+* GDEL — backspace: delete the char before the cursor by growing the gap left.
+* O(1). At the start of the document it is a no-op. Leaf.
+GDEL   MOV  @GAPS,R2
+       CI   R2,GBUF
+       JLE  GDELX
+       DEC  R2
+       MOV  R2,@GAPS
+GDELX  RT
+
+* GLEFT — cursor left: carry the char just before the gap over to just after it.
+* Leaf.
+GLEFT  MOV  @GAPS,R2
+       CI   R2,GBUF
+       JLE  GLFTX           already at the start
+       DEC  R2
+       MOV  @GAPE,R3
+       DEC  R3
+       MOVB *R2,*R3         copy the char across the gap
+       MOV  R2,@GAPS
+       MOV  R3,@GAPE
+GLFTX  RT
+
+* GRIGHT — cursor right: carry the first char after the gap over to before it.
+* Leaf.
+GRIGHT MOV  @GAPE,R3
+       CI   R3,GEND
+       JHE  GRTX            already at the end
+       MOV  @GAPS,R2
+       MOVB *R3,*R2
+       INC  R2
+       INC  R3
+       MOV  R2,@GAPS
+       MOV  R3,@GAPE
+GRTX   RT
+
+* GFLAT — copy the document (pre-gap then post-gap) contiguously to R1; return
+* the length in R0. This is what a save or a full redraw consumes. Leaf.
+GFLAT  MOV  R1,R4           dest walker
+       LI   R2,GBUF
+GFL1   C    R2,@GAPS
+       JHE  GFL1X
+       MOVB *R2+,*R4+
+       JMP  GFL1
+GFL1X  MOV  @GAPE,R2
+GFL2   CI   R2,GEND
+       JHE  GFL2X
+       MOVB *R2+,*R4+
+       JMP  GFL2
+GFL2X  MOV  R4,R0
+       S    R1,R0           length = dest_end - dest_start
+       RT
+
+* GTYPE — type a 0-terminated string through GINS (the keystroke path). Non-leaf.
+GTYPE  DECT R10
+       MOV  R11,*R10
+       MOV  R1,R4
+GTYL   MOVB *R4+,R1
+       JEQ  GTYX
+       BL   @GINS
+       JMP  GTYL
+GTYX   MOV  *R10+,R11
+       RT
+
+* DVSER — serialise R2 bytes at R1 into a DV80 record at DBUF: a length byte
+* then the characters. This is the on-disk shape a DV80 file stores per line,
+* the bytes xdm99/TI-Writer round-trip. Leaf.
+DVSER  LI   R3,DBUF
+       MOV  R2,R0
+       SWPB R0
+       MOVB R0,*R3+         the length byte
+       MOV  R2,R0
+       JEQ  DVSX
+DVSL   MOVB *R1+,*R3+
+       DEC  R0
+       JNE  DVSL
+DVSX   RT
+
+* ===========================================================================
+* the scripted keystrokes (0-terminated), typed through GINS
+STRAU  BYTE >41,>55,>54,>48,>4F,>52,>00     "AUTHOR"
+STR99  BYTE >20,>39,>39,>00                 " 99"
+       END  START
