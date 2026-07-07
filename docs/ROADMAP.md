@@ -423,6 +423,7 @@ that lands a feature.
 | Public/local test split — runtime `third-party/` media loading, skip-when-absent | `libre99-core` (`third_party`), all test suites | `e5fef69` |
 | Zero embedded media — CLI paths + the system file chooser (`F9`), `F2`/`F3` eject | `media`, `cli`, `app`, `config` | `b41a03e` |
 | Live disk mount/eject + in-memory disk persistence, `F4` export/unload (save format v2) | `disk`, `machine`, `state` (core); `disks`, `media`, `app` | `c153aa8` |
+| Save states: resume state + snapshots + fresh start, atomic writes, portable format v3 (cartridge identity) | `machine` (core); `app`, `config`, `media`, `help` | `09f8fd8` |
 
 > The list above is the *committed* slice of the roadmap; everything tagged
 > **[next]/[later]/[stretch]** is future work, captured here so the design intent
