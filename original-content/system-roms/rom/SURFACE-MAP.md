@@ -107,6 +107,12 @@ interoperability and are the layout-assertion gate's core input:
 | interp main loop | `>0070` | interpreter re-entry |
 | QUIT mask | `>004C` | ISR `CZC @>004C` |
 | `XML >F0` vector | `>8300` | ML dispatch (RAM, not ROM) |
+| `SYMSRC` | `>15E0` | `BL @>15E0` (Extended BASIC cart ROM — the F0 census, `../XB-CENSUS.md`) |
+| `RDCELL` (+`>1880`) | `>187C` | `BL @>187C` / `BL @>1880` (XB) |
+| `RDVAL8` | `>1890` | `BL @>1890` (XB) |
+| `WRWORD` (±3 entry) | `>18AA`/`>18AE` | `BL` (XB) |
+| `STKON`/`STKOFF` | `>1E7A`/`>1E8C` | `BL` (XB) |
+| `VPOPAG` | `>1FA8` | `BL @>1FA8` (XB) |
 
 **P8-frozen interior entries** — not externally entered, but pinned so the
 dispatch tables carry identical values and differential traces stay aligned (XB

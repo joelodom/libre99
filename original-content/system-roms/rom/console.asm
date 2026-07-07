@@ -1438,10 +1438,12 @@ FPTAA   STST R2
 *  cell doubles as the parameter), unconditionally, with the same ripple.
 *  Garbage-corner ledger: positions >= >96 walk the ripple through the LIVE
 *  GPLWS itself, so the outcome depends on the interpreter's own transient
-*  register file — which no reimplementation can share. Positions >AA/>AB/
-*  >B1 (walks starting on the R10/R13 cells) diverge from the authentic;
-*  kept as a garbage corner (RECON §27) with a tripwire in gpl_fp.rs. Every
-*  other position byte 0-255 is differentially bit-exact.
+*  register file — which no reimplementation can share. Positions >AA/>B1
+*  (walks starting on the R10/R13 cells) diverge from the authentic; kept
+*  as a garbage corner (RECON §27) with a tripwire in gpl_fp.rs. (>AB was
+*  ledgered too until the XB-substrate relocation shifted our transient
+*  registers and it started matching — retired 2026-07-07.) Every other
+*  position byte 0-255 is differentially bit-exact.
         AORG >0FB2
 ROUNDH  MOV  R11,R10
         MOVB @>8354,R1
@@ -1648,6 +1650,10 @@ RTNCI   MOVB @>8373,R1
         DECT @>8373
         BL   @GSETA
         B    @LOOP
+
+*  (CALLI and the loud stubs lived at >1E68/>1E7E until the XB substrate
+*  claimed those authentic-address homes — layout ledger, README.md.)
+        AORG >06EC
 
 *  CALL implementation: read the 16-bit target, reset the condition bit,
 *  push the resume address, jump.
@@ -1867,7 +1873,9 @@ FEMIT   MOV  R7,R5                 * set the VDP write address = R7 | >4000
 FEMITR  B    *R11
 
 *  FLDCUR / FSTCUR: convert between the linear cursor R7 and the >837E (row) /
-*  >837F (col) persistence cells.
+*  >837F (col) persistence cells. (Lived at >15DE until the XB substrate's
+*  symbol-search claimed >15E0 — layout ledger, README.md.)
+        AORG >05BA
 FLDCUR  CLR  R7
         MOVB @>837E,R7             * row -> high byte
         SRL  R7,3                  * row * 32
@@ -1887,12 +1895,14 @@ FSTCUR  MOV  R7,R6
         B    *R11
 
 *  ============================================================================
-*  Zone J (>1620+): the M4 interpreter completions — COINC, SWGR, RTGR.
+*  Zone J: the M4 interpreter completions — COINC, SWGR, RTGR.
 *  Free-placed bodies (the >0C3E/>0C7E table entries carry our addresses, P8);
 *  semantics disassembled-as-spec from the authentic >06D2/>004E/>082C
-*  (RECON §25). Sits in the BASIC-half span the M6 deferral leaves free.
+*  (RECON §25). COINC lived at >1620 until the XB substrate claimed the
+*  authentic symbol-search span (>15E0-163B) — it now sits behind FSTCUR in
+*  the >05BA run; SWGR/RTGR keep their >16A8+ homes (layout ledger, README.md).
 *  ============================================================================
-        AORG >1620
+        AORG >05E6
 
 *  COINC (>EC-EF): a bitmap coincidence test between two Y,X byte-pair points.
 *  Stream: [dest GAS][source imm/mem][scale][table16]. Deltas (src - dest, byte
@@ -1961,6 +1971,8 @@ COIBX   AB   R7,R8                  * X delta += X offset
 COINO   CLR  R2
 COIYES  MOVB R2,@>837C              * status := >20 / >00 wholesale (authentic)
         B    @RTNC                  * restore the fetch position, keep the status
+
+        AORG >16A8
 
 *  SWGR (>F8-FB): switch GROM base. Dest value -> the new R13 (a >9800+4n port
 *  base); source value -> the new GROM address. The return position is pushed
@@ -2188,6 +2200,9 @@ CASSU   MOV  *R1+,R5                * the byte count ->
 *  The 768-zero-byte leader, a sync byte, the record count twice, then per
 *  64-byte record (sent twice each): an 8-zero leader, sync, the bytes from
 *  VDP, the additive checksum. Ends on a stepped JMP-$ into the teardown.
+*  (Lived at >1872 until the XB substrate claimed the >187C-18C5 helper
+*  homes — layout ledger, README.md.)
+        AORG >0B4A
 CASW    MOV  R7,R1                  * our driver parks the list in R7
         CLR  R0
         LI   R2,>0300
@@ -2235,6 +2250,8 @@ CASWB   CLR  R4
         JNE  CASWR
 CASWE   JMP  CASWE                  * the final half-cell, stepped past...
         B    @CASX                  * ...into the teardown
+
+        AORG >18E8
 
 *  CASBIT: send R4's byte MSB-first, inverted (authentic >13E6), toggling
 *  the mag-out line each half-cell; a 0 bit adds the mid-cell transition.
@@ -2455,13 +2472,20 @@ CASEG3  INCT R11
 *  (Relocated from >1000 at M5 slice 1 — the FP interior claims it; now in
 *  the deferred-M6 region.)
 *  ============================================================================
-        AORG >1E90
+*  (The MOVEH entry lived at >1E90 until the XB substrate's stack epilogue
+*  claimed >1E8C-1E9B; the entry now branches absolutely — behavior identical —
+*  and the body keeps its >1E9E+ home. Layout ledger, README.md.)
+        AORG >0734
 
 MOVEH   COC  @W1,R9                 * N: immediate count?
-        JNE  MVCNTM
-        BL   @ADDR16                * 16-bit immediate count -> R6
+        JEQ  MVIMMC
+        B    @MVCNTM
+MVIMMC  BL   @ADDR16                * 16-bit immediate count -> R6
         MOV  R6,R2
-        JMP  MVDST
+        B    @MVDST
+
+        AORG >1E9E
+
 MVCNTM  BL   @OPGET                 * count operand (a word from CPU/VDP RAM)
         BL   @LDR0W                 * word at (R3,R4) -> R0
         MOV  R0,R2
@@ -2578,6 +2602,9 @@ MDGRM   MOV  R11,R12
 *  through R1 mid-copy does NOT mirror (authentic >0698: the CB fires before
 *  the per-byte ORI >80 — RECON §26). With FLAGS >08 (16K) the >80 mode bit
 *  is forced into the value first — the copy AND the register get it.
+*  (Lived at >1F92 until the XB substrate claimed the >1FA8 value-stack
+*  pop's home — layout ledger, README.md.)
+        AORG >0710
 MDREG   CI   R7,>0100               * the raw starting register 1?
         JNE  MDRGO
         COC  @>0012,R14             * FLAGS >08 (16K)? (the NASTY word >0008)
@@ -2679,8 +2706,9 @@ XTAB    DATA CSN,CSNGR,CFI,STUB       * >10 CSN >11 CSNGR >12 CFI >13
         DATA STUB,SROM,SGROM,STUB     * >18 VPOP >19 SROM >1A SGROM >1B PGMCH
 
 *  (XMLH relocated from >1200 at M5 slice 1 — the conversion package's
-*  interior claims the >11A2-12B7 span.)
-        AORG >1FB8
+*  interior claims the >11A2-12B7 span — and again from >1FB8 when the XB
+*  substrate's value-stack pop claimed >1FA8-1FC7.)
+        AORG >0BC0
 XMLH    CLR  R4
         MOVB *R13,R4                * operand >XY -> >XY00
         SRL  R4,8                   * -> >00XY (low byte clean)
@@ -2693,6 +2721,146 @@ XMLH    CLR  R4
         MOV  *R4,R4                 * -> the routine address
         BL   *R4                    * call it (XMLLNK)
         B    @LOOP                  * (routines that B @SOFT re-enter directly)
+
+*  ============================================================================
+*  The XB substrate — the BASIC-era console primitives Extended BASIC calls
+*  DIRECTLY BY ADDRESS from its cartridge ROM (BL @>xxxx), pinned by the F0
+*  census (../XB-CENSUS.md): the symbol-chain search >15E0, the VDP cell/value
+*  helpers >187C/>1880/>1890/>18AA/>18AE, the R9-stack bracket >1E7A/>1E8C,
+*  and the value-stack pop >1FA8. Interfaces recovered behaviorally from the
+*  authentic ROM (disassembled-as-spec, P5); the code is original. The entry
+*  ADDRESSES are the contract — each block is AORG-pinned, and the interior
+*  boundaries that are live secondary entries (>1880, >18AE, >1E8C) fall out
+*  of fixed instruction encodings (asserted by libre99-asm/tests/xb_substrate.rs).
+*  TI BASIC's own ROM half (PARSE/CONT/EXEC/RTNB, the >1C9C tables, SMB/SYM/
+*  ASSGNV/VPUSH/VPOP/PGMCH) stays M6-deferred: XTAB >13-18/>1B stay loud stubs.
+*  ============================================================================
+        AORG >15E0
+
+*  SYMSRC (>15E0) — walk the VDP-resident symbol chain whose head pointer is
+*  the word at >833E, seeking the name whose length byte is at >8359 and whose
+*  text is at >834A+ (FAC). Chain entry layout (VDP RAM):
+*    +0 base | +1 length | +2,+3 link (0 ends the chain) | +4,+5 text address
+*  Caller protocol: BL @>15E0 followed by one DATA word.
+*    miss  -> control passes to the DATA word's value (read via *R11);
+*    found -> resume past the DATA word, @>834A := the entry's base address.
+*  The JMP-to-next instructions are VDP read settles (authentic pacing); the
+*  low bytes of R4/R6/R7 load through their GPLWS aliases (>83E9/>83ED/>83EF).
+SYMSRC  MOV  @>833E,R4              * the chain head (0 = empty table)
+        JEQ  SYMISS
+        MOVB @>8359,R3              * the sought length byte
+        CLR  R7
+SYNEXT  INC  R4                     * point the read at the length byte
+        MOVB @>83E9,*R15            * address LSB (R4-low alias)...
+        JMP  SYSET1
+SYSET1  MOVB R4,*R15                * ...then MSB (read mode)
+        LI   R10,>8800              * the VDP read port
+        CB   *R10,R3                * candidate length == sought length?
+        JEQ  SYCAND
+SYLINK  MOVB *R10,R6                * link high...
+        JMP  SYSET2
+SYSET2  MOVB *R10,@>83ED            * ...link low (R6-low alias)
+SYFOLL  MOV  R6,R4                  * follow the link
+        JNE  SYNEXT
+SYMISS  MOV  *R11,R11               * miss: continue at the inline DATA word
+        B    *R11
+SYCAND  MOVB *R10,R6                * keep the link in case the text differs
+        JMP  SYSET3
+SYSET3  MOVB *R10,@>83ED
+        JMP  SYSET4
+SYSET4  MOVB *R10,R5                * the text address, high byte...
+        MOVB R3,@>83EF              * R7 := length (R7-low alias; also settle)
+        MOVB *R10,R2                * ...and low byte
+        MOVB R2,*R15                * VDP read := the candidate's text
+        JMP  SYSET5
+SYSET5  MOVB R5,*R15
+        LI   R2,>834A               * the sought text (FAC)
+SYCMP   CB   *R10,*R2+
+        JNE  SYFOLL                 * any mismatch: follow the link
+        DEC  R7
+        JGT  SYCMP
+        DEC  R4                     * every byte matched: back to the base
+        MOV  R4,@>834A              * the result the caller reads
+        B    @>0002(R11)            * found: resume past the DATA word
+
+        AORG >187C
+
+*  RDCELL (>187C) — read one VDP byte at the VDP address held in a named
+*  scratchpad cell: BL @>187C followed by a DATA word naming the cell. The
+*  byte lands in R1's high byte (low byte untouched); control resumes past
+*  the DATA word. >1880 is a live secondary entry (R3 = the VDP address,
+*  no DATA word) — the two 2-byte MOVs above place it exactly.
+RDCELL  MOV  *R11+,R3               * the cell (and skip the DATA word)
+        MOV  *R3,R3                 * the VDP address it holds
+RDAT3   MOVB @>83E7,*R15            * address LSB (R3-low alias)...
+        JMP  RDSET
+RDSET   MOVB R3,*R15                * ...then MSB (read mode)
+        JMP  RDGET
+RDGET   MOVB @>8800,R1              * the byte -> R1 high
+        B    *R11
+
+*  RDVAL8 (>1890, by flow) — copy the 8-byte value at the VDP address in
+*  >834E/>834F (FAC+4, big-endian) into FAC (>834A-8351): the fetch that
+*  follows a successful symbol search. Clobbers R2 (count) and R3 (cursor).
+RDVAL8  MOVB @>834F,*R15            * address LSB...
+        LI   R2,>0008               * (the count; doubles as the settle)
+        MOVB @>834E,*R15            * ...then MSB (read mode)
+        LI   R3,>834A
+RDVLP   MOVB @>8800,*R3+
+        DEC  R2
+        JGT  RDVLP
+        B    *R11
+
+*  WRWORD (>18AA / >18AE, by flow) — write R6's word into VDP RAM. The >18AA
+*  entry first backs the address in R1 up by 3 (the descriptor-patch bias its
+*  callers use); >18AE writes at R1 as given. R1 comes back ORed with the
+*  >4000 write bit (authentic register end-state — callers see it).
+WRWRD3  AI   R1,>FFFD               * >18AA: address -= 3
+WRWORD  MOVB @>83E3,*R15            * >18AE: address LSB (R1-low alias)...
+        ORI  R1,>4000               * ...write mode...
+        MOVB R1,*R15                * ...then MSB
+        JMP  WRPUT
+WRPUT   MOVB R6,@>8C00              * the word, high byte...
+        MOVB @>83ED,@>8C00          * ...then low (R6-low alias)
+        B    *R11
+
+        AORG >1E7A
+
+*  STKON (>1E7A) / STKOFF (>1E8C) — the bracket around the BASIC package's
+*  word pushes. STKON parks the byte at >8342 in R8 and points R9 at the GPL
+*  sub-stack top (>8300 + the >8373 pointer byte) so callers may
+*  INCT R9 / MOV x,*R9; STKOFF restores >8342 and stores R9's low byte back
+*  into >8373 (the +>7D00 fold cancels the >8300 bias in the low byte, which
+*  the GPLWS R9-low alias >83F3 then supplies). STKOFF's >1E8C home is
+*  load-bearing: STKON's fixed 18-byte encoding places it.
+STKON   CLR  R8
+        MOVB @>8342,R8
+        MOVB @>8373,R9
+        SRL  R9,8
+        AI   R9,>8300
+        B    *R11
+STKOFF  MOVB R8,@>8342
+        AI   R9,>7D00
+        MOVB @>83F3,@>8373
+        B    *R11
+
+        AORG >1FA8
+
+*  VPOPAG (>1FA8) — pop the top 8-byte value off the VDP value stack into
+*  ARG (>835C-8363). >836E points AT the top element's base: read 8 bytes
+*  there, then >836E -= 8. (The S-form FP ops and XB's evaluator share this
+*  protocol — RECON §9.) R5 counts up to zero; R6/R7 end as the cursor and
+*  the port (authentic end-states).
+VPOPAG  LI   R5,>FFF8               * -8: the count and the pointer step
+        LI   R6,>835C               * ARG
+        MOVB @>836F,*R15            * stack-top address LSB...
+        LI   R7,>8800               * (the read port; doubles as the settle)
+        MOVB @>836E,*R15            * ...then MSB (read mode)
+        A    R5,@>836E              * pop: >836E -= 8
+VPOPL   MOVB *R7,*R6+
+        INC  R5
+        JNE  VPOPL
+        B    *R11
 
 *  ============================================================================
 *  The conversion package's character fetchers (free-placed in the SGROM-body

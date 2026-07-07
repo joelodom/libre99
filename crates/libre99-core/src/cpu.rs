@@ -153,6 +153,15 @@ pub struct Cpu {
     /// Not architectural and not serialized — a wedged program that has run
     /// off into data is otherwise invisible from outside.
     illegal_ops: u64,
+    /// Optional PC-coverage bitmap: one bit per word-aligned CPU address
+    /// (32768 words = 4 KiB), set for the PC of every instruction executed.
+    /// `None` (the default) disables coverage so normal runs allocate nothing
+    /// and pay one branch per step. Diagnostics only — never serialized (a
+    /// loaded state starts with coverage off). The GROM has the matching
+    /// read-side instrument ([`crate::grom::Grom::record_coverage`]); together
+    /// they answer "which firmware code ran / was fetched" — e.g. which
+    /// console-ROM ranges a cartridge like Extended BASIC actually executes.
+    pc_coverage: Option<Box<[u64; 512]>>,
 }
 
 impl Cpu {
@@ -179,6 +188,39 @@ impl Cpu {
     /// of the architectural state and not saved in snapshots).
     pub fn illegal_count(&self) -> u64 {
         self.illegal_ops
+    }
+    /// Enable/disable the PC-coverage bitmap. Enabling installs a fresh,
+    /// zeroed bitmap (each enable starts a clean census); disabling drops it,
+    /// freeing the 4 KiB and making every coverage query inert.
+    pub fn record_pc_coverage(&mut self, on: bool) {
+        self.pc_coverage = if on { Some(Box::new([0u64; 512])) } else { None };
+    }
+    /// Whether an instruction has executed at (word-aligned) `addr` since
+    /// coverage was enabled. Always `false` while coverage is off.
+    pub fn pc_was_executed(&self, addr: u16) -> bool {
+        match &self.pc_coverage {
+            Some(cov) => {
+                let w = (addr >> 1) as usize;
+                cov[w >> 6] & (1u64 << (w & 63)) != 0
+            }
+            None => false,
+        }
+    }
+    /// Every word-aligned PC executed since coverage was enabled, ascending.
+    pub fn pc_coverage_addresses(&self) -> Vec<u16> {
+        let Some(cov) = &self.pc_coverage else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for (i, &word) in cov.iter().enumerate() {
+            let mut bits = word;
+            while bits != 0 {
+                let b = bits.trailing_zeros() as usize;
+                out.push((((i << 6) | b) << 1) as u16);
+                bits &= bits - 1;
+            }
+        }
+        out
     }
     pub fn set_wp(&mut self, v: u16) {
         self.wp = v;
@@ -264,6 +306,10 @@ impl Cpu {
             return c;
         }
 
+        if let Some(cov) = self.pc_coverage.as_mut() {
+            let w = (self.pc >> 1) as usize;
+            cov[w >> 6] |= 1u64 << (w & 63);
+        }
         let insn = self.fetch(bus);
         self.execute(bus, insn);
 

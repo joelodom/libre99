@@ -470,12 +470,14 @@ fn csn_text_fuzz() {
 /// never plant it, so the position axis gets its own sweep. Positions that
 /// keep the ripple inside the FP scratch are bit-exact; garbage positions
 /// >= >96 walk the ripple through the LIVE GPLWS itself, where the outcome
-/// depends on the interpreter's transient register file — three of those
-/// walks (>AA/>AB/>B1, starting on the R10/R13 cells) diverge from the
+/// depends on the interpreter's transient register file — two of those
+/// walks (>AA/>B1, starting on the R10/R13 cells) diverge from the
 /// authentic and are KEPT as a ledgered garbage corner (RECON §27, ROUNDH's
-/// header comment). This test pins the whole contract: every other
-/// position byte must match, and the three ledgered ones must still
-/// diverge — if they start matching, the ledger is stale.
+/// header comment; >AB was ledgered too until the XB-substrate relocation
+/// shifted our transient register file and it started matching — retired
+/// 2026-07-07). This test pins the whole contract: every other position
+/// byte must match, and the ledgered ones must still diverge — if one
+/// starts matching, the ledger is stale.
 fn run_round_at(rom: &[u8], fac: [u8; 8], pos: u8) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
     let p = {
         let mut v = vec![0x0F, 0x02];
@@ -516,7 +518,7 @@ fn run_round_at(rom: &[u8], fac: [u8; 8], pos: u8) -> (Vec<u8>, Vec<u8>, Vec<u8>
 #[test]
 fn round_position_sweep_pins_the_contract() {
     let Some(auth_rom) = auth_rom() else { return };
-    const LEDGERED: [u8; 3] = [0xAA, 0xAB, 0xB1];
+    const LEDGERED: [u8; 2] = [0xAA, 0xB1];
     let sweep_facs = [
         num(0x40, &[12, 34, 56, 78, 90, 12, 51], false),
         num(0x40, &[99, 99, 99, 99, 99, 99, 99], false),
@@ -536,7 +538,8 @@ fn round_position_sweep_pins_the_contract() {
             assert!(
                 diverges,
                 "ROUND at position >{pos:02X} is ledgered as divergent but now matches — \
-                 retire the ledger entry (ROUNDH comment + RECON §27) and pin it clean"
+                 retire the ledger entry (ROUNDH comment + RECON §27) and pin it clean \
+                 (the >AB retirement at the XB-substrate relocation is the precedent)"
             );
         } else {
             for fac in &sweep_facs {

@@ -103,6 +103,30 @@ fn reset_loads_workspace_and_pc_from_vector_0() {
 }
 
 // --------------------------------------------------------------------------
+// PC-coverage instrument (diagnostics)
+// --------------------------------------------------------------------------
+
+#[test]
+fn pc_coverage_records_each_executed_instruction_once_enabled() {
+    // LI R1,>1234 ; LI R2,>5678 — two 2-word instructions at PROG.
+    let (mut cpu, mut ram) = setup(&[0x0201, 0x1234, 0x0202, 0x5678]);
+    // Off by default: nothing recorded, queries inert.
+    cpu.step(&mut ram);
+    assert!(cpu.pc_coverage_addresses().is_empty());
+    assert!(!cpu.pc_was_executed(PROG));
+    // On: each executed instruction's PC lands in the bitmap exactly once.
+    cpu.record_pc_coverage(true);
+    cpu.step(&mut ram);
+    assert_eq!(cpu.pc_coverage_addresses(), vec![PROG + 4]);
+    assert!(cpu.pc_was_executed(PROG + 4));
+    assert!(!cpu.pc_was_executed(PROG + 2)); // an operand word, never a PC
+    // Disabling drops the bitmap and makes queries inert again.
+    cpu.record_pc_coverage(false);
+    assert!(cpu.pc_coverage_addresses().is_empty());
+    assert!(!cpu.pc_was_executed(PROG + 4));
+}
+
+// --------------------------------------------------------------------------
 // Immediate operations
 // --------------------------------------------------------------------------
 

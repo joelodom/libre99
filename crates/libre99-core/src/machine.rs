@@ -620,6 +620,21 @@ impl Machine {
     pub fn cpu(&self) -> &Cpu {
         &self.cpu
     }
+    /// Mutable access to the CPU (diagnostics/tests — e.g. pointing WP/PC at a
+    /// planted machine-code driver, or masking interrupts via `set_st`).
+    pub fn cpu_mut(&mut self) -> &mut Cpu {
+        &mut self.cpu
+    }
+    /// Enable/disable the CPU PC-coverage bitmap (diagnostics — which ROM/RAM
+    /// addresses execute; see [`Cpu::record_pc_coverage`]). Pairs with
+    /// [`Tms9900Bus::grom_record_coverage`] for firmware-usage censuses.
+    pub fn record_pc_coverage(&mut self, on: bool) {
+        self.cpu.record_pc_coverage(on);
+    }
+    /// Every word-aligned PC executed since coverage was enabled, ascending.
+    pub fn pc_coverage_addresses(&self) -> Vec<u16> {
+        self.cpu.pc_coverage_addresses()
+    }
     /// Read-only access to the VDP (diagnostics/tests).
     pub fn vdp(&self) -> &Vdp {
         &self.bus.vdp

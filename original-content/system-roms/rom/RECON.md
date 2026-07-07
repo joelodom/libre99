@@ -1231,9 +1231,12 @@ vectors) plus the in-session FADD/FCOMP/cluster decode. The headline facts:
   (XML `>02`) with a garbage `>8354` position — positions ≥ `>96` walk the
   round ripple through the LIVE GPLWS, so the outcome depends on the
   interpreter's own transient register file, which a reimplementation
-  cannot share. Exactly three position bytes diverge (`>AA`/`>AB`/`>B1` —
-  walks starting on the R10/R13 cells); every other position byte 0-255 is
-  differentially bit-exact, and no real emitter passes garbage positions.
+  cannot share. Exactly two position bytes diverge (`>AA`/`>B1` — walks
+  starting on the R10/R13 cells; `>AB` diverged too until the XB-substrate
+  relocation of 2026-07-07 shifted our transient registers and it started
+  matching — retired per the tripwire's protocol); every other position
+  byte 0-255 is differentially bit-exact, and no real emitter passes
+  garbage positions.
   Pinned both ways by `gpl_fp.rs round_position_sweep_pins_the_contract`:
   the 253 clean positions must match, the three ledgered ones must still
   diverge. The same deep-fuzz session (250k operand pairs: arithmetic core,
