@@ -139,8 +139,8 @@ fn our_rom_paints_the_title_pixel_identically() {
 }
 
 /// The next screen too: press (and release) a key at the title and let the
-/// master selection menu build — the chip logo, the banner, the `SCANNING`
-/// pass over every GROM/cart base, and the `1 FOR TI PYTHON` entry. The
+/// master selection menu build — the chip logo, the banner, the scan over
+/// every GROM/cart base, and the `1 FOR TI PYTHON` entry. The
 /// settled menu must be pixel-identical under our ROM vs the authentic ROM
 /// (the transient timing differs — ours skips the authentic 16-base SGROM
 /// walk — but both run the same GPL to the same settled screen).

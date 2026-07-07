@@ -65,14 +65,16 @@
 //!
 //! **Why frames-to-menu is measured from reset, not from the SPACE release.** The
 //! isolated menu *build* segment (SPACE release -> cartridge listed) is not at
-//! parity: the authentic GROM lists in ~3 frames while ours runs a visible
-//! `SCANNING` pass and takes ~10-16 (see the `menu-build segment` line printed
-//! below). But counting only that segment throws away the ~30-frame head start our
-//! faster title already banked, isolating the one place we are slower and blowing
-//! the ratio to ~4x — a measurement that misrepresents the goal. The metric that
+//! parity: the authentic GROM lists in ~1-3 frames while ours runs a per-byte
+//! base scan and takes ~7-16 (see the `menu-build segment` line printed below).
+//! But counting only that segment throws away the ~30-frame head start our faster
+//! title already banked, isolating the one place we are slower and blowing the
+//! ratio to ~4x — a measurement that misrepresents the goal. The metric that
 //! actually reflects "reaches the usable screens" is the whole reset -> screen
-//! time, and by it our GROM reaches the menu *sooner*. The raw menu-build segment
-//! is still measured and printed for the record.
+//! time, and by it our GROM reaches the menu *sooner*. That ~7-frame residual is
+//! imperceptible and no longer masked by any cue — the list just fills in (the
+//! former `SCANNING` banner was removed, `LIMITATIONS.md` L5). The raw menu-build
+//! segment is still measured and printed for the record.
 //!
 //! Run with `-- --nocapture` to print both firmwares' numbers for STATUS.md.
 

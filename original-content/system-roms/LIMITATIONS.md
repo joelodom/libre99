@@ -153,19 +153,32 @@ number by design (the `sysinfo_block` splice).
 
 ---
 
-## L5 — menu build is visibly slow · ✅ **RESOLVED** (2026-07-03, progress cue)
+## L5 — menu appearance: no "SCANNING" cue, atomic reveal · ✅ **RESOLVED** (2026-07-07)
 
-Because the console ROM re-writes the GROM address per byte (`RECON.md` §10),
-building the list takes ~1–2 s of "scanning" for a cartridge (the authentic menu
-has the same cost — not a correctness issue). Polished with an **original
-progress cue**: `MENU` now draws a `SCANNING` row (row 6) before walking the
-bases and `SGET` erases it once the list is ready (`console.gpl`: `SCANT`/
-`BLANK8`, the draw after the menu-header setup, the clear as `SGET`'s first
-instruction so every inbound path — including the no-CPU-ROM `BR SGET` and the
-reject-key `B SGET` — reaches it). Gate:
-`tests/menu_cue.rs::scanning_cue_shows_during_scan_then_clears`. Narrowing the
-scanned bases was considered and rejected — the peek already skips empty bases
-cheaply, and the cue addresses the perceived wait directly.
+The console ROM re-writes the GROM address per byte (`RECON.md` §10), so the base
+scan was assumed "visibly slow," and `MENU` once painted an original `SCANNING`
+row (row 6) to mask the wait (2026-07-03). **Measurement corrected that premise.**
+`tests/perf_parity.rs` shows the isolated menu-build segment is only ~7 frames
+(~0.12 s), and our rewrite reaches the menu **sooner** than the authentic firmware
+overall (reset → cart listed ~30 vs ~54 frames) — the banner was the only thing
+that read as slow, and the authentic menu shows no such word. Two changes:
+
+- **Cue removed.** `MENU` no longer draws it and `SGET` no longer erases it
+  (`console.gpl`; the `SCANT`/`BLANK8` data are gone).
+- **Atomic reveal.** So the per-byte scan does not paint program lines in one at a
+  time, `MENU` now blanks the display (VDP R1 `>A0`) before the scan and reveals
+  it whole (`SDONE`/`DISPON`, R1 `>E0`) only once every entry is drawn — the exact
+  idiom the title screen already uses (`START` draws blanked, then `DISPON`). Safe
+  to hold R1 off across the multi-frame scan: the console ISR rewrites R1 only when
+  the screen-timeout wraps (~32k frames off, reset by the title keypress) or when
+  KSCAN sees a new key (none during the scan), and `>83D4` (the display-on image)
+  is left `>E0` for that later un-blank.
+
+Narrowing the scanned bases was considered and rejected — the 2-byte peek already
+skips empty bases cheaply, and a window-size change is not worth ~0.12 s against
+the 137-cart enumeration gate. Guards:
+`tests/menu_cue.rs::menu_builds_with_no_scanning_cue` and
+`::menu_reveals_atomically_with_full_list`.
 
 ---
 

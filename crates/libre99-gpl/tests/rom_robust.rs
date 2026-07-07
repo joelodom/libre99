@@ -366,8 +366,8 @@ fn listed_count(m: &Machine) -> usize {
 /// Boot `rom` with `cart`, leave the title at frame 180 with a SPACE tap, give
 /// the menu 60 frames, then run to a settled screen (name table unchanged for
 /// 10 consecutive frames — the two ROMs' menu-build *transients* differ by
-/// design, ours running the visible `SCANNING` pass, so the comparison is on
-/// the settled screen).
+/// design, ours running a per-byte base scan, so the comparison is on the
+/// settled screen).
 fn menu_with(rom: &[u8], grom: &[u8], cart: &Cartridge) -> Machine {
     let mut m = Machine::new(rom, grom);
     m.mount_cartridge(cart);

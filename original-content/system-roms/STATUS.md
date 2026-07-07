@@ -71,11 +71,14 @@ cargo run -p libre99-app -- --no-cartridge
 
 **Performance parity (P1, gate `tests/perf_parity.rs`).** Booting the console ROM
 on our GROM vs the authentic one, with a cart mounted, our rewrite reaches both
-usable screens **sooner**: frames-to-title **11 vs 41** (the authentic boot spends
+usable screens **sooner**: frames-to-title **13 vs 43** (the authentic boot spends
 its time on a ROM/GROM checksum + full charset copy our rewrite skips),
-frames-to-menu (reset → cart listed) **24 vs 47**. The isolated menu-*build*
-segment is the one place we cost more (SPACE → cart listed: **10 vs 3** — our
-visible `SCANNING` pass), but the faster title more than covers it. Numbers are
+frames-to-menu (reset → cart listed) **30 vs 54**. The isolated menu-*build*
+segment is the one place we cost more (SPACE → cart listed: **7 vs 1** — our
+per-byte base scan), but the faster title more than covers it, and the build is
+hidden: the menu blanks the display while it scans and reveals the whole list at
+once (the title screen's `DISPON` idiom), so those ~7 frames are invisible and the
+former `SCANNING` cue is gone (`LIMITATIONS.md` L5). Numbers are
 from the emulator (which runs GPL far faster than 1981 silicon), so they are a
 relative parity tripwire, not wall-clock; the gate asserts ours ≤ authentic ×1.25
 on both from-reset metrics.
@@ -130,7 +133,9 @@ still **executes** those forms correctly for foreign carts that use them
   `>04B4`/`>06B4`); **Chunk 3** console robustness (reset sound mute — Joel's F5
   "no fun beep", case study 7; menu 9-cap; DSRLNK bad-device waived by execution);
   **Chunk 4** L7 reject-beep + **L2** far-list carts (137/137 via `SCANW`/`SFAR`
-  8 KiB re-copy) + **L5** `SCANNING` cue; **Chunk 2** the differential harness
+  8 KiB re-copy) + **L5** menu-build cue (a `SCANNING` row, since **removed**
+  2026-07-07 once measurement showed the build is imperceptibly fast — L5);
+  **Chunk 2** the differential harness
   (structure-handoff audit → RECON; loud-stub grid; the GROM read-coverage
   instrument; the all-cart `coverage_sweep` → `grom/COVERAGE-REPORT.md`; the
   `conformance` state-contract harness incl. the F5 reset-drift guard);

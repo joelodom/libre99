@@ -157,7 +157,7 @@ fn matrix_title_parity() {
 #[test]
 fn matrix_menu_parity() {
     let Some(ti_rom) = TI_ROM.as_deref() else { skip!() };
-    // Title -> keypress -> the selection menu (the SCANNING pass + the cart list).
+    // Title -> keypress -> the selection menu (the base scan + the cart list).
     assert_parity("menu", ti_rom, &our_grom(), 200, Some((TiKey::Space, 90)));
 }
 

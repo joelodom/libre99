@@ -80,7 +80,7 @@ release-gating · **[decide]** an owner decision gates it.
 
 | # | Phase | Work item | What it involves — and why it sits here | Gate |
 |:--:|---|---|---|:--:|
-| 1 | **3 · Polish & ship** | **Docs, in-app help & first-run** | **Revamp the `F1` help (`help.rs`) — explicitly still required before 0.1.0** (the 2026-07-06 media rework and rename made only accuracy edits to it — Joel; the 2026-07-07 disk-persistence and save-state work likewise touched only its media/hotkey/state facts); first-run onboarding on an empty console; README + USER-GUIDE pass; state plainly that **TI BASIC needs user-supplied authentic ROMs** (Extended BASIC runs on the clean-room pair since 2026-07-07) and note the Video Vegas GROM-2 exception. | [blocker] |
+| 1 | **3 · Polish & ship** | **Docs, in-app help & first-run** | **Revamp the `F1` help (`help.rs`) — explicitly still required before 0.1.0** (the 2026-07-06 media rework and rename made only accuracy edits to it — Joel; the 2026-07-07 disk-persistence and save-state work likewise touched only its media/hotkey/state facts); first-run onboarding on an empty console — including a **`PRESS ESC FOR HELP` banner** shown whenever there is no resume state (first launch, or after a `Shift`+`F5` fresh start / complete reset), drawn like the other on-screen banners via the `text::Canvas` overlay framework (reconcile the prompt's key with the current `F1` help binding — Joel, 2026-07-07); README + USER-GUIDE pass; state plainly that **TI BASIC needs user-supplied authentic ROMs** (Extended BASIC runs on the clean-room pair since 2026-07-07) and note the Video Vegas GROM-2 exception. | [blocker] |
 | 2 | **3 · Polish & ship** | **Package & release** | Set the workspace to **0.1.0**, add a `CHANGELOG`, tag; ship prebuilt Windows + macOS binaries via GitHub Releases (incl. the macOS `.app` bundle); final crash/robustness pass (first run, missing dir, bad input, no media). | [blocker] |
 
 **Landed 2026-07-07 — TI PYTHON v1 + Extended BASIC on the clean-room firmware
@@ -294,17 +294,19 @@ Each item is tagged: **[done]** implemented and merged to `main` ·
   images (TIFILES / FIAD). **[later]**
 - **Recently-used** media list; per-title default disk. **[later]**
 - **Fast console-menu cartridge scan (fidelity, firmware).** *(bug/roadmap note,
-  Joel 2026-07-06.)* Our rewritten console GROM menu takes ~1–2 s to build a
-  cartridge's program list and paints a **`SCANNING`** row while it works. The
-  **authentic** menu is fast and shows **no such word** — so both the slowness
-  and the cue are our-side artifacts, not fidelity. Our scan is slow because it
-  re-writes the GROM address per byte over a 512-byte (or full-slot) window
-  (`RECON.md` §10); the `SCANNING` cue was added deliberately to mask that wait
-  (`original-content/system-roms/LIMITATIONS.md` **L5**, whose "the authentic
-  menu has the same cost" assumption this report **corrects**). Fix: speed the
-  `SCANW` walk in `original-content/system-roms/grom/console.gpl` (e.g. bulk
-  copy / fewer address rewrites) to authentic speed, then **remove the
-  `SCANNING`/`BLANK8` cue** so the list simply appears. **[later]**
+  Joel 2026-07-06; resolved 2026-07-07.)* Our rewritten console GROM menu painted
+  a **`SCANNING`** row while it built a cartridge's program list; the **authentic**
+  menu is fast and shows **no such word**. Measurement (`tests/perf_parity.rs`)
+  **corrected the "~1–2 s" premise**: the isolated menu-build segment is only
+  ~7 frames (~0.12 s), and our rewrite already reaches the menu *sooner* than the
+  authentic firmware overall (reset → cart listed ~30 vs ~54 frames). The banner
+  was the only artifact that read as slow, so it was **removed**, and the build is
+  now hidden: `MENU` blanks the display (VDP R1 `>A0`) while it scans and reveals
+  the whole list at once (`SDONE`/`DISPON`, the title screen's own idiom) instead
+  of painting entries in one at a time (`original-content/system-roms/LIMITATIONS.md`
+  **L5**). Speeding the `SCANW` walk further was declined: ~0.12 s is imperceptible
+  once hidden, and a window-size change is not worth risking the 137-cart
+  enumeration gate. **[done]** (2026-07-07)
 
 ### 3. Emulation control
 - **Variable speed**: fast-forward / turbo, slow motion, **pause**, and

@@ -274,7 +274,16 @@ TREL    SCAN
 * ---- M2: build and show the selection list ---------------------------------
 * Original master-selection layout (RECON R2 menu dump): the chip logo top-left,
 * the Texas-Instruments / Home-Computer banner, "PRESS", then the numbered list.
-MENU    ALL  >20                    ; clear the screen to spaces
+* Blank the display first and reveal it whole at SDONE, so the whole menu — every
+* discovered program line included — appears at once instead of the base scan
+* painting entries in one by one (the slow per-byte scan is otherwise visible).
+* This is the title screen's own idiom (START draws with R1=>A0, then DISPON).
+* Safe to hold R1=>A0 across the multi-frame scan: the console ISR only rewrites
+* R1 when the screen-timeout wraps (~32k frames away, reset by the title keypress)
+* or when KSCAN sees a new key (none during the scan); >83D4 stays >E0 for the
+* later un-blank. No SCAN runs until SGET, past the DISPON.
+MENU    MOVE >0001,G@DISPOFF,#1     ; display OFF while we build (revealed at SDONE)
+        ALL  >20                    ; clear the screen to spaces
         MOVE >0005,G@LOGOR0,V@>0022   ; chip logo   row 1, col 2
         MOVE >0005,G@LOGOR1,V@>0042   ; chip logo   row 2, col 2
         MOVE >0005,G@LOGOR2,V@>0062   ; chip logo   row 3, col 2
@@ -286,9 +295,8 @@ MENU    ALL  >20                    ; clear the screen to spaces
         CLR  @>8350                 ; CNT = 0
         DST  @>834E,>00E4           ; first entry line: row 7, col 4
         DST  @>834A,>3800           ; menu table base (VDP)
-        ST   @>8374,>00             ; keyboard mode 0 (before any skip-to-SGET)
+        ST   @>8374,>00             ; keyboard mode 0 (before any skip to SDONE)
         ST   @>8375,>FF
-        MOVE >0008,G@SCANT,V@>00C4   ; L5: "SCANNING" cue (row 6) while the scan runs
 
 * Each base is scanned by: peek 2 header bytes into the window, test for the
 * >AA "valid header" marker, and only if present copy a 512-byte window and walk
@@ -372,7 +380,7 @@ SCEX    CALL SCANW
 * >6000-7FFF (a write flips banks). ADJ same as GROM >6000.
 SCPU    MOVE >0002,@>6000,V@>1000
         CEQ  V@>1000,>AA
-        BR   SGET
+        BR   SDONE                  ; CPU ROM base absent -> scan done, reveal + wait
         MOVE >0200,@>6000,V@>1000
         DST  @>834C,>5000
         ST   @>8352,>01             ; KIND = ML
@@ -383,8 +391,10 @@ SCPU    MOVE >0002,@>6000,V@>1000
 SCPX    CALL SCANW
 
 * ---- selection: read a digit, validate, dispatch ---------------------------
-SGET    MOVE >0008,G@BLANK8,V@>00C4  ; scan done -> erase the "SCANNING" cue (every path lands here)
-        SCAN
+* Scan complete: reveal the fully-built menu at once (the reject-key re-prompt
+* re-enters at SGET below, where the display is already up).
+SDONE   MOVE >0001,G@DISPON,#1      ; raise display-enable: R1 := >E0
+SGET    SCAN                        ; wait for a key (every re-prompt path lands here)
         CEQ  @>8375,>FF
         BS   SGET                   ; wait for a key
         ST   @>8354,@>8375          ; copy the key out at once
@@ -534,10 +544,12 @@ SFRET   RTN
 * home >0874.)
         GROM >0950
 * VDP register image. R1=>A0 leaves the display OFF while we draw; DISPON
-* raises it to >E0 afterwards. Tables: name >0000, color >0380, pattern >0800,
+* raises it to >E0 afterwards, DISPOFF lowers it back (the menu blanks the same
+* way while it builds). Tables: name >0000, color >0380, pattern >0800,
 * sprites >0300/>0000, backdrop cyan (R7 low nibble 7).
 VREGS   BYTE >00,>A0,>F0,>0E,>F9,>86,>F8,>F7
 DISPON  BYTE >E0
+DISPOFF BYTE >A0
 
 * Colour table (one byte per 8 characters, hi nibble = fg, lo = bg), matching the
 * authentic master title screen. Groups 0..11 (chars >00..>5F — the chip logo,
@@ -574,10 +586,6 @@ TITLE2  TEXT 'HOME COMPUTER'
 LIBRE   TEXT 'LIBRE 99 ROMS'
 PRESS   TEXT 'READY-PRESS ANY KEY TO BEGIN'
 PRESSW  TEXT 'PRESS'
-* L5 progress cue: shown at row 6 while the (visibly slow) per-byte base scan
-* runs, cleared at SGET once the menu is ready. BLANK8 erases it.
-SCANT   TEXT 'SCANNING'
-BLANK8  BYTE >20,>20,>20,>20,>20,>20,>20,>20
 * Menu row 23. Exactly 32 characters — the line fills the row edge to edge, so
 * it is drawn at column 0 and is "centered" by construction.
 SINFO   TEXT 'PRESS (S) FOR SYSTEM INFORMATION'

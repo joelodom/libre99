@@ -43,12 +43,21 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-//! Gate for **L5** (Chunk 4b): the menu's "SCANNING" progress cue. The base
-//! scan is visibly slow (the console ROM re-writes the GROM address per byte —
-//! `LIMITATIONS.md` L5), so `MENU` draws an original "SCANNING" row (row 6)
-//! before walking the bases and `SGET` erases it once the list is ready. This
-//! asserts both halves: the cue shows while the scan runs, and it is gone (and
-//! the list is intact) once the menu settles.
+//! Gate for **L5**: how the selection menu appears. Two guarantees:
+//!
+//! 1. **No "SCANNING" cue.** The build was once thought "visibly slow," so `MENU`
+//!    painted a "SCANNING" row (row 6) while it walked the bases. Measurement
+//!    (`perf_parity.rs`) showed the isolated build is only ~7 frames and we reach
+//!    the menu *sooner* than the authentic firmware overall — the banner was the
+//!    only thing that read as slow, and the authentic menu shows no such word. It
+//!    was removed so the list simply appears. Guarded: row 6 stays blank.
+//! 2. **Atomic reveal.** So the per-byte base scan does not paint the program
+//!    lines in one at a time, `MENU` blanks the display (VDP R1 `>A0`, the title
+//!    screen's own idiom) and reveals it whole (`DISPON`, R1 `>E0`) only once the
+//!    scan is complete. Guarded: the display is off during the build and turns on
+//!    with the **full** list already present — never a partial paint.
+//!
+//! Both keep the settled menu identical to before (`LIMITATIONS.md` L5).
 
 use std::sync::LazyLock;
 
@@ -93,11 +102,30 @@ fn screen(m: &Machine) -> String {
         .collect()
 }
 
-/// The cue is drawn at `MENU` (before the scan) and cleared at `SGET` (after).
-/// Boot a cart, leave the title, sample row 6 early (cue up) and once settled
-/// (cue gone, list drawn).
+/// Is the VDP display enabled? (R1 bit 6, `>40`, the blanking bit.)
+fn display_on(m: &Machine) -> bool {
+    m.vdp().register(1) & 0x40 != 0
+}
+
+/// How many `n FOR NAME` program lines the name table holds right now. VRAM is
+/// written during the (blanked) build, so this counts entries whether or not the
+/// display is currently on.
+fn listed_count(m: &Machine) -> usize {
+    let base = ((m.vdp().register(2) & 0x0F) as u16) * 0x400;
+    (0..24u16)
+        .filter(|r| {
+            let row: String = (0..32)
+                .map(|c| m.vdp().vram(base + r * 32 + c) as char)
+                .collect();
+            row.contains(" FOR ")
+        })
+        .count()
+}
+
+/// Boot a cart, leave the title, and sample row 6 across the whole build — the
+/// "SCANNING" cue must never appear (it was removed), yet the list still renders.
 #[test]
-fn scanning_cue_shows_during_scan_then_clears() {
+fn menu_builds_with_no_scanning_cue() {
     let Some(console_rom) = CONSOLE_ROM.as_deref() else { skip!() };
     let Some(cart) = ["cartridges/HuntTheWumpus.ctg", "cartridges/amazing.ctg"]
         .iter()
@@ -116,24 +144,83 @@ fn scanning_cue_shows_during_scan_then_clears() {
     for _ in 0..3 { m.run_frame(); }
     m.set_key(TiKey::Space, false);
 
-    // Early in the build (cue drawn at MENU, before/while the bases are scanned).
-    for _ in 0..6 { m.run_frame(); }
-    let during = row6(&m);
-    assert!(
-        during.starts_with("SCANNING"),
-        "the progress cue should show while the scan runs; row 6 was `{during}`"
-    );
-
-    // Settle the menu; the cue must be erased and the list intact.
-    for _ in 0..300 { m.run_frame(); }
+    // Sample row 6 every frame across the entire build+settle window. The banner
+    // used to flash here for ~7 frames; it must now never show — the row 6 slot
+    // (between PRESS and the first entry) stays blank the whole way.
+    for _ in 0..320 {
+        m.run_frame();
+        let r6 = row6(&m);
+        assert!(
+            !r6.contains("SCANNING"),
+            "the removed SCANNING cue must never appear; row 6 was `{r6}`"
+        );
+    }
     let settled = row6(&m);
     assert!(
         settled.trim().is_empty(),
-        "the cue must be cleared once the menu is ready; row 6 was `{settled}`"
+        "row 6 must stay blank once the menu is ready; row 6 was `{settled}`"
     );
     let screen = screen(&m);
     assert!(
         screen.contains(" FOR "),
         "the settled menu should still list programs; screen:\n{screen}"
     );
+}
+
+/// The menu is revealed **atomically**: `MENU` blanks the display while the base
+/// scan runs and raises it (`SDONE`/`DISPON`) only once every entry is drawn, so
+/// the user sees the whole list appear at once rather than lines paint in one at
+/// a time. Assert the display goes off during the build and turns back on with
+/// the *complete* list already present — never a partial paint.
+#[test]
+fn menu_reveals_atomically_with_full_list() {
+    let Some(console_rom) = CONSOLE_ROM.as_deref() else { skip!() };
+    let Some(cart) = ["cartridges/HuntTheWumpus.ctg", "cartridges/amazing.ctg"]
+        .iter()
+        .find_map(|p| libre99_core::third_party::load(p))
+        .map(|d| Cartridge::parse(&d).unwrap())
+    else {
+        skip!()
+    };
+
+    let grom = our_grom();
+    let mut m = Machine::new(console_rom, &grom);
+    m.mount_cartridge(&cart);
+    m.reset();
+    for _ in 0..40 { m.run_frame(); }
+    m.set_key(TiKey::Space, true);
+    for _ in 0..3 { m.run_frame(); }
+    m.set_key(TiKey::Space, false);
+
+    // Walk the build+settle window. Record: whether we ever saw the display
+    // blanked (the build), the frame it first turned back on after a blank (the
+    // reveal) with the list count at that instant, and the final list count.
+    let mut off_seen = false;
+    let mut reveal_listed = None;
+    let mut on_after_reveal_always = true;
+    let mut max_listed = 0;
+    for _ in 0..320 {
+        m.run_frame();
+        let on = display_on(&m);
+        let listed = listed_count(&m);
+        max_listed = max_listed.max(listed);
+        if !on {
+            off_seen = true;
+            if reveal_listed.is_some() {
+                on_after_reveal_always = false; // flickered back off after revealing
+            }
+        } else if off_seen && reveal_listed.is_none() {
+            reveal_listed = Some(listed); // first on-frame after the build blank
+        }
+    }
+
+    assert!(off_seen, "the display should blank while the menu builds");
+    let reveal_listed = reveal_listed.expect("the display should turn back on once built");
+    assert!(max_listed >= 2, "the cart entry should be listed (got {max_listed})");
+    assert_eq!(
+        reveal_listed, max_listed,
+        "the menu was revealed with a partial list ({reveal_listed} of {max_listed}); \
+         discovery must finish before the DISPON reveal"
+    );
+    assert!(on_after_reveal_always, "the display must stay on once the menu is revealed");
 }
