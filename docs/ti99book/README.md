@@ -26,15 +26,14 @@ sh verify.sh      # assemble all companion code + build the bench; must pass
 ```
 
 ## Status
-**42 of 45 chapters drafted.** Complete: Part I, Part II (except Chapter 6, a
-stub — narrative final, code work orders still open), Parts III–VIII in full,
-and now **Part IX complete** — all five case-study capstones (METEOR BELT, the
-scrolling shooter; GRIDRUNNER 99, the console-only maze chase; DUNGEONS OF FATE,
-the data-driven RPG engine; AUTHOR99, the 40-column text editor; DRIFT, the
-one-button port) are drafted and machine-verified. Remaining: **Part X**
-(Chapters 44–45, beyond the console), the fourteen reference **appendices**
-(A–N), the deferred **Chapter 6**, and the front matter (preface, how-to-use).
-**Chapter 44** (The Extended Family) is next. See
+**44 of 45 chapters drafted — the manuscript body is complete** but for one
+deferred chapter. Complete: Parts I–VIII (except Chapter 6, a stub), **Part IX**
+(all five case-study capstones — METEOR BELT, GRIDRUNNER 99, DUNGEONS OF FATE,
+AUTHOR99, DRIFT — drafted and machine-verified), and now **Part X** (Chapter 44,
+The Extended Family; Chapter 45, The Living Platform — the closing essay).
+Remaining for the whole book: the deferred **Chapter 6** (object formats and
+loaders — needs tooling only on the Mac), the fourteen reference **appendices**
+(A–N), and the front matter (preface, how-to-use). See
 `manuscript/_summaries.md` for what each finished chapter covers, and
 `manuscript/00-master-outline.md` for the full 45-chapter plan (amendments at
 the end).
