@@ -764,7 +764,9 @@ PYLIST  DATA >0000                  ; next program = none
 *   >8315 ERR (0 ok / 1 syntax / 2 name / 3 zero-div / 4 too-complex)
 *   >8316-8317 ROW (current VDP row start)   >8318 EXPECT (1 = operand expected)
 *   >831A-831B INSTART (VDP addr where input text begins)
-*   >831C-831D NUMACC (number/var accumulator)   >831E-831F temp
+*   >831C-831D NUMACC (number/var accumulator)
+*   >831E-831F input cap while READING / PNUM digit scratch while EVALUATING
+*              (the two phases never overlap; the cap is re-set per prompt)
 *   >8320-834F variable table: 16 x {name, val_hi, val_lo}
 *   >8350-835F operand stack (8 words, base offset >50)
 *   >8360-836F operator stack (16 bytes, base offset >60)
@@ -782,22 +784,56 @@ PYLOOP  DST  @>8312,@>8316           ; cursor = ROW start
         ST   *V@>8312,>20
         DINC @>8312
         DST  @>831A,@>8312           ; input begins here
+        DST  @>831E,@>8316           ; input cap = the row's right edge
+        DADD @>831E,>0020            ; (>831E is PNUM scratch only DURING eval
+                                     ;  — reader-time use never overlaps)
 
-* ---- read a line, echoing to the screen, until ENTER ----------------------
+* ---- read a line, echoing, until ENTER -------------------------------------
+* The KSCAN NEW-KEY protocol (rom/KSCAN-SPEC.md §5.2): SCAN sets the GPL
+* condition bit only on a scan that latched a key DIFFERENT from the last —
+* exactly one event per keystroke. No wait-for-release loop: overlapped
+* (rollover) typing delivers every key, which the old press-then-all-keys-up
+* protocol dropped (docs/TI-PYTHON.md §4 B1). Dispatch: ENTER ends the line;
+* FCTN+S (>08 — the host Backspace) rubs out; FCTN+3 (>07, ERASE) clears the
+* line; printables >20-5F echo under the cap; everything else is ignored,
+* never echoed as junk (B2).
         ST   @>8374,>00             ; keyboard mode 0
 RDK     SCAN
-        CEQ  @>8375,>FF
-        BS   RDK                    ; wait for a key
-        ST   @>8314,@>8375          ; CHAR = key (copy out at once)
-RDKR    SCAN
-        CEQ  @>8375,>FF
-        BR   RDKR                   ; wait for release
-        CEQ  @>8314,>0D             ; ENTER?
+        BR   RDK                    ; loop until a NEW key this scan
+        ST   @>8314,@>8375          ; CHAR = the key
+        CEQ  @>8314,>0D             ; ENTER -> evaluate
         BS   RDDONE
+        CEQ  @>8314,>08             ; backspace
+        BS   RDBS
+        CEQ  @>8314,>07             ; ERASE -> clear the whole line
+        BS   RDERA
+        CHE  @>8314,>20             ; below SPACE: not printable
+        BR   RDK
+        CH   @>8314,>5F             ; above the charset: not printable
+        BS   RDK
+        DCHE @>8312,@>831E          ; at the cap? swallow the extra key (B3)
+        BS   RDK
         ST   *V@>8312,@>8314        ; echo the char
         DINC @>8312
         B    RDK
+RDBS    DCEQ @>8312,@>831A          ; nothing typed -> nothing to rub out
+        BS   RDK
+        DDEC @>8312                 ; step back and blank the cell
+        ST   *V@>8312,>20
+        B    RDK
+RDERA   DCEQ @>8312,@>831A          ; blank back to the input start
+        BS   RDK
+        DDEC @>8312
+        ST   *V@>8312,>20
+        B    RDERA
 RDDONE  ST   *V@>8312,>00           ; NUL-terminate the input in place
+
+* Blank (or all-spaces) input just re-prompts — no SYNTAX ERROR.
+        DST  @>8312,@>831A
+        CALL SKIPSP
+        ST   @>8314,*V@>8312
+        CZ   @>8314
+        BS   PYNEXT
 
 * ---- assignment?  a single letter, optional spaces, then '=' --------------
         DST  @>8312,@>831A          ; IP = input start

@@ -111,10 +111,67 @@ fn type_line(m: &mut Machine, line: &str) {
         if shift { m.set_key(TiKey::Shift, false); }
         frames(m, 3);
     }
+    press_enter(m);
+}
+
+fn press_enter(m: &mut Machine) {
     m.set_key(TiKey::Enter, true);
     frames(m, 3);
     m.set_key(TiKey::Enter, false);
     frames(m, 40); // let the evaluator run and print
+}
+
+/// Type with every adjacent pair of keys OVERLAPPED — each key goes down
+/// while the previous one is still held, the way fast typists roll. Under
+/// the v0 read loop (wait for a key, then wait for ALL keys up) the rolled
+/// key was eaten whole; the KSCAN new-key protocol must deliver every one.
+/// (Uses no shifted characters: SHIFT going up and down mid-roll is its own
+/// scenario, and unshifted rollover is the reported bug.)
+fn type_line_overlapped(m: &mut Machine, line: &str) {
+    let keys: Vec<TiKey> = line
+        .chars()
+        .map(|c| {
+            let (k, shift) = key_for(c);
+            assert!(!shift, "overlapped typing helper takes unshifted keys only");
+            k
+        })
+        .collect();
+    let mut held: Option<TiKey> = None;
+    for k in keys {
+        if held == Some(k) {
+            // A key can't roll over itself: a double-tap needs the up-edge
+            // (one all-keys-up scan resets KSCAN's debounce cell).
+            m.set_key(k, false);
+            frames(m, 2);
+            held = None;
+        }
+        m.set_key(k, true); // down while the previous key is still down
+        frames(m, 2);
+        if let Some(prev) = held {
+            m.set_key(prev, false);
+        }
+        frames(m, 2);
+        held = Some(k);
+    }
+    if let Some(prev) = held {
+        m.set_key(prev, false);
+    }
+    frames(m, 3);
+    press_enter(m);
+}
+
+/// Tap a key with an optional modifier held (FCTN combos: backspace/ERASE).
+fn tap_combo(m: &mut Machine, modifier: Option<TiKey>, k: TiKey) {
+    if let Some(mo) = modifier {
+        m.set_key(mo, true);
+    }
+    m.set_key(k, true);
+    frames(m, 3);
+    m.set_key(k, false);
+    if let Some(mo) = modifier {
+        m.set_key(mo, false);
+    }
+    frames(m, 3);
 }
 
 /// Boot, walk the menu, and launch TI PYTHON (entry 1) — `None` when the
@@ -161,6 +218,92 @@ fn ti_python_evaluates_the_reference_session() {
         assert_eq!(&got, want, "`{expr}` -> got {got:?}, want {want:?}");
         input_row += 2;
     }
+}
+
+/// **Regression for docs/TI-PYTHON.md §4 B1 — fast (overlapped) typing
+/// dropped characters.** The v0 read loop waited for a key, then spun until
+/// NO key was held before accepting the next; rolling a second key down
+/// before releasing the first never presents an all-keys-up instant between
+/// them, so the rolled key was eaten. The KSCAN new-key protocol (one
+/// condition-bit event per changed key) must deliver every character.
+#[test]
+fn overlapped_typing_delivers_every_character() {
+    let Some(mut m) = launch_ti_python() else { skip!() };
+    type_line_overlapped(&mut m, "144 / 12");
+    assert_eq!(row(&m, 2), "> 144 / 12", "every rolled key must echo");
+    assert_eq!(row(&m, 3), "12", "and the line must evaluate");
+}
+
+/// **docs/TI-PYTHON.md §4 B2 — backspace.** FCTN+S (>08 — what the desktop
+/// frontend sends for host Backspace) must rub out the character left of the
+/// cursor; ERASE (FCTN+3, >07) must clear the whole line; neither may echo
+/// junk. Arrows and other control codes are ignored outright.
+#[test]
+fn backspace_erase_and_control_keys_edit_cleanly() {
+    let Some(mut m) = launch_ti_python() else { skip!() };
+
+    // "12<BS>3" reads back as "13".
+    type_line(&mut m, "12");
+    // (type_line pressed ENTER: that line evaluated to 12 on row 3. Now edit
+    // a fresh line on row 4.)
+    for c in ["1", "2"] {
+        let (k, _) = key_for(c.chars().next().unwrap());
+        tap_combo(&mut m, None, k);
+    }
+    tap_combo(&mut m, Some(TiKey::Fctn), TiKey::S); // backspace
+    let (k3, _) = key_for('3');
+    tap_combo(&mut m, None, k3);
+    press_enter(&mut m);
+    assert_eq!(row(&m, 4), "> 13", "backspace must rub out the 2");
+    assert_eq!(row(&m, 5), "13");
+
+    // ERASE clears the whole line; retype and evaluate.
+    for c in "999".chars() {
+        let (k, _) = key_for(c);
+        tap_combo(&mut m, None, k);
+    }
+    tap_combo(&mut m, Some(TiKey::Fctn), TiKey::Num3); // ERASE
+    for c in "42".chars() {
+        let (k, _) = key_for(c);
+        tap_combo(&mut m, None, k);
+    }
+    press_enter(&mut m);
+    assert_eq!(row(&m, 6), "> 42", "ERASE must clear the 999");
+    assert_eq!(row(&m, 7), "42");
+
+    // An arrow key (FCTN+E, >0B) echoes nothing.
+    tap_combo(&mut m, Some(TiKey::Fctn), TiKey::E);
+    assert_eq!(row(&m, 8), ">", "control codes must not echo junk");
+
+    // Backspace with nothing typed is ignored (the prompt survives).
+    tap_combo(&mut m, Some(TiKey::Fctn), TiKey::S);
+    assert_eq!(row(&m, 8), ">");
+    press_enter(&mut m); // blank line: just re-prompts, no SYNTAX ERROR
+    assert_eq!(row(&m, 9), "", "a blank line must not print an error");
+    assert_eq!(row(&m, 10), ">", "and the REPL re-prompts");
+}
+
+/// **docs/TI-PYTHON.md §4 B3 — the input cap.** Typing past the row edge is
+/// swallowed: the echo stops at the last cell and the next row stays
+/// untouched until the result prints there.
+#[test]
+fn input_stops_at_the_row_edge() {
+    let Some(mut m) = launch_ti_python() else { skip!() };
+    let (k, _) = key_for('1');
+    for _ in 0..40 {
+        tap_combo(&mut m, None, k);
+    }
+    // 30 digits fit after "> "; the 40 presses must not scribble row 3.
+    assert_eq!(row(&m, 2), format!("> {}", "1".repeat(30)));
+    assert_eq!(row(&m, 3), "", "no VRAM scribble past the input row");
+    press_enter(&mut m);
+    // The 30-digit literal wraps mod 2^16 like all arithmetic.
+    let mut v: u16 = 0;
+    for _ in 0..30 {
+        v = v.wrapping_mul(10).wrapping_add(1);
+    }
+    let want = format!("{}", v as i16);
+    assert_eq!(row(&m, 3), want, "the capped line still evaluates");
 }
 
 /// **Regression for QUALITY-EVALUATION G1 — unguarded evaluator stacks.**
