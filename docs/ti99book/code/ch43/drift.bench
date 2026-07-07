@@ -1,0 +1,5 @@
+load C:/ClaudeShared/libre99/docs/ti99book/build/DRIFTC.bin
+pc 6096
+x 200000
+vdp
+m 8356 2

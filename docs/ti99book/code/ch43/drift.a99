@@ -1,0 +1,248 @@
+* DRIFT.A99 — Capstone V: the port (a modern one-button game, back in time). (Ch.43)
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
+*
+* Part IX's fifth and final title, and the book's graduation piece: DRIFT, an
+* original one-button game ported DOWN to 1979 silicon. A ship holds a fixed
+* column of a scrolling cavern; gravity pulls it toward one wall; the single
+* button FLIPS which wall gravity pulls toward. Thread the cavern, or crash. The
+* modern feel (smooth momentum, one input) maps to TI reality by the Ch.43
+* constraint-translation table: momentum -> an 8.8 fixed-point velocity (Ch.8),
+* the ship -> a sprite (Ch.16), the cavern -> a pattern-shift scroll (Ch.17),
+* built on SKELETON99's state machine (Ch.36).
+*
+* Rendering the ship and scrolling the cavern belong to the running machine (the
+* interactive layer, R-12); here START drives the ENGINE through DETERMINISTIC
+* scripted inputs and proves the physics, the flip, and the collision, then
+* paints the border verdict: GREEN (>02) if every assertion holds, RED (>06)
+* with a FAILID otherwise.
+*   (a) the phase dispatch table routes ATTRACT/PLAY/OVER;
+*   (b) with NO input, gravity pulls the ship DOWN into the bottom wall;
+*   (c) one button-flip sends gravity UP into the top wall;
+*   (d) flipping every frame HOVERS the ship — it survives a scripted flight.
+*
+* Verify: load, pc START, x 200000, then  vdp  (VR7 = >02 = all systems pass)
+* and  m 8356 2  (FAILID = 0). See drift.bench for the scripted assertions.
+*
+* Build:  libre99asm code/ch43/drift.a99 --format bin -o build/DRIFTC.bin
+
+       COPY '../ch11/equates.inc'      ports, colours, the fast island
+       COPY '../ch12/vdplib.inc'       VWTR (the border verdict)
+
+* ================= the fast island: workspace, stack, hot scalars =========
+WS     EQU  >8300            workspace (>8300-831F)
+STKTOP EQU  >8340            R10 software stack top (grows down, Ch.9)
+STATE  EQU  >8342            phase: 0 ATTRACT / 1 PLAY / 2 OVER
+SIG    EQU  >8344            running phase's signature (dispatch proof)
+SHIPY  EQU  >8346            ship vertical position, 8.8 fixed-point (pixels)
+SHIPV  EQU  >8348            ship vertical velocity, 8.8 (signed)
+GDIR   EQU  >834A            gravity as a signed 8.8 acceleration (+down / -up)
+DIST   EQU  >834C            frames survived this run (the score)
+CRASHF EQU  >834E            1 once the ship has crashed
+CRASHW EQU  >8350            which wall it hit: 0 = top, 1 = bottom
+INBTN  EQU  >8352            this frame's button (1 = flip gravity)
+TICKN  EQU  >8354            self-test frame counter (survives DISP's clobbers)
+FAILID EQU  >8356            self-test failure id (0 = pass)
+
+* ================= the constraint-translation constants ===================
+* Modern momentum -> an 8.8 world: a quarter-pixel-per-frame gravity, a ship
+* that starts mid-cavern, and a straight test tunnel between two walls. A
+* shipping DRIFT scrolls VARYING walls; the collision check is identical, just
+* against a per-column top/bottom instead of these constants.
+GACC   EQU  >0040            gravity: 0.25 px/frame^2 (8.8)
+SHIPY0 EQU  >6000            start height 96.0 px (8.8) — mid-tunnel
+TOPY   EQU  32               top wall (pixel row): Y <= here crashes
+BOTY   EQU  160             bottom wall: Y >= here crashes
+WTOP   EQU  0
+WBOT   EQU  1
+CAPF   EQU  200             self-test safety cap (frames)
+
+* ===========================================================================
+START  LWPI WS
+       LI   R10,STKTOP
+* ---- bring up Graphics I so the border verdict shows (render is on-machine) --
+       LI   R0,0
+       LI   R1,0
+       BL   @VWTR
+       LI   R0,1
+       LI   R1,>E000
+       BL   @VWTR            display on, 16K
+       LI   R0,7
+       LI   R1,>0400
+       BL   @VWTR            dark-blue backdrop to start
+
+* ================= (a) the phase dispatch table ==========================
+       CLR  @STATE
+       BL   @DISP
+       MOV  @SIG,R0
+       CI   R0,>4141        ATTRACT 'AA'
+       JEQ  $+6
+       B    @FDISP
+       LI   R0,2
+       MOV  R0,@STATE
+       BL   @DISP
+       MOV  @SIG,R0
+       CI   R0,>2A2A        OVER '**'
+       JEQ  $+6
+       B    @FDISP
+
+* ================= (b) no input -> gravity pulls DOWN into the floor ======
+       BL   @RESET
+       LI   R0,1
+       MOV  R0,@STATE
+       CLR  @TICKN
+BLOOP  CLR  @INBTN           hands off the button
+       BL   @DISP
+       INC  @TICKN
+       MOV  @CRASHF,R0
+       JNE  BDONE
+       MOV  @TICKN,R0
+       CI   R0,CAPF
+       JL   BLOOP
+BDONE  MOV  @CRASHF,R0
+       JNE  $+6
+       B    @FGRAV           it must have crashed
+       MOV  @CRASHW,R0
+       CI   R0,WBOT
+       JEQ  $+6
+       B    @FGRAV           and into the BOTTOM wall
+       MOV  @DIST,R0
+       JNE  $+6
+       B    @FGRAV           having survived some frames first
+
+* ================= (c) one flip -> gravity pulls UP into the ceiling ======
+       BL   @RESET
+       LI   R0,1
+       MOV  R0,@STATE
+       CLR  @TICKN
+CLOOP  CLR  @INBTN
+       MOV  @TICKN,R0
+       JNE  CNOF            press only on frame 0 (a single flip to "up")
+       LI   R0,1
+       MOV  R0,@INBTN
+CNOF   BL   @DISP
+       INC  @TICKN
+       MOV  @CRASHF,R0
+       JNE  CDONE
+       MOV  @TICKN,R0
+       CI   R0,CAPF
+       JL   CLOOP
+CDONE  MOV  @CRASHF,R0
+       JNE  $+6
+       B    @FTOP
+       MOV  @CRASHW,R0
+       CI   R0,WTOP
+       JEQ  $+6
+       B    @FTOP           it must have hit the TOP wall
+
+* ================= (d) flip every frame -> hover -> survive a flight ======
+       BL   @RESET
+       LI   R0,1
+       MOV  R0,@STATE
+       CLR  @TICKN
+DLOOP  LI   R0,1
+       MOV  R0,@INBTN        flip gravity every frame
+       BL   @DISP
+       MOV  @CRASHF,R0
+       JEQ  $+6
+       B    @FDRIFT          a crash here means the ship couldn't be flown
+       INC  @TICKN
+       MOV  @TICKN,R0
+       CI   R0,20
+       JL   DLOOP
+
+* ---- every system passed ----
+       LI   R0,7
+       LI   R1,GREEN
+       BL   @VWTR
+       JMP  HALT
+
+FGRAV  LI   R0,1
+       JMP  REDV
+FTOP   LI   R0,2
+       JMP  REDV
+FDRIFT LI   R0,3
+       JMP  REDV
+FDISP  LI   R0,4
+REDV   MOV  R0,@FAILID
+       LI   R0,7
+       LI   R1,RED
+       BL   @VWTR
+HALT   JMP  HALT
+
+* ===========================================================================
+* RESET — a fresh flight: ship mid-tunnel, at rest, gravity pulling down. Leaf.
+RESET  LI   R0,SHIPY0
+       MOV  R0,@SHIPY
+       CLR  @SHIPV
+       LI   R0,GACC          gravity DOWN = +GACC (a signed 8.8 accel)
+       MOV  R0,@GDIR
+       CLR  @DIST
+       CLR  @CRASHF
+       CLR  @CRASHW
+       CLR  @INBTN
+       RT
+
+* ===========================================================================
+* DISP — run the current phase once through the state-machine table. Non-leaf.
+DISP   DECT R10
+       MOV  R11,*R10
+       MOV  @STATE,R1
+       SLA  R1,1            phase * 2 -> word offset
+       MOV  @PTAB(R1),R2
+       BL   *R2
+       MOV  *R10+,R11
+       RT
+PTAB   DATA PHATTR,PHPLAY,PHOVER
+
+PHATTR LI   R0,>4141
+       MOV  R0,@SIG
+       RT
+PHOVER LI   R0,>2A2A
+       MOV  R0,@SIG
+       RT
+PHPLAY DECT R10
+       MOV  R11,*R10
+       LI   R0,>5050
+       MOV  R0,@SIG
+       BL   @UPDATE
+       MOV  *R10+,R11
+       RT
+
+* ===========================================================================
+* UPDATE — one PLAY frame: read the button (a press FLIPS gravity), integrate
+* the ship (V += gravity, Y += V), then test the walls. This is the whole game,
+* and it is nothing but Ch.8 fixed-point arithmetic. Non-leaf.
+UPDATE DECT R10
+       MOV  R11,*R10
+       MOV  @INBTN,R0
+       JEQ  UPNOF
+       NEG  @GDIR           the one button: flip which way gravity pulls
+UPNOF  MOV  @SHIPV,R0
+       A    @GDIR,R0        velocity += gravity (signed)
+       MOV  R0,@SHIPV
+       MOV  @SHIPY,R1
+       A    R0,R1           position += velocity
+       MOV  R1,@SHIPY
+* collision: the integer part of Y is the pixel row
+       MOV  R1,R0
+       SRL  R0,8
+       CI   R0,TOPY
+       JLE  UPCTOP          Y <= top wall -> crash the ceiling
+       CI   R0,BOTY
+       JHE  UPCBOT          Y >= bottom wall -> crash the floor
+       INC  @DIST           survived another frame
+       JMP  UPX
+UPCTOP CLR  R0
+       MOV  R0,@CRASHW      WTOP
+       JMP  UPCRSH
+UPCBOT LI   R0,WBOT
+       MOV  R0,@CRASHW
+UPCRSH LI   R0,1
+       MOV  R0,@CRASHF
+       LI   R0,2
+       MOV  R0,@STATE       crash -> OVER
+UPX    MOV  *R10+,R11
+       RT
+
+       END  START
