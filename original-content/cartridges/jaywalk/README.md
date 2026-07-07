@@ -15,6 +15,16 @@ Crossy Road popularized in 2014 — rebuilt from scratch for 1981 silicon with
 original code, art, name, and sound. (Game mechanics are not copyrightable;
 everything expressive here is this project's own.)
 
+<p align="center">
+  <img src="../../../docs/screenshots/jaywalk.png"
+       alt="Jaywalk gameplay: the jay crossing a road, with rivers, logs, lily pads, and rail lines ahead"
+       width="512">
+</p>
+
+*(The screenshot is generated headlessly by the repo's deterministic gallery
+tool — `cargo run -p libre99-gpl --example readme_gallery` — booting this
+exact `.ctg` on the clean-room firmware.)*
+
 A fledgling blue jay, too young to fly, sets out north across an endless,
 procedurally generated world:
 
