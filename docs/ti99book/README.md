@@ -31,14 +31,18 @@ deferred chapter. Complete: Parts I–VIII (except Chapter 6, a stub), **Part IX
 (all five case-study capstones — METEOR BELT, GRIDRUNNER 99, DUNGEONS OF FATE,
 AUTHOR99, DRIFT — drafted and machine-verified), and now **Part X** (Chapter 44,
 The Extended Family; Chapter 45, The Living Platform — the closing essay).
-Six of the fourteen reference **appendices** are now drafted too — **C** (memory
-maps & the scratchpad atlas), **E** (sound), **G** (CRU map), **L** (toolchain
-quick reference), **M** (glossary), and **N** (bibliography): the cluster
-verifiable against the toolchain, core, and firmware. Remaining for the whole
-book: the deferred **Chapter 6** (object formats and loaders — needs tooling only
-on the Mac), the other eight appendices (**A**, **B**, **D**, **F**, **H**, **I**,
-**J**, **K** — datasheet and primary-source matter), and the front matter
-(preface, how-to-use). See
+Eleven of the fourteen reference **appendices** are now drafted too — the
+reference & toolchain cluster **C** (memory maps & the scratchpad atlas),
+**E** (sound), **G** (CRU map), **L** (toolchain quick reference), **M**
+(glossary), **N** (bibliography), and the machine & firmware-interface cluster
+**B** (GPL reference), **D** (TMS9918A), **H** (DSR & PAB), **J** (character sets
+& key codes), **K** (console entry points): all verifiable tier-1 against the
+toolchain, core, and clean-room firmware. Remaining for the whole book: the
+deferred **Chapter 6** (object formats and loaders — needs tooling only on the
+Mac), the last three appendices (**A** — the 24-page TMS9900 instruction
+reference, its own focused pass; **F** — speech, which the emulator does not yet
+implement; **I** — media/file formats, whose object-format half waits on
+Chapter 6), and the front matter (preface, how-to-use). See
 `manuscript/_summaries.md` for what each finished chapter covers, and
 `manuscript/00-master-outline.md` for the full 45-chapter plan (amendments at
 the end).
