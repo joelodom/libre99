@@ -3,9 +3,9 @@
 A cycle-aware **Texas Instruments TI-99/4A** home-computer emulator in pure
 Rust — together with the toolchain of a complete retro-computing platform: a
 from-scratch **TMS9900 assembler**, a **GPL toolchain**, an original
-**clean-room console firmware** (booted by default), original **Titris** and
-**Sokoban** cartridges built end-to-end with the project's own tools, and a
-book in progress about programming the machine.
+**clean-room console firmware** (booted by default), original **Titris**,
+**Sokoban**, and **Jaywalk** cartridges built end-to-end with the project's
+own tools, and a book in progress about programming the machine.
 
 <p align="center">
   <img src="docs/screenshots/title.png" alt="The clean-room (Libre99) master title screen" width="512">
@@ -41,9 +41,10 @@ right, and the firmware does the rest.
 - **A complete author-to-screen toolchain.** `libre99asm` assembles
   Editor/Assembler-dialect TMS9900 source into bootable `.ctg` cartridges
   (`--cartridge <path>` closes the loop), `libre99gpl` builds GPL firmware, and
-  two original games prove the pipeline: **Titris** (falling blocks) and
+  three original games prove the pipeline: **Titris** (falling blocks),
   **Sokoban** (the warehouse-keeper puzzle, with twelve credited Microban
-  levels) — both gameplay-tested end to end on the emulated console.
+  levels), and **Jaywalk** (an endless hopper that works the sprite and sound
+  hardware) — all gameplay-tested end to end on the emulated console.
 - **A pleasant desktop app.** On-screen help overlay with a pictured TI
   keyboard, layout-independent typing (QWERTY/Dvorak/AZERTY all just work),
   native file-chooser media mounting, save states (auto-save/resume + named
@@ -61,6 +62,10 @@ The clean-room firmware and original content:
 | Titris (original cartridge, built with `libre99asm`) | Sokoban (original cartridge, built with `libre99asm`) |
 |---|---|
 | ![Titris gameplay](docs/screenshots/titris.png) | ![Sokoban gameplay](docs/screenshots/sokoban.png) |
+
+| Jaywalk (original cartridge — 24 sprites and all four sound voices) |
+|---|
+| ![Jaywalk gameplay](docs/screenshots/jaywalk.png) |
 
 Third-party titles running on the emulator (historical screenshots — the
 commercial cartridge images themselves are **not** part of this repository;
@@ -92,7 +97,7 @@ system's file chooser. Useful keys from the start:
 
 | Key | Action |
 |---|---|
-| `Esc` / `F1` | Help overlay — five tabs, including the full TI keyboard reference (a first run points you here with a `PRESS ESC FOR HELP` banner) |
+| `Esc` / `F1` | Help overlay — four tabs, including the full TI keyboard reference (a first run points you here with a `PRESS ESC FOR HELP` banner) |
 | `F9` | Mount media — pick any `.ctg` cartridge or `.dsk` disk image |
 | `F5` | Reset the console |
 | `F10` | Pause / resume |
@@ -124,6 +129,7 @@ cargo run --release -p libre99-app -- --system-rom path/to/994aROM.Bin --system-
 | `original-content/system-roms` | The clean-room console ROM + GROM rewrite (Libre99): original firmware, differentially verified, booted by default. | [original-content/system-roms/README.md](original-content/system-roms/README.md) |
 | `original-content/cartridges/titris` | Titris, an original cartridge authored with the project's own assembler. | [its README](original-content/cartridges/titris/README.md) |
 | `original-content/cartridges/sokoban` | Sokoban, a second original cartridge — the classic puzzle with twelve credited Microban levels. | [its README](original-content/cartridges/sokoban/README.md) |
+| `original-content/cartridges/jaywalk` | Jaywalk, a third original cartridge — an endless hopper that demonstrates the sprite and sound hardware. | [its README](original-content/cartridges/jaywalk/README.md) |
 | `docs/ti99book` | *Programming the TI-99/4A* — a book manuscript in progress, founded on this project's toolchain. | [its README](docs/ti99book/README.md) |
 | `third-party/` | **Git-ignored, maintainer-local** TI firmware and commercial media used only by the differential test suites (absent from a fresh checkout; the public suite skips those tests). | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
 
@@ -164,7 +170,8 @@ GPL toolchains are **complete**. Detail: [docs/STATUS.md](docs/STATUS.md).
 ## License and provenance
 
 This project's original work — the emulator, the toolchain, the clean-room
-firmware, Titris, and the documentation — is Copyright © 2026 Joel Odom and
+firmware, the cartridges, and the documentation — is Copyright © 2026 Joel Odom
+and
 licensed under the **Modified MIT License with Commons Clause**
 (source-available; the right to sell is reserved): see
 **[LICENSE.md](LICENSE.md)**.

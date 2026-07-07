@@ -165,7 +165,7 @@ Before this repository (or any binary) is made public:
    to keep** as static images (Joel, 2026-07-06). TI's Editor/Assembler
    manual PDF (which the predecessor repo tracked under `assembler/`) was
    excluded at the fork — it lives in `third-party/` now.
-2. The clean-room firmware, TI PYTHON, Titris, Sokoban, and the toolchain are
+2. The clean-room firmware, TI PYTHON, Titris, Sokoban, Jaywalk, and the toolchain are
    original and stay. (Sokoban's twelve levels are from David W. Skinner's
    **Microban** set, which "may be freely distributed provided they remain
    properly credited" — the cartridge's title screen and README carry the

@@ -68,6 +68,7 @@ and [rom/README.md](../original-content/system-roms/rom/README.md).
 | `libre99gpl` — GPL assembler/decoder/disassembler + GROM build | ✅ complete |
 | Titris — original cartridge, source → own assembler → boots in own emulator | ✅ complete, playable, gameplay-tested |
 | Sokoban — second original cartridge (12 credited Microban levels, undo, flood-filled floors) | ✅ complete, playable; the test suite plays every level to completion |
+| Jaywalk — third original cartridge: endless hopper working 24 sprites + all four PSG voices | ✅ complete, playable, gameplay-tested (incl. a 5,000-frame input soak) |
 | *Programming the TI-99/4A* (book manuscript) | 🔄 in progress ([docs/ti99book](ti99book/README.md)) |
 
 ## Health

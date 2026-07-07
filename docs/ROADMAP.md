@@ -26,7 +26,7 @@ pass, the tag, and prebuilt binaries.** 0.1.0 is the first source-available
 public drop, for early testers, and its governing constraint is met: **ship
 only what the project owns** — the pure-Rust emulator, the clean-room
 **Libre99** firmware (ROM + GROM + disk DSR), the `libre99asm`/`libre99gpl`
-toolchain, and our original cartridges (Titris, Sokoban), with **zero TI or
+toolchain, and our original cartridges (Titris, Sokoban, Jaywalk), with **zero TI or
 third-party bytes** in the tree, the binary, or the published history (this
 repository was born as the IP-clean fork; its history is clean from
 commit 1).
@@ -189,8 +189,9 @@ Each item is tagged: **[done]** implemented and merged to `main` ·
   **[ASSEMBLER.md](../assembler/ASSEMBLER.md)**; pairs with the `libre99-app
   --cartridge-file <path>` flag to close the build-run loop (relates to §2's
   "arbitrary file paths"). **[done]** (full TMS9900 ISA; the playable
-  [Titris](../original-content/cartridges/titris/README.md) and
-  [Sokoban](../original-content/cartridges/sokoban/README.md) cartridges prove
+  [Titris](../original-content/cartridges/titris/README.md),
+  [Sokoban](../original-content/cartridges/sokoban/README.md), and
+  [Jaywalk](../original-content/cartridges/jaywalk/README.md) cartridges prove
   the pipeline; the bootstrap record is archived at
   [docs/history/ASSEMBLER-POC-PLAN.md](history/ASSEMBLER-POC-PLAN.md).)
 

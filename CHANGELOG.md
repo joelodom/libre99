@@ -4,6 +4,32 @@ All notable changes to Libre99. The version number is the workspace
 `version` in the root `Cargo.toml` — one number shared by the emulator, the
 clean-room firmware it embeds, and TI PYTHON's banner.
 
+## Unreleased
+
+- The `Esc`/`F1` **help overlay was redesigned** to the approved four-tab
+  "quiet terminal" design (per `design_handoff_help_redesign`): solid black
+  backdrop, hairline rules and whitespace instead of cards, a single cyan
+  chrome accent (amber/green reserved for the keyboard map's SHIFT/FCTN
+  semantics), larger type throughout, and OS-correct shortcut labels. The
+  Media & State tab folded into Hotkeys as a "loading & saving" note — four
+  tabs (`1`–`4` jump; the footer now also hints `←`/`→`). The embedded fonts
+  now interpret point sizes as em sizes (CSS-like), so design-handoff values
+  render true; the unused Silkscreen Bold face was dropped.
+- **Jaywalk**, a third original demonstration cartridge
+  (`original-content/cartridges/jaywalk/`): an endless-hopper arcade game —
+  a fledgling blue jay crossing procedurally generated roads, rivers, and
+  rail lines — built, like Titris and Sokoban, entirely with the project's
+  own assembler and gameplay-tested end to end on the emulated console.
+  Where the first two cartridges are character-graphics puzzles, Jaywalk
+  works the arcade hardware: up to 24 simultaneous 16×16 sprites at
+  independent sub-pixel speeds (early-clock edge slide-ins, priority-aware
+  four-per-line budgeting), color-table and pattern-table animation (the
+  flashing level-crossing signal, the shimmering river), and a table-driven
+  driver for all four SN76489 voices. Its regression suite
+  (`crates/libre99-asm/tests/jaywalk.rs`) plays the game headlessly —
+  movement, scoring, scrolling, every hazard and death, the hawk, sounds on
+  the real PSG, and a 5,000-frame random-input soak.
+
 ## 0.1.0 — 2026-07-07 — the first public release (early testing)
 
 The first source-available drop of **Libre99**: a from-scratch TI-99/4A

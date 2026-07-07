@@ -75,6 +75,7 @@ const CLEAN_GROM: &[u8] =
 /// Bundled cartridges shown in the gallery.
 const TITRIS: &[u8] = include_bytes!("../../../original-content/cartridges/titris/titris.ctg");
 const SOKOBAN: &[u8] = include_bytes!("../../../original-content/cartridges/sokoban/sokoban.ctg");
+const JAYWALK: &[u8] = include_bytes!("../../../original-content/cartridges/jaywalk/jaywalk.ctg");
 
 // ---------------------------------------------------------------------------
 // PNG writing: 4-bit indexed color over the fixed TMS9918A palette, stored
@@ -321,7 +322,19 @@ fn main() {
     frames(&mut m, 30);
     shot(&mut m, "sokoban");
 
-    // 5. TI PYTHON: launch from the menu and evaluate a tiny session.
+    // 5. Jaywalk (the third original cartridge): start a run and hop north a
+    //    few times so the camera has scrolled fresh lanes into view.
+    let mut m = boot(Some(JAYWALK));
+    to_menu(&mut m);
+    tap(&mut m, TiKey::Num2, 150); // "2 FOR JAYWALK"
+    tap(&mut m, TiKey::Space, 30); // leave the Jaywalk title: start a run
+    for _ in 0..2 {
+        tap(&mut m, TiKey::Joy1Up, 12); // hop north onto the meadow's edge
+    }
+    frames(&mut m, 30);
+    shot(&mut m, "jaywalk");
+
+    // 6. TI PYTHON: launch from the menu and evaluate a tiny session.
     let mut m = boot(Some(TITRIS));
     to_menu(&mut m);
     tap(&mut m, TiKey::Num1, 60); // "1 FOR TI PYTHON"
@@ -330,7 +343,7 @@ fn main() {
     type_line(&mut m, "X * 6");
     shot(&mut m, "ti-python");
 
-    // 6. The system-information screen ((S) on the menu), stamped like the app.
+    // 7. The system-information screen ((S) on the menu), stamped like the app.
     let mut m = boot(Some(TITRIS));
     to_menu(&mut m);
     tap(&mut m, TiKey::S, 90);
