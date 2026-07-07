@@ -14,20 +14,22 @@ running on our own emulated chips.
 
 **Current state: both halves of the rewrite are complete, and the emulator
 boots them by default (since 2026-07-06).** The **console GROM** (all
-milestones M0–M7) boots to an original title screen, **lists all 137** bundled
-cartridges from an original selection menu and **launches all but one** of
-them, ships **TI PYTHON** (an original integer REPL) in TI BASIC's menu slot
-plus a **system-information screen**, and the VBLANK ISR is armed so sound,
-sprite motion, and QUIT work. The **console ROM** — the 8 KiB TMS9900 OS (GPL
-interpreter, ISR, KSCAN, device linkage, FMT, cassette modem layer, and the
-radix-100 floating-point package) — is likewise complete and differentially
-verified (M1–M5, M7, M8; **M6, TI BASIC, is deferred indefinitely by
-policy**), so by default no TI console bytes execute at all. Two scoped
-exceptions: **Video Vegas** launches to a dead console under the rewrite GROM
-(a documented, gated gap — [`LIMITATIONS.md`](./LIMITATIONS.md) **L8**), and
-**TI/Extended BASIC need the authentic firmware** while M6 stays deferred
-([`LIMITATIONS.md`](./LIMITATIONS.md) **L9**). The authentic TI images stay
-bundled and are selected via `--system-rom` / `--system-grom`.
+milestones M0–M7) boots to an original title screen, **lists and launches all
+137** cartridges of the differential test corpus from an original selection
+menu — **zero waivers** since 2026-07-07 — ships **TI PYTHON** (an original
+Python-like mini-language, v1 — [spec](../../docs/TI-PYTHON.md)) in TI BASIC's
+menu slot plus a **system-information screen**, and the VBLANK ISR is armed so
+sound, sprite motion, and QUIT work. The **console ROM** — the 8 KiB TMS9900
+OS (GPL interpreter, ISR, KSCAN, device linkage, FMT, cassette modem layer,
+and the radix-100 floating-point package) — is likewise complete and
+differentially verified (M1–M5, M7, M8; **M6, TI BASIC, is deferred
+indefinitely by policy**), and since 2026-07-07 its **XB substrate** (five
+census-pinned helpers, [`XB-CENSUS.md`](./XB-CENSUS.md)) runs a user-supplied
+**Extended BASIC** cartridge end-to-end on the clean-room pair
+([`LIMITATIONS.md`](./LIMITATIONS.md) **L9**, resolved for XB). By default no
+TI console bytes execute at all; **TI BASIC itself** is the one thing that
+still needs the authentic firmware, selected via `--system-rom` /
+`--system-grom` (user-supplied files — nothing TI ships in this repository).
 See [`STATUS.md`](./STATUS.md) and [`rom/README.md`](./rom/README.md).
 
 ---
@@ -54,7 +56,7 @@ is the ticket; the docs are the method.
 | [`rom/RECON.md`](./rom/RECON.md) | the ROM-side interface dossier (dispatch tables, ISR, FMT, XML, FP, execution-pinned semantics) | writing or reviewing console-ROM code |
 | [`rom/KSCAN-SPEC.md`](./rom/KSCAN-SPEC.md) | the deep keyboard-scanner subsystem spec | KSCAN/keyboard work |
 | [`rom/SURFACE-MAP.md`](./rom/SURFACE-MAP.md) | the authentic-ROM byte classification + the frozen-address table (the layout gate's input) | layout questions; "can this move?" |
-| [`disk-dsr/DSR-REWRITE-PLAN.md`](./disk-dsr/DSR-REWRITE-PLAN.md) | **Phase 3 (planned)** — the clean-room Disk Controller DSR rewrite: plan + seed dossier; live status in [`disk-dsr/PROGRESS.md`](./disk-dsr/PROGRESS.md) | anything touching the disk-DSR track |
+| [`disk-dsr/README.md`](./disk-dsr/README.md) | **Phase 3 (complete 2026-07-06)** — the clean-room Disk Controller DSR, the emulator's default; execution ledger in [`disk-dsr/PROGRESS.md`](./disk-dsr/PROGRESS.md), deep-tier follow-ups in [`disk-dsr/DSR-ASSURANCE-PLAN.md`](./disk-dsr/DSR-ASSURANCE-PLAN.md) | anything touching the disk-DSR track |
 | [`history/`](./history/) | the archived plans, reviews, quality assessments, and execution ledgers that got us here | curiosity about *why* decisions were made; not for current facts |
 
 The GROM source is [`grom/console.gpl`](./grom/console.gpl) (its comment blocks
@@ -66,8 +68,9 @@ artifact [`grom/console-grom.bin`](./grom/console-grom.bin).
 
 ## The two system ROMs, and what they do
 
-A bare TI-99/4A needs exactly two firmware images to boot (see the repo
-[`README`](../../README.md) and `roms/`):
+A bare TI-99/4A needs exactly two firmware images to boot (the authentic TI
+images are not part of this repository — on development machines they live in
+the git-ignored `third-party/roms/`):
 
 | Image | Size | What it is | Contents |
 |---|---|---|---|
@@ -122,10 +125,11 @@ the interface-data policy note in [`grom/README.md`](./grom/README.md)).
   point `>0020`, the VDP/scratchpad setup conventions, arming the VBLANK ISR).
 - The **master selection list** — scanning every GROM/cartridge header, listing
   each program, reading the keyboard, and dispatching the chosen entry.
-- **Cartridge compatibility** — the bundled cartridges still appear on the menu
-  and launch (**137/137** list-and-launch; the one post-launch health
-  exception is Video Vegas, `LIMITATIONS.md` L8). This is a tested regression
-  gate, not an aspiration.
+- **Cartridge compatibility** — the 137-cartridge differential corpus (loaded
+  at run time from the git-ignored `third-party/`) still appears on the menu
+  and launches healthy, **137/137 with zero waivers** (the former Video Vegas
+  exception cleared 2026-07-07 — `LIMITATIONS.md` L8). This is a tested
+  regression gate, not an aspiration.
 
 > This is a **clean reimplementation for interoperability**, not a copy. We
 > wrote all-new GPL and all-new creative on-screen content (the Texas + 99
@@ -158,9 +162,12 @@ original-content/system-roms/
 │  ├─ KSCAN-SPEC.md          the keyboard-scanner subsystem spec
 │  └─ SURFACE-MAP.md         byte classification + the frozen-address table
 └─ disk-dsr/
-   ├─ DSR-REWRITE-PLAN.md    Phase 3 (planned): the disk-controller DSR rewrite
-   ├─ PROGRESS.md            execution ledger + resume point
-   └─ README.md              the DSR track's front door
+   ├─ disk-dsr.asm           the rewritten disk-controller DSR source (TMS9900)
+   ├─ disk-dsr.bin           the built 8 KiB image (committed artifact)
+   ├─ README.md              the DSR track's front door
+   ├─ RECON.md / SURFACE-MAP.md  the DSR-side interface dossier artifacts
+   ├─ PROGRESS.md            execution ledger (complete 2026-07-06)
+   └─ DSR-ASSURANCE-PLAN.md  deep-tier follow-ups (future work; plan archived in history/)
 ```
 
 The GPL toolchain is the [`libre99-gpl`](../../crates/libre99-gpl) crate (assembler,
@@ -176,9 +183,12 @@ licensed with the rest of the project under the Modified MIT License with
 Commons Clause ([LICENSE.md](../../LICENSE.md)). By default the emulator
 executes no TI bytes at all — console **or disk**: the **Phase 3 clean-room
 Disk Controller DSR** ([`disk-dsr/`](./disk-dsr/README.md), complete
-2026-07-06) installs by default, with the genuine `Disk.Bin` selectable via
-`--disk-dsr`. The authentic images remain bundled for comparison,
-differential testing, and BASIC (`--system-rom` / `--system-grom`).
+2026-07-06) installs by default, with a user-supplied genuine `Disk.Bin`
+selectable via `--disk-dsr`. **No authentic TI image is part of this
+repository**: for comparison, differential testing, and TI BASIC they are
+supplied by the user (`--system-rom` / `--system-grom`) — on development
+machines the test suites load them at run time from the git-ignored
+`third-party/`, skipping green when absent.
 Hardware/firmware *behavior* is cross-checked against Classic99
 (checked out on both workstations — `C:\ClaudeShared\classic99` on the PC,
 `/Users/Shared/classic99` on the Mac; consult, never copy) and the emulator's

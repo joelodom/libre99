@@ -69,12 +69,12 @@ point of it — it is real 1981-class firmware, written today, in the open.
 
 ### 2.1 Starting and leaving
 
-Boot the emulator with no cartridge (`cargo run -p libre99-app --
---no-cartridge`), press any key at the title, then **1** for TI PYTHON. You
-get the banner and a prompt:
+Boot the emulator with no cartridge (plain `cargo run -p libre99-app` — the
+console boots bare), press any key at the title, then **1** for TI PYTHON. You
+get the banner and a prompt (the version row tracks the workspace version):
 
 ```
-TI PYTHON 0.0.1
+TI PYTHON 0.1.0
 A SUPER SIMPLE PYTHON-LIKE
 INTERPRETER FOR THE TI-99/4A
 EXIT() QUITS. 16-BIT INTEGERS.
@@ -693,7 +693,7 @@ slot then advertises the real thing (BASIC) once it exists.
 | Phase | Work | Size | Gate / deliverable |
 |---|---|---|---|
 | **F0 — XB console-call census** | Run authentic XB under the **authentic** GROM in the existing harness with scripted sessions (`PRINT`, variables, strings, `FOR`, `GOSUB`, `DIM`, disk I/O); record every console-GROM fetch (`>2000–57FF`), `>0010–005F` entry, ROM XML dispatch, and scratchpad/VRAM cell the hand-off touches — the GROM read-coverage instrument already does the hard part. Cross-check with the L8 static `06 00 XX` call-scan (screen, not proof). | **S** (days) | `XB-CENSUS.md` (RECON-style): the exact surface, GROM 1 vs GROM 2 vs ROM split — turns ~11.5 KiB of unknown into an enumerated contract |
-| **F1 — first GROM-2 brick** | The Video Vegas routine (L8: slots `>002C`/`>0032`), exactly as LIMITATIONS scopes it. | **S** | Video Vegas launches; the L8 waiver is deleted; proves the brick pattern |
+| **F1 — first GROM-2 brick** | The Video Vegas routine (L8: slots `>002C`/`>0032`), exactly as LIMITATIONS scopes it. | **S** | The routine itself lands (its launch waiver already cleared 2026-07-07 — the substrate fixed the wedge, §6.7); proves the brick pattern |
 | **F2 — numeric services** | Radix-100 number↔string conversions + FP-adjacent GROM services at authentic entries, driven by F0's list; remap TI PYTHON's evaluator off FAC/ARG; TI PYTHON v3-floats rides on the result. | **M** (weeks) | differential microtests vs authentic per routine; TI PYTHON floats as the living demo |
 | **F3 — string + symbol services** | VRAM string space/GC + symbol services; the ROM `>15D6–18C7` XMLs — **requires deliberately re-opening ROM M6** (write the justification the tripwire demands). | **L** | differential gates; TI PYTHON strings-as-values |
 | **F4 — crunch/list/execute core** | The GROM-1 interpreter core per the census (XB's own GROMs supply the XB extensions). Resolve §6.4 first. | **XL** — the largest single piece of the whole rewrite | staged: tokenize-only → `PRINT`-only → statement classes |
@@ -731,7 +731,9 @@ from the cartridge ROM — no console-GROM BASIC library is touched at all
 (§6.1's GROM 1/2 rows were the L9 theory, not the measured reality), and the
 one stubbed interconnect slot XB calls (`>0032`) is tolerated. F1's Video
 Vegas routine therefore remains open but is **no longer on XB's critical
-path**. The helpers are implemented at their pinned authentic homes (the *XB
+path** — and the substrate's helpers cleared the Video Vegas *wedge* itself,
+so the differential health panel now passes **137/137 with an empty waiver
+list** (a gameplay eyeball remains the final confirmation). The helpers are implemented at their pinned authentic homes (the *XB
 substrate*, `original-content/system-roms/rom/console.asm`; census, interface
 dossier and the M6-policy justification:
 `original-content/system-roms/XB-CENSUS.md`), and **Extended BASIC runs

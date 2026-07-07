@@ -101,7 +101,7 @@ its tests run against.)
 | Module | Responsibility |
 |---|---|
 | `main` | Parses the CLI, loads config, initializes logging, stamps the system-info block, mounts media, optionally resumes the saved session, runs the window loop. |
-| `cli` | Hand-rolled parser: `--cartridge`/`--disk`/`--system-rom`/`--system-grom`/`--disk-dsr`/`--scale`/`--fullscreen`/`--log-level`/`--help` (media flags take file paths; nothing is embedded). |
+| `cli` | Hand-rolled parser: `--cartridge`/`--disk`/`--system-rom`/`--system-grom`/`--disk-dsr`/`--scale`/`--fullscreen`/`--log-level`/`--version`/`--help` (media flags take file paths; nothing is embedded). |
 | `config` | The preferences TOML (resilient parse, clean rewrite); owns the data-dir/log/resume-state/screenshot paths and the atomic file write (`write_atomic`) every state/preferences save goes through. |
 | `assets` | The **clean-room firmware** embedded in the binary (console ROM/GROM + disk DSR) — and nothing else. |
 | `media` | Runtime media loading: the OS-native dialogs (`rfd`) — file chooser, disk-export and snapshot save/open, unload/snapshot/fresh-start warnings — `.ctg`/`.dsk` type detection, size guard, media identity keys (canonical paths), read-and-validate shared by the CLI and `F9`. |
@@ -114,7 +114,7 @@ its tests run against.)
 | `input` | Host key events → TI matrix, in character or positional (`KeyLayout`) mapping; platform command-modifier policy. |
 | `text` | A tiny bitmap-font `Canvas` (text/rects/dim) painting every overlay — no GUI toolkit. |
 | `font` | Rasterizes the embedded Silkscreen / IBM Plex Mono faces for the native-resolution help overlay. |
-| `help` | The five-tab `F1` help overlay, including the pictured TI keyboard. |
+| `help` | The five-tab `Esc`/`F1` help overlay, including the pictured TI keyboard. |
 | `speed` | Pause / frame-advance / fast-forward state. |
 | `screenshot` | The built-in PNG encoder for `Cmd/Ctrl`+`S`. |
 | `debug` | The live CPU-inspector overlay. |

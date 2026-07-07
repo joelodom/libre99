@@ -7,15 +7,16 @@ add an opt-in frontend preference (default off) instead.
 
 ---
 
-## FORMAT under the *authentic* disk DSR (`--disk-dsr roms/Disk.Bin`) cannot lay sectors (emulator limitation)
+## FORMAT under the *authentic* disk DSR (`--disk-dsr <path-to-Disk.Bin>`) cannot lay sectors (emulator limitation)
 
 The genuine TI DSR formats a disk with the FD1771 **Write Track** command,
 which the emulated controller does not implement
 (`crates/libre99-core/src/disk.rs` — `>E0`/`>F0` are no-ops), so formatting under
 the authentic DSR silently does nothing. The **default clean-room DSR is not
 affected**: its FORMAT re-initializes the mounted image via Write Sector (the
-documented substitution, `original-content/system-roms/disk-dsr/`
-DSR-REWRITE-PLAN §0), and the result is validated by the authentic DSR reading
+documented substitution,
+`original-content/system-roms/history/DSR-REWRITE-PLAN.md` §0), and the
+result is validated by the authentic DSR reading
 and writing the formatted disk (`dsr_format_cross_oracle`). If Write Track is
 ever added to the controller, the authentic path starts working too.
 
@@ -52,7 +53,7 @@ records the method and the remaining deferred surface.
 **For TI BASIC, boot the authentic ROMs** (user-supplied):
 
 ```bash
-cargo run --release -p libre99-app -- --system-rom roms/994aROM.Bin --system-grom roms/994AGROM.Bin
+cargo run --release -p libre99-app -- --system-rom third-party/roms/994aROM.Bin --system-grom third-party/roms/994AGROM.Bin
 ```
 
 ---

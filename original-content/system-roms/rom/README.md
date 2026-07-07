@@ -14,9 +14,10 @@ and the radix-100 floating-point package.
   (`libre99-asm/tests/committed_bin.rs`) fails the suite if the committed bytes
   lag the source.
 - **Run it:** it is the emulator's **default console ROM** — plain
-  `cargo run -p libre99-app` boots it (paired with the Libre99 GROM). To boot the
-  authentic TI image instead: `--system-rom roms/994aROM.Bin`. The flags also
-  accept explicit paths to these artifacts, for pinning a specific build.
+  `cargo run -p libre99-app` boots it (paired with the Libre99 GROM). To boot a
+  user-supplied authentic TI image instead: `--system-rom
+  third-party/roms/994aROM.Bin`. The flags also accept explicit paths to these
+  artifacts, for pinning a specific build.
 
 ## Provenance and method
 
@@ -56,9 +57,10 @@ increment-by-increment execution ledger is
 | M8 | Packaging: this README, the committed artifact, docs sync | ✅ complete |
 
 **The embed decision (plan §9) was made 2026-07-06: this ROM, with the
-Libre99 GROM, boots by default.** The authentic TI images stay bundled and are
-selected via `--system-rom` / `--system-grom` — still required for TI/Extended
-BASIC while M6 stays deferred
+Libre99 GROM, boots by default.** User-supplied authentic TI images are
+selected via `--system-rom` / `--system-grom` (nothing TI ships in this
+repository) — still required for **TI BASIC proper** while M6 stays deferred;
+Extended BASIC no longer needs them thanks to the XB substrate
 ([`../LIMITATIONS.md`](../LIMITATIONS.md) L9).
 
 What runs under this ROM today: the full boot to a pixel-identical title and

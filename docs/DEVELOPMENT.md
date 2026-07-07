@@ -113,7 +113,7 @@ alters behavior, status, or structure, update the affected documentation in
 the same commit**:
 
 - User-visible behavior (flags, hotkeys, config keys, file locations) →
-  [USER-GUIDE.md](USER-GUIDE.md) (and the in-app `F1` help, `libre99-app/src/help.rs`).
+  [USER-GUIDE.md](USER-GUIDE.md) (and the in-app `Esc`/`F1` help, `libre99-app/src/help.rs`).
 - Module/crate structure, run-time flow → [ARCHITECTURE.md](ARCHITECTURE.md).
 - Milestone-sized progress or retirement → [STATUS.md](STATUS.md); feature
   intent → [ROADMAP.md](ROADMAP.md) (its "implemented" table is updated in the
@@ -174,7 +174,9 @@ Before this repository (or any binary) is made public:
    fresh fork ([ROADMAP](ROADMAP.md) Phase 2): it was born from a snapshot of
    the (discontinued, never-published) predecessor's IP-free tree, so no
    commit here has ever contained a proprietary byte.
-4. Re-check CI on this repo once pushed: green with zero proprietary bytes.
+4. ✅ **Confirmed 2026-07-07** — the public CI (tests + clippy, Windows +
+   macOS) runs green on fresh checkouts with zero proprietary bytes.
+   Standing: re-confirm on the release push before tagging.
 
 ## Working conventions
 

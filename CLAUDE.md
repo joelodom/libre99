@@ -20,7 +20,7 @@ start at [original-content/system-roms/README.md](original-content/system-roms/R
 
 **Documentation is part of every change — keep it fresh.** When a change
 alters behavior, status, or structure, update the affected docs (and the
-in-app `F1` help for user-visible behavior) **in the same commit**; when a
+in-app `Esc`/`F1` help for user-visible behavior) **in the same commit**; when a
 plan finishes, archive it to the matching `history/` directory with a banner
 naming its successor instead of leaving it to rot. The full policy, including
 which doc owns what and how to regenerate the README screenshots, is in

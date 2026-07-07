@@ -1,5 +1,14 @@
 # Disk Controller DSR Rewrite — exhaustive plan (Phase 3 of the system-ROM project)
 
+> **ARCHIVED (2026-07-07).** This plan was **executed to completion** (M1–M6,
+> 2026-07-06): the clean-room disk DSR is the emulator's default. Successors:
+> the track's front door is
+> [`../disk-dsr/README.md`](../disk-dsr/README.md), the execution ledger is
+> [`../disk-dsr/PROGRESS.md`](../disk-dsr/PROGRESS.md), and the deep-assurance
+> follow-ups live in
+> [`../disk-dsr/DSR-ASSURANCE-PLAN.md`](../disk-dsr/DSR-ASSURANCE-PLAN.md).
+> Kept for provenance — paths and statuses below reflect 2026-07-06.
+
 A from-scratch, original-content reimplementation of the **TI Disk Controller's
 DSR ROM** (`roms/Disk.Bin`, 8 KiB of TMS9900 machine code at CPU `>4000–5FFF`)
 — the `>AA` peripheral header, the power-up VRAM reservation, the PAB file

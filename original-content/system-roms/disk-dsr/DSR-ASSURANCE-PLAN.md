@@ -2,16 +2,18 @@
 
 Closes the gap between what the DSR rewrite **shipped** (M1–M6, 24
 differential gates, clean-room DSR as the app default — commits `2941e64`,
-`3d2af2e`) and what [`DSR-REWRITE-PLAN.md`](./DSR-REWRITE-PLAN.md) §0 defined
-as *done*, plus source-hygiene and doc-sync defects found in the 2026-07-06
-production-readiness review. **Future work, explicitly NOT required for 0.1.0**
-(Joel, 2026-07-06) — tracked in `docs/ROADMAP.md` §8 as **[later]**.
+`3d2af2e`) and what [`../history/DSR-REWRITE-PLAN.md`](../history/DSR-REWRITE-PLAN.md)
+§0 defined as *done*, plus source-hygiene and doc-sync defects found in the
+2026-07-06 production-readiness review. **Future work, explicitly NOT required
+for 0.1.0** (Joel, 2026-07-06) — tracked in `docs/ROADMAP.md` §8 as **[later]**.
 
-*Written 2026-07-06 from the post-M6 review. Status: **NOT STARTED.***
+*Written 2026-07-06 from the post-M6 review. Status: **NOT STARTED** — except
+A0's plan-archival step, done in the 2026-07-07 release docs sweep (the parent
+plan now lives in `../history/` with its banner).*
 
 **Read order for an executing session:** `../README.md` → `../STATUS.md` →
-[`DSR-REWRITE-PLAN.md`](./DSR-REWRITE-PLAN.md) (the parent plan; A0 archives it
-to `../history/`) → [`PROGRESS.md`](./PROGRESS.md) → [`RECON.md`](./RECON.md)
+[`../history/DSR-REWRITE-PLAN.md`](../history/DSR-REWRITE-PLAN.md) (the parent
+plan, archived) → [`PROGRESS.md`](./PROGRESS.md) → [`RECON.md`](./RECON.md)
 → this plan → your chunk (§5).
 
 ---
@@ -167,11 +169,11 @@ Findings of the 2026-07-06 review, verified against the tree at `e98807a`:
      mirroring `crates/libre99-app/src/cli.rs`'s help text.
    - `docs/DEVELOPMENT.md` §Pre-public-release item 3 — the disk-DSR
      dependency is **closed**; `roms/Disk.Bin` is comparison-only.
-4. **Archive the parent plan.** Move `DSR-REWRITE-PLAN.md` →
+4. **Archive the parent plan.** ✅ **Done 2026-07-07** (pulled forward in the
+   release docs sweep): `DSR-REWRITE-PLAN.md` moved to
    `../history/DSR-REWRITE-PLAN.md` with the house banner naming
-   `PROGRESS.md` + `README.md` (and this plan) as successors; fix every
-   inbound link (`grep -rn 'DSR-REWRITE-PLAN' --include='*.md' .` from the
-   repo root — PROGRESS.md, README.md, RECON.md, `../STATUS.md`, this file).
+   `PROGRESS.md` + `README.md` (and this plan) as successors; the inbound
+   markdown links were fixed the same day.
 
 **Gate A0:** greps clean · staleness gate green with an unchanged binary ·
 `cargo test --workspace` + clippy green · no dead links among the touched docs.
@@ -396,7 +398,7 @@ last. Estimated effort at the established track pace: A4 is the fat chunk
 
 | Topic | Location |
 |---|---|
-| The parent plan (scope ★, decisions, milestone gates this plan completes) | [`DSR-REWRITE-PLAN.md`](./DSR-REWRITE-PLAN.md) → `../history/` after A0 |
+| The parent plan (scope ★, decisions, milestone gates this plan completes) | [`../history/DSR-REWRITE-PLAN.md`](../history/DSR-REWRITE-PLAN.md) (archived 2026-07-07) |
 | Execution ledger + the review's follow-up list | [`PROGRESS.md`](./PROGRESS.md) |
 | The pinned interface facts (extend on every fuzz finding) | [`RECON.md`](./RECON.md) |
 | The PAB rig + disk builder + `third_party::load` idiom | `crates/libre99-gpl/tests/dsr_common/mod.rs` |

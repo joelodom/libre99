@@ -83,12 +83,13 @@ Which authentic addresses carry interface data we reproduce byte-identically
 # Rebuild console-grom.bin from console.gpl + the font (run from the repo root):
 cargo run -p libre99-gpl --bin libre99gpl -- console original-content/system-roms/grom/console-grom.bin
 
-# Boot the rewrite in the desktop emulator. With no cartridge you land on the
-# title; press a key for the menu, then 1 for TI PYTHON:
-cargo run -p libre99-app -- --system-grom original-content/system-roms/grom/console-grom.bin --no-cartridge
+# Boot the rewrite in the desktop emulator (it is the default GROM; the flag
+# pins this artifact specifically). With no cartridge you land on the title;
+# press a key for the menu, then 1 for TI PYTHON:
+cargo run -p libre99-app -- --system-grom original-content/system-roms/grom/console-grom.bin
 
-# Or mount a cartridge and launch it from our menu:
-cargo run -p libre99-app -- --system-grom original-content/system-roms/grom/console-grom.bin --cartridge cartridges/Parsec.ctg
+# Or mount a cartridge (a user-supplied .ctg) and launch it from our menu:
+cargo run -p libre99-app -- --system-grom original-content/system-roms/grom/console-grom.bin --cartridge third-party/cartridges/Parsec.ctg
 ```
 
 Re-run the `console` command and re-commit `console-grom.bin` whenever
@@ -119,9 +120,9 @@ bundle: `sweep_all_cartridges` (all 137 list exactly) and `coverage_sweep` — a
 **differential health panel** that launches every cart under both our GROM and the
 authentic one and asserts ours is never *less alive* after launch (display on +
 ISR ticking), not merely that it did not reboot. It regenerates
-`COVERAGE-REPORT.md` (which console-GROM surface each cart exercises) and holds one
-named waiver, **Video Vegas** (`LIMITATIONS.md` L8). Keep the fast tier green
-pre-commit;
+`COVERAGE-REPORT.md` (which console-GROM surface each cart exercises) and passes
+**137/137 with an empty waiver list** (the former Video Vegas waiver cleared
+2026-07-07 — `LIMITATIONS.md` L8). Keep the fast tier green pre-commit;
 run the deep tier before a release or after touching shared boot/menu/service code.
 
 ## Address map (GROM)
@@ -212,9 +213,11 @@ NAME ERROR: BOGUS
 ## What works today
 
 Everything in [`../STATUS.md`](../STATUS.md): title, menu (137/137 carts list
-and launch — L2 resolved; the one post-launch exception is LIMITATIONS L8, Video
-Vegas), TI PYTHON v1, **Extended BASIC end-to-end** (with the console ROM's XB
+and launch with **zero waivers** — L2 resolved, and the former Video Vegas
+post-launch exception cleared 2026-07-07, LIMITATIONS L8), TI PYTHON v1,
+**Extended BASIC end-to-end** (with the console ROM's XB
 substrate — [`../XB-CENSUS.md`](../XB-CENSUS.md)), and the ISR-driven
 behaviours (sound, sprite motion, QUIT) since the boot arms the 9901 VDP
 interrupt. The rewrite is the emulator's default boot since 2026-07-06; pass
-`--system-grom roms/994AGROM.Bin` to boot the authentic GROM instead.
+`--system-grom third-party/roms/994AGROM.Bin` (a user-supplied image) to boot
+the authentic GROM instead.

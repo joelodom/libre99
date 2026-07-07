@@ -1,6 +1,6 @@
 # Disk DSR rewrite — execution progress & resume notes
 
-Living status of [`DSR-REWRITE-PLAN.md`](./DSR-REWRITE-PLAN.md) execution, so
+Living status of [`../history/DSR-REWRITE-PLAN.md`](../history/DSR-REWRITE-PLAN.md) execution (archived 2026-07-07, complete), so
 a fresh session resumes without re-deriving state. Sibling of the ROM track's
 (now archived) execution ledger. **Read order:** `../README.md` →
 `../STATUS.md` → the plan → this file → `RECON.md` (once it exists) → the

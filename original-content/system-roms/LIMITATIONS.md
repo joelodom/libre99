@@ -19,17 +19,25 @@ launches GPL and ML cartridges (see `STATUS.md`, gates in
 Numbering is stable — resolved items are kept below (not renumbered) so external
 references stay valid.
 
-> **Open set (2026-07-04):** the L1–L7 ledger is Resolved / deferred-by-decision
-> (below), but the ship-review gate-strengthening pass added one genuinely **open**
-> entry — **L8** (Video Vegas launches to a dead console: an unshipped GROM-2
-> library routine a *bundled* cart hard-depends on). It was found by the new
-> *differential* coverage health panel, which the old reboot-only gate could not
-> see. It is gated (waived by name so no *second* such cart can slip in) with a
-> scoped path forward. **L9** (2026-07-06) records the largest by-design gap:
-> **TI BASIC / Extended BASIC programs don't execute** under the rewrite (GROM 2's
-> shared GPL library is unimplemented and we ship TI PYTHON in BASIC's slot) — and
-> the rewrite is now the default, so BASIC needs the authentic ROMs, selected via
-> `--system-rom` / `--system-grom`.
+> **Terminology.** Entries throughout this tree say "the bundled carts" — that
+> is the **137-image differential test corpus**. Since the 2026-07-06 IP purge
+> those images are *not* in the repository: they live in the git-ignored
+> `third-party/` on development machines and load at run time (tests skip
+> green when absent).
+
+> **Open set (updated 2026-07-07):** the L1–L7 ledger is Resolved /
+> deferred-by-decision (below), and the two entries the ship-review era added
+> have both moved: **L8**'s launch symptom (Video Vegas to a dead console) is
+> **resolved** — the XB substrate's ROM helpers cleared the wedge and the
+> differential health panel passes **137/137 with an empty waiver list** (the
+> GROM-2 library routine itself remains a stub with no known dependent; a
+> gameplay eyeball is the final confirmation). **L9**'s Extended BASIC half is
+> **resolved** — a user-supplied XB cartridge runs end-to-end on the clean-room
+> pair via the census-bounded XB substrate ([`XB-CENSUS.md`](./XB-CENSUS.md)).
+> What remains by design: **TI BASIC proper** doesn't execute under the rewrite
+> (we ship TI PYTHON in BASIC's slot; the console GPL library and the ROM's
+> PARSE/EXEC half stay deferred by policy), so TI BASIC needs user-supplied
+> authentic ROMs, selected via `--system-rom` / `--system-grom`.
 
 > **Ledger-closure complete** (the archived
 > [`history/QUALITY-ASSESSMENT.md`](./history/QUALITY-ASSESSMENT.md) §7 plan —

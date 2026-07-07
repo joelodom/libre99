@@ -55,7 +55,7 @@ their own and this license and copyright notice travel with them.
 
 ## Sokoban puzzle levels — Microban
 
-The bundled **Sokoban** demonstration cartridge uses puzzle levels from the
+The project's **Sokoban** demonstration cartridge uses puzzle levels from the
 **Microban** set by **David W. Skinner**, a classic, freely-distributable
 collection. The cartridge credits this on its own title screen
 ("LEVELS FROM MICROBAN BY DAVID W SKINNER").

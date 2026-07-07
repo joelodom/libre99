@@ -55,6 +55,11 @@ something, mount a
 [`F9`](#mounting-media-f9-and-ejecting-f2f3) (your system's file chooser) or
 the [command line](#command-line-options).
 
+On a **first run** (no resume state yet — also right after a `Shift`+`F5`
+fresh start) a **`PRESS ESC FOR HELP`** banner sits at the bottom of the
+screen; it goes away for good the first time you open the help overlay or
+save a state.
+
 A double-clickable macOS `.app` bundle is planned
 ([roadmap](ROADMAP.md)); `cargo run` is the supported launcher today.
 
@@ -73,7 +78,8 @@ preferences file** for that run.
 | `--scale <n>` | Integer window scale, `1`–`8` (overrides the preferences file). |
 | `--fullscreen` | Start fullscreen. |
 | `--log-level <level>` | `error` / `warn` / `info` / `debug` / `trace` (overrides the preferences file). |
-| `--help` | Print usage and exit. |
+| `--version` (`-V`) | Print the version and exit. |
+| `--help` (`-h`) | Print usage and exit. |
 
 > Media flags take **file paths**. A path that doesn't exist or isn't usable
 > media is a clear error at launch, before the window opens. `DSK2`/`DSK3`
@@ -128,8 +134,8 @@ Nothing is embedded; the console boots bare until you mount media, two ways:
 ## The keyboard
 
 The TI-99/4A reaches its symbols and edit functions through `SHIFT` and `FCTN`
-(function) combinations that a modern keyboard doesn't print. Press **`F1`**
-(or `Esc`) any time for the help overlay — its **Keyboard** tab pictures the
+(function) combinations that a modern keyboard doesn't print. Press **`Esc`**
+(or `F1`) any time for the help overlay — its **Keyboard** tab pictures the
 TI-99/4A with every `SHIFT`/`FCTN` legend in place.
 
 The TI's three modifiers always map to the same host keys, in both modes:
@@ -192,11 +198,12 @@ Joystick 1 maps to the arrow keys plus Right Alt, in both keyboard modes:
 ## Emulator hotkeys
 
 These drive the emulator itself (not the TI). They are ignored while the help
-overlay or media browser is open, except the keys that close those overlays.
+overlay or the `F4` disk-memory overlay is open, except the keys that close
+those overlays.
 
 | Key | Action |
 |---|---|
-| `F1` or `Esc` | **Help overlay** — five tabs (Start, Keyboard, Hotkeys, Media & State, Settings); switch with `1`–`5`, `Tab`, `←`/`→`. |
+| `Esc` or `F1` | **Help overlay** — five tabs (Start, Keyboard, Hotkeys, Media & State, Settings); switch with `1`–`5`, `Tab`, `←`/`→`. |
 | `F2` | **Eject** the cartridge (reboots — back to the bare console). |
 | `F3` | **Eject DSK1** (live — no reboot; the image stays in memory, see `F4`). |
 | `F4` | **Disk memory** overlay — list the in-memory disk images, **export** one to a `.dsk` file, or **unload** one from memory. |
@@ -415,8 +422,9 @@ carries over too: its pre-2026-07-07 `savestate.ti99` name is renamed once to
 
 ## Known limitations
 
-- **TI BASIC / Extended BASIC don't execute under the default clean-room
-  firmware** — boot user-supplied authentic ROMs for BASIC
+- **TI BASIC itself doesn't execute under the default clean-room firmware**
+  (TI PYTHON stands in its menu slot; **Extended BASIC cartridges do run**,
+  via the XB substrate) — boot user-supplied authentic ROMs for TI BASIC
   ([above](#console-firmware-clean-room-default-vs-authentic-ti)).
 - **Speech** synthesizer and **RS232** are not emulated.
 - The disk subsystem models the original **single-sided, single-density

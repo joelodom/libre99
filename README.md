@@ -92,7 +92,7 @@ system's file chooser. Useful keys from the start:
 
 | Key | Action |
 |---|---|
-| `F1` / `Esc` | Help overlay — five tabs, including the full TI keyboard reference |
+| `Esc` / `F1` | Help overlay — five tabs, including the full TI keyboard reference (a first run points you here with a `PRESS ESC FOR HELP` banner) |
 | `F9` | Mount media — pick any `.ctg` cartridge or `.dsk` disk image |
 | `F5` | Reset the console |
 | `F10` | Pause / resume |

@@ -34,7 +34,8 @@ table, object-format tags, memory equates) follow.
 > **Grounding.** Every hardware/format claim here is cross-checked against the
 > emulator core (file references are given inline: `cpu.rs`, `machine.rs`,
 > `cartridge.rs`, `vdp.rs`, `cru.rs`, `grom.rs`, `keyboard.rs`) and against the
-> 137 bundled cartridge images. Where the original TI *Editor/Assembler* (E/A)
+> 137-image cartridge test corpus (run-time media from the git-ignored
+> `third-party/`). Where the original TI *Editor/Assembler* (E/A)
 > defines the language, we match it; deviations and extensions are called out
 > explicitly. The authority for *encoding* is `cpu.rs` (what the emulated CPU
 > actually decodes); the authority for the *cartridge container* is
@@ -178,7 +179,7 @@ cartridges. This tool fills that gap on the input side.
 
 Two facts shape the design:
 
-- **Assembly cartridges are ROM cartridges.** Of the 137 bundled images, **33 are
+- **Assembly cartridges are ROM cartridges.** Of the 137 corpus images, **33 are
   pure-ROM** (no GROM). Every one of those 33 carries the byte `>AA` at ROM
   `>6000` — the standard header the console scans (verified by decoding the images
   with a port of `cartridge.rs`'s RLE codec). So the recipe is settled: assemble
@@ -274,7 +275,7 @@ Notes that matter for code generation:
 
 ### 4.3 The standard cartridge header (`>6000`)
 
-Empirically confirmed across all 33 pure-ROM bundled cartridges. The console's
+Empirically confirmed across all 33 pure-ROM corpus cartridges. The console's
 GROM menu code scans CPU `>6000` for `>AA`; if found, it walks the program list
 and lists each entry. Selecting an entry transfers control to its **entry
 address** as 9900 machine code.
