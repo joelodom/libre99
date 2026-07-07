@@ -744,48 +744,80 @@ PYLIST  DATA >0000                  ; next program = none
         TEXT 'TI PYTHON'
 
 * ============================================================================
-* TI PYTHON — a tiny integer-expression REPL (M4). Original content; the name is
-* our own (a nod to the language, not a port). It evaluates 16-bit signed integer
-* expressions with + - * / % and parentheses, remembers single-letter variables
-* (X = expr), and reports SYNTAX / NAME / ZERO DIVISION errors. Division and
-* modulo truncate toward zero; arithmetic wraps mod 65536 (so 32767+1 = -32768).
+* TI PYTHON v1 — a language very loosely based on Python 3 (the spec of
+* record: docs/TI-PYTHON.md). Original content; the name is our own (a nod to
+* the language, not a port). 16-bit signed integers with Python's FLOOR
+* division and modulo; full-size variable names (<= 10 chars, 32 VRAM slots);
+* print(items...) with string literals; '#' comments; exit()/quit(); a
+* four-row banner, a '>>> ' prompt, a blinking block cursor, and a scrolling
+* terminal screen. Errors — SYNTAX / NAME: <name> / ZERO DIVISION /
+* TOO COMPLEX / MEMORY — report and re-prompt, never crash.
 *
-* The evaluator is an iterative two-stack (operand + operator) shunting-yard, so
-* nesting is bounded by the stacks, not the GPL sub-stack. Both stacks and the
-* variable table live in scratchpad and are walked with *@ byte pointers
-* (final address = >8300 + the byte held in the pointer cell).
+* The evaluator is an iterative two-stack (operand + operator) shunting-yard,
+* so nesting is bounded by the stacks, not the GPL sub-stack; unary minus is
+* a real prec-3 right-associative operator (the internal token >6E). The
+* variable table lives in VRAM (>1000-11FF, cleared per entry) — the same
+* VRAM-resident discipline TI BASIC's symbol table uses, and it keeps the
+* scratchpad clear of the FP package's FAC/ARG cells for the day this REPL
+* grows floats (docs/TI-PYTHON.md §6.3).
 *
-* Scratchpad map (all < >8370, clear of the GPL sub-stack >8380+ and ISR >83C0+):
+* Scratchpad map (all < >8370, clear of the GPL sub-stack >8380+ and ISR
+* >83C0+) — THIS COMMENT IS THE AUTHORITY FOR THESE CELLS:
 *   >8300-8307 arithmetic scratch (DMUL/DDIV need dst..dst+3)
-*   >8308      div/mod sign flag         >8309 scratch byte
-*   >830A-830D |a|,|b| for signed divide   >830E assignment name (survives EVAL)
+*   >8308 sign scratch (div/mod)     >8309 general scratch byte
+*   >830A-830D |a|,|b| for signed divide/modulo
+*   >830E sign-of-divisor (SMOD) / staging walker (KWCMP, PE_NAME)
+*   >830F count/walker scratch (KWCMP, VFIND, VSTORE, PR_STR)
 *   >8310 OSP (operand-stack byte ptr)   >8311 PSP (operator-stack byte ptr)
 *   >8312-8313 IP (input VDP pointer)    >8314 CHAR (current char)
-*   >8315 ERR (0 ok / 1 syntax / 2 name / 3 zero-div / 4 too-complex)
-*   >8316-8317 ROW (current VDP row start)   >8318 EXPECT (1 = operand expected)
+*   >8315 ERR (0 ok / 1 syntax / 2 name / 3 zero-div / 4 too-complex / 5 mem)
+*   >8316-8317 ROW (current VDP row start)   >8318 EXPECT (1 = operand next)
+*   >8319 ISOP precedence out / byte-pointer walker (RDNAME, KWCMP, PE_NAME)
 *   >831A-831B INSTART (VDP addr where input text begins)
-*   >831C-831D NUMACC (number/var accumulator)
-*   >831E-831F input cap while READING / PNUM digit scratch while EVALUATING
-*              (the two phases never overlap; the cap is re-set per prompt)
-*   >8320-834F variable table: 16 x {name, val_hi, val_lo}
-*   >8350-835F operand stack (8 words, base offset >50)
-*   >8360-836F operator stack (16 bytes, base offset >60)
+*   >831C-831D NUMACC (number/value accumulator)
+*   >831E-831F input cap while READING / CURPREC + PNUM scratch while
+*              EVALUATING (the phases never overlap; the cap re-arms per line)
+*   >8320-832A NAMEBUF: length byte + up to 10 name characters
+*   >832B keyword id (KWID: 1 print / 2 exit-quit / 0 name)
+*   >832C-832D VRAM-table slot walker    >832E-832F VRAM byte walker
+*   >8330-8331 output bound (the row edge PUTCH enforces)
+*   >8332-8333 output cursor             >8334 EVAL mode (1 = print item)
+*   >8335-833F ANAME: the assignment target, parked across the RHS EVAL
+*              (whose own name reads re-fill NAMEBUF)
+*   >8350-835F operand stack (8 words, base offset >50; also the MOVE staging
+*              area for keyword/error text — never while an eval is live)
+*   >8360-836F operator stack (16 bytes, base offset >60; PRNUM's digit stack)
 * ============================================================================
 PYENTRY ALL  >20
-        MOVE >0014,G@PYBANR,V@>0000  ; "TI PYTHON <version>" banner, row 0 (spliced, 20 bytes)
-* Clear the 16-entry variable table (name byte = 0 means empty).
-        ST   @>8320,>00
-        MOVE >002F,@>8320,@>8321     ; cascade-fill >8320-834F with 0
-        DST  @>8316,>0040            ; first prompt at row 2
+* The four-row banner (docs/TI-PYTHON.md §3.1): the spliced version row plus
+* three TEXT taglines, a blank row, then the first prompt on row 5.
+        MOVE >0014,G@PYBANR,V@>0000  ; "TI PYTHON <version>" (spliced, 20 bytes)
+        MOVE >001A,G@PYTAG1,V@>0020
+        MOVE >001C,G@PYTAG2,V@>0040
+        MOVE >001E,G@PYTAG3,V@>0060
+* The block-cursor glyph: char >1E's pattern in the VDP pattern table (>0800).
+        MOVE >0008,G@PYCURS,V@>08F0
+* Clear the VRAM variable table: 32 x 16-byte slots at >1000-11FF
+* (len byte = 0 means empty; a fresh session per entry).
+        DST  @>832C,>1000
+PYCLRV  ST   *V@>832C,>00
+        DINC @>832C
+        DCEQ @>832C,>1200
+        BR   PYCLRV
+        DST  @>8316,>00A0            ; first prompt at row 5
 
 PYLOOP  DST  @>8312,@>8316           ; cursor = ROW start
-        ST   *V@>8312,>3E            ; '>' prompt
+        ST   *V@>8312,>3E            ; the '>>> ' prompt (Python's)
+        DINC @>8312
+        ST   *V@>8312,>3E
+        DINC @>8312
+        ST   *V@>8312,>3E
         DINC @>8312
         ST   *V@>8312,>20
         DINC @>8312
-        DST  @>831A,@>8312           ; input begins here
+        DST  @>831A,@>8312           ; input begins here (column 4)
         DST  @>831E,@>8316           ; input cap = the row's right edge
-        DADD @>831E,>0020            ; (>831E is PNUM scratch only DURING eval
+        DADD @>831E,>0020            ; (>831E is eval scratch only DURING eval
                                      ;  — reader-time use never overlaps)
 
 * ---- read a line, echoing, until ENTER -------------------------------------
@@ -796,11 +828,24 @@ PYLOOP  DST  @>8312,@>8316           ; cursor = ROW start
 * protocol dropped (docs/TI-PYTHON.md §4 B1). Dispatch: ENTER ends the line;
 * FCTN+S (>08 — the host Backspace) rubs out; FCTN+3 (>07, ERASE) clears the
 * line; printables >20-5F echo under the cap; everything else is ignored,
-* never echoed as junk (B2).
+* never echoed as junk (B2). A block cursor (char >1E) blinks at the input
+* cell, phased by the ISR tick >8379 (~16 ticks on, 16 off).
         ST   @>8374,>00             ; keyboard mode 0
-RDK     SCAN
+RDK     DCHE @>8312,@>831E          ; at the cap there is no cursor cell
+        BS   RDKS
+        ST   @>8309,@>8379          ; blink phase from the ISR tick
+        AND  @>8309,>10
+        CZ   @>8309
+        BS   RDKOFF
+        ST   *V@>8312,>1E           ; block on
+        B    RDKS
+RDKOFF  ST   *V@>8312,>20           ; block off
+RDKS    SCAN
         BR   RDK                    ; loop until a NEW key this scan
-        ST   @>8314,@>8375          ; CHAR = the key
+        DCHE @>8312,@>831E          ; erase the cursor before handling the key
+        BS   RDKGO
+        ST   *V@>8312,>20
+RDKGO   ST   @>8314,@>8375          ; CHAR = the key
         CEQ  @>8314,>0D             ; ENTER -> evaluate
         BS   RDDONE
         CEQ  @>8314,>08             ; backspace
@@ -828,63 +873,197 @@ RDERA   DCEQ @>8312,@>831A          ; blank back to the input start
         B    RDERA
 RDDONE  ST   *V@>8312,>00           ; NUL-terminate the input in place
 
-* Blank (or all-spaces) input just re-prompts — no SYNTAX ERROR.
+* '#' starts a comment (outside a string literal): truncate the line there.
         DST  @>8312,@>831A
+        ST   @>8309,>00              ; quote state: 0 = none, else the quote
+CMLOOP  ST   @>8314,*V@>8312
+        CZ   @>8314
+        BS   CMDONE
+        CZ   @>8309
+        BR   CMQ
+        CEQ  @>8314,>23              ; '#'
+        BS   CMCUT
+        CEQ  @>8314,>22              ; '"'
+        BS   CMSETQ
+        CEQ  @>8314,>27              ; "'"
+        BS   CMSETQ
+CMNEXT  DINC @>8312
+        B    CMLOOP
+CMSETQ  ST   @>8309,@>8314
+        B    CMNEXT
+CMQ     CEQ  @>8314,@>8309           ; the matching closing quote?
+        BR   CMNEXT
+        ST   @>8309,>00
+        B    CMNEXT
+CMCUT   ST   *V@>8312,>00
+
+* Blank (or all-spaces, or comment-only) input just re-prompts — no error.
+CMDONE  DST  @>8312,@>831A
         CALL SKIPSP
         ST   @>8314,*V@>8312
         CZ   @>8314
         BS   PYNEXT
+        ST   @>8315,>00              ; ERR clears per line (the dispatch tests
+                                     ; it after RDNAME — a stale error must
+                                     ; not shadow a good line)
+        ST   @>8334,>00              ; statement mode for EVAL
 
-* ---- assignment?  a single letter, optional spaces, then '=' --------------
-        DST  @>8312,@>831A          ; IP = input start
-        CALL SKIPSP
-        ST   @>8314,*V@>8312        ; first token char
-        CHE  @>8314,>41             ; letter?
-        BR   DOEXPR
-        CH   @>8314,>5A
-        BS   DOEXPR
-        ST   @>830E,@>8314          ; candidate variable name (>830E: clear of NUMACC)
-        DINC @>8312
+* ---- statement dispatch -----------------------------------------------------
+* line := NAME '=' expr | print(...) | exit() | quit() | expr
+* A leading name is read into NAMEBUF; keywords route to their statements;
+* 'NAME =' assigns; anything else evaluates the whole line as an expression.
+        CALL ISNAM1
+        CZ   @>8309
+        BS   DOEXPR                  ; no leading name -> an expression
+        CALL RDNAME                  ; NAMEBUF := the name, IP past it
+        CZ   @>8315
+        BR   SHOWERR                 ; 11+ characters -> SYNTAX ERROR
+        CALL KWID                    ; >832B := 1 print / 2 exit-quit / 0 name
+        CEQ  @>832B,>01
+        BS   DOPRNT
+        CEQ  @>832B,>02
+        BS   DOEXIT
         CALL SKIPSP
         ST   @>8314,*V@>8312
-        CEQ  @>8314,>3D             ; '=' ?
-        BR   DOEXPR                 ; a bare name (or longer) -> evaluate it
-        DINC @>8312                 ; IP now past '=' -> the right-hand side
-        CALL EVAL
+        CEQ  @>8314,>3D              ; '=' -> an assignment
+        BR   DOEXPR                  ; bare name / name-led expression: rewind
+        DINC @>8312                  ; IP past '=' -> the right-hand side
+        MOVE >000B,@>8320,@>8335     ; park the TARGET name: EVAL's own name
+        CALL EVAL                    ; reads re-fill NAMEBUF (AREA = R*R bug)
         CZ   @>8315
         BR   SHOWERR
-        DST  @>831C,@>8350          ; value = operand[0]
-        ST   @>8314,@>830E          ; name
-        CALL VSTORE
-        B    PYNEXT                 ; assignments print nothing
+        MOVE >000B,@>8335,@>8320     ; the target name, back
+        DST  @>831C,@>8350           ; value = operand[0]
+        CALL VSTORE                  ; binds NAMEBUF (MEMORY ERROR if full)
+        CZ   @>8315
+        BR   SHOWERR
+        B    PYNEXT                  ; assignments print nothing
 
-* ---- evaluate the whole line as an expression -----------------------------
+* ---- evaluate the whole line as an expression -------------------------------
 DOEXPR  DST  @>8312,@>831A
         CALL EVAL
         CZ   @>8315
         BR   SHOWERR
-        DST  @>8312,@>8316          ; print cursor = the row below the input
-        DADD @>8312,>0020
-        DST  @>831C,@>8350          ; result = operand[0]
+        CALL PYOUT0                  ; the output row under the input
+        DST  @>831C,@>8350           ; result = operand[0]
         CALL PRNUM
         B    PYNEXT
-SHOWERR DST  @>8312,@>8316
-        DADD @>8312,>0020
+* Errors always take a fresh row of their own; a mid-print error leaves its
+* partial output on the row above, Python-style.
+SHOWERR CALL PYOUT0
         CALL PRERR
+        B    PYNEXT
 
-* Each line occupies two rows (input + result); step the prompt down uniformly
-* whether or not a result was printed, and wrap to the top when off the bottom.
-PYNEXT  DADD @>8316,>0040
-        DCHE @>8316,>02C0
-        BR   PYLOOP
-        ALL  >20
-        MOVE >0014,G@PYBANR,V@>0000
-        DST  @>8316,>0040
+* ---- print(item, ...) — items are expressions or string literals ------------
+DOPRNT  CALL SKIPSP
+        ST   @>8314,*V@>8312
+        CEQ  @>8314,>28              ; the Python-3 signature: parens required
+        BR   PYSYN0
+        DINC @>8312
+        CALL PYOUT0                  ; output goes on the row under the input
+        CALL SKIPSP
+        ST   @>8314,*V@>8312
+        CEQ  @>8314,>29              ; print() -> a blank row
+        BS   PREND
+PRITEM  CALL SKIPSP
+        ST   @>8314,*V@>8312
+        CEQ  @>8314,>22              ; a string literal item?
+        BS   PRSTR
+        CEQ  @>8314,>27
+        BS   PRSTR
+        ST   @>8334,>01              ; item mode: ',' / ')' terminate EVAL
+        CALL EVAL
+        ST   @>8334,>00
+        CZ   @>8315
+        BR   SHOWERR                 ; errors take a fresh row of their own
+        DST  @>831C,@>8350
+        CALL PRNUM
+PRSEP   CALL SKIPSP
+        ST   @>8314,*V@>8312
+        CEQ  @>8314,>2C              ; ',' -> a space, then the next item
+        BS   PRNXT
+        CEQ  @>8314,>29
+        BR   PYSYNE
+PREND   DINC @>8312                  ; past ')'
+        CALL SKIPSP
+        ST   @>8314,*V@>8312
+        CZ   @>8314                  ; only the line end may follow
+        BR   PYSYNE
+        B    PYNEXT
+PRNXT   DINC @>8312
+        ST   @>8314,>20              ; Python's default sep=' '
+        CALL PUTCH
+        B    PRITEM
+PRSTR   ST   @>830E,@>8314           ; the opening quote
+        DST  @>832C,@>8312           ; park the start (the table walker is idle)
+PRSCAN  DINC @>8312                  ; validate the close BEFORE emitting, so
+        ST   @>8314,*V@>8312         ; an unterminated string prints nothing
+        CZ   @>8314
+        BS   PYSYNE
+        CEQ  @>8314,@>830E
+        BR   PRSCAN
+        DST  @>8312,@>832C           ; verified: rewind and emit
+PRSTL   DINC @>8312
+        ST   @>8314,*V@>8312
+        CEQ  @>8314,@>830E
+        BS   PRSTE
+        CALL PUTCH                   ; string contents print verbatim
+        B    PRSTL
+PRSTE   DINC @>8312
+        B    PRSEP
+PYSYNE  ST   @>8315,>01
+        B    SHOWERR
+
+* ---- exit() / quit() — back to the master selection menu --------------------
+DOEXIT  CALL SKIPSP
+        ST   @>8314,*V@>8312
+        CEQ  @>8314,>28
+        BR   PYSYN0
+        DINC @>8312
+        CALL SKIPSP
+        ST   @>8314,*V@>8312
+        CEQ  @>8314,>29
+        BR   PYSYN0
+        DINC @>8312
+        CALL SKIPSP
+        ST   @>8314,*V@>8312
+        CZ   @>8314
+        BR   PYSYN0
+        B    MENU                    ; the same exit the SYSINF screen takes
+PYSYN0  ST   @>8315,>01
+        B    SHOWERR
+
+* ---- the screen flows like a terminal ---------------------------------------
+* PYADV: step ROW one line down; past the bottom, scroll rows 1-23 up one and
+* blank the new bottom row (VDP-to-VDP MOVE — an authentically-used GPL form;
+* ascending per-byte copy makes the overlap safe). PYOUT0: advance to the
+* output row and arm the output cursor (@>8332) and its right-edge bound
+* (@>8330) — PUTCH enforces the bound, so long print() lines truncate at
+* column 31 instead of scribbling the next row.
+PYADV   DADD @>8316,>0020
+        DCEQ @>8316,>0300            ; ran off the bottom?
+        BR   PYADVR
+        MOVE >02E0,V@>0020,V@>0000   ; scroll: rows 1-23 -> 0-22
+        MOVE >0020,G@PYBL32,V@>02E0  ; blank the new bottom row
+        DST  @>8316,>02E0
+PYADVR  RTN
+PYOUT0  CALL PYADV
+        DST  @>8332,@>8316           ; the output cursor
+        DST  @>8330,@>8316           ; and its bound (the row edge)
+        DADD @>8330,>0020
+        RTN
+PYNEXT  CALL PYADV
         B    PYLOOP
 
 * ============================================================================
-* EVAL — shunting-yard evaluate the NUL-terminated input at IP (@>8312). Leaves
-* the result as operand[0] (>8350), or sets ERR (@>8315).
+* EVAL — shunting-yard evaluate the input at IP (@>8312). Terminators: NUL
+* always; in ITEM mode (@>8334 = 1, print arguments) a ',' or an unmatched ')'
+* also ends the expression, with IP left ON the terminator. Leaves the result
+* as operand[0] (>8350), or sets ERR (@>8315).
+* Operators (docs/TI-PYTHON.md §3.4): unary '-' is a real right-associative
+* prec-3 operator (the internal token >6E) — never the v0 0-inject, which
+* mis-associated 2*-3; '+'/'-' bind at 1, '*' '/' '//' '%' at 2; '//' is an
+* alias of '/' (both floor-divide).
 * ============================================================================
 EVAL    ST   @>8310,>50             ; operand stack empty (offset >50 = >8350)
         ST   @>8311,>60             ; operator stack empty (>60 = >8360)
@@ -894,10 +1073,15 @@ EV_LOOP ST   @>8314,*V@>8312        ; peek CHAR
         CZ   @>8314
         BS   EV_END                 ; end of input
         CEQ  @>8314,>20             ; skip spaces
-        BR   EV_NOSP
+        BR   EV_NSP
         DINC @>8312
         B    EV_LOOP
-EV_NOSP CHE  @>8314,>30             ; digit? (>30..>39)
+EV_NSP  CEQ  @>8314,>2C             ; ',' ends an ITEM (else it is stray)
+        BR   EV_NCM
+        CZ   @>8334
+        BS   EV_SYN
+        B    EV_END
+EV_NCM  CHE  @>8314,>30             ; digit? (>30..>39)
         BR   EV_NDIG
         CH   @>8314,>39
         BS   EV_NDIG
@@ -908,11 +1092,13 @@ EV_NOSP CHE  @>8314,>30             ; digit? (>30..>39)
         ADD  @>8310,>02
         ST   @>8318,>00             ; now expecting an operator
         B    EV_LOOP
-EV_NDIG CHE  @>8314,>41             ; letter? -> variable
-        BR   EV_NVAR
-        CH   @>8314,>5A
+EV_NDIG CALL ISNAM1                 ; a name? -> variable read
+        CZ   @>8309
         BS   EV_NVAR
-        CALL VLOAD                  ; NUMACC = value, or ERR = NAME
+        CALL RDNAME                 ; NAMEBUF := the name, IP past it
+        CZ   @>8315
+        BR   EV_END
+        CALL VLOAD                  ; NUMACC = its value, or NAME ERROR
         CZ   @>8315
         BR   EV_END
         CHE  @>8310,>60             ; operand stack full (>= >8360)? -> abort
@@ -920,7 +1106,6 @@ EV_NDIG CHE  @>8314,>41             ; letter? -> variable
         DST  *@>8310,@>831C
         ADD  @>8310,>02
         ST   @>8318,>00
-        DINC @>8312
         B    EV_LOOP
 EV_NVAR CEQ  @>8314,>28             ; '(' ?
         BR   EV_NLP
@@ -933,8 +1118,8 @@ EV_NVAR CEQ  @>8314,>28             ; '(' ?
         B    EV_LOOP
 EV_NLP  CEQ  @>8314,>29             ; ')' ?
         BR   EV_NRP
-EV_RP1  CEQ  @>8311,>60             ; operator stack empty -> unbalanced
-        BS   EV_SYN
+EV_RP1  CEQ  @>8311,>60             ; nothing open?
+        BS   EV_RPX
         DEC  @>8311
         ST   @>8319,*@>8311         ; peek top (and it's now popped)
         CEQ  @>8319,>28             ; '(' ?
@@ -944,23 +1129,41 @@ EV_RP1  CEQ  @>8311,>60             ; operator stack empty -> unbalanced
         CZ   @>8315
         BR   EV_END
         B    EV_RP1
+EV_RPX  CZ   @>8334                 ; item mode: the ')' ends the item
+        BS   EV_SYN                 ; statement mode: unbalanced
+        B    EV_END
 EV_RPOK ST   @>8318,>00             ; '(' consumed; expect an operator next
         DINC @>8312
         B    EV_LOOP
 EV_NRP  CALL ISOP                   ; operator? @>8319 = precedence (0 = no)
         CZ   @>8319
         BS   EV_SYN
-        ST   @>831D,@>8314          ; CUROP
-        ST   @>831E,@>8319          ; CURPREC
-        CZ   @>8318                 ; expecting operand -> this is unary +/-
-        BS   EV_BIN
-        CHE  @>8310,>60             ; operand stack full (>= >8360)? -> abort
+        CZ   @>8318                 ; expecting an operand?
+        BS   EV_BIN                 ; no -> a binary operator
+* Unary context: '+' is a no-op; '-' pushes the negate token at prec 3.
+* Right-associative by construction: nothing outranks prec 3, so a pending
+* negate is never popped by another (--5 = 5), and it outranks '*'/'%'
+* when IT is pending (2*-3 = -6, -5%3 = 1 — the v0 B6 fix).
+        CEQ  @>8314,>2B
+        BS   EV_UPL
+        CEQ  @>8314,>2D
+        BR   EV_SYN                 ; '*' etc. with no left operand
+        CHE  @>8311,>70
         BS   EV_OVF
-        DST  @>8300,>0000           ; push a 0 so unary '-x' = '0 - x'
-        DST  *@>8310,@>8300
-        ADD  @>8310,>02
-        ST   @>8318,>00
-EV_BIN  CEQ  @>8311,>60             ; while op-stack top has >= precedence: apply
+        ST   *@>8311,>6E            ; the internal negate token
+        INC  @>8311
+EV_UPL  DINC @>8312
+        B    EV_LOOP
+EV_BIN  ST   @>831D,@>8314          ; CUROP
+        ST   @>831E,@>8319          ; CURPREC
+        CEQ  @>8314,>2F             ; '//' is an alias of '/': eat the 2nd
+        BR   EV_BINW
+        DINC @>8312
+        ST   @>8314,*V@>8312
+        CEQ  @>8314,>2F
+        BS   EV_BINW                ; IP at the 2nd '/'; EV_PUSH steps past it
+        DDEC @>8312                 ; a single '/': undo the peek
+EV_BINW CEQ  @>8311,>60             ; while op-stack top has >= precedence: apply
         BS   EV_PUSH
         DEC  @>8311
         ST   @>8319,*@>8311
@@ -974,7 +1177,7 @@ EV_BIN  CEQ  @>8311,>60             ; while op-stack top has >= precedence: appl
         CALL APPLY
         CZ   @>8315
         BR   EV_END
-        B    EV_BIN
+        B    EV_BINW
 EV_PUSH CHE  @>8311,>70             ; operator stack full (>= >8370)? -> abort
         BS   EV_OVF
         ST   *@>8311,@>831D         ; push CUROP
@@ -1022,10 +1225,14 @@ ISOP    ST   @>8319,>00
         BS   ISMUL
         CEQ  @>8314,>25             ; '%'
         BS   ISMUL
+        CEQ  @>8314,>6E             ; the internal negate token
+        BS   ISNEG
         RTN
 ISADD   ST   @>8319,>01
         RTN
 ISMUL   ST   @>8319,>02
+        RTN
+ISNEG   ST   @>8319,>03
         RTN
 
 * PNUM — parse a run of digits at IP into NUMACC (@>831C), wrapping mod 65536.
@@ -1046,38 +1253,156 @@ PN_LP   ST   @>8314,*V@>8312
         B    PN_LP
 PN_RET  RTN
 
-* VLOAD — value of the variable named CHAR (@>8314) -> NUMACC, or ERR = NAME.
-VLOAD   ST   @>8319,>20             ; table walk (offset >20 = >8320)
-VL_LP   CEQ  @>8319,>50
+* ---- names ------------------------------------------------------------------
+* ISNAM1 — @>8309 := 1 if CHAR starts a name (A-Z or '_'), else 0.
+* ISNAMC — @>8309 := 1 if CHAR continues one (A-Z, 0-9 or '_'), else 0.
+ISNAM1  ST   @>8309,>01
+        CEQ  @>8314,>5F
+        BS   ISN1R
+        CHE  @>8314,>41
+        BR   ISN1N
+        CH   @>8314,>5A
+        BR   ISN1R
+ISN1N   ST   @>8309,>00
+ISN1R   RTN
+ISNAMC  ST   @>8309,>01
+        CEQ  @>8314,>5F
+        BS   ISNCR
+        CHE  @>8314,>30
+        BR   ISNCN
+        CH   @>8314,>39
+        BR   ISNCR
+        CHE  @>8314,>41
+        BR   ISNCN
+        CH   @>8314,>5A
+        BR   ISNCR
+ISNCN   ST   @>8309,>00
+ISNCR   RTN
+
+* RDNAME — accumulate the NAME at IP into NAMEBUF (>8320 = len, >8321.. = the
+* text, at most 10 chars — an 11th is a SYNTAX ERROR). IP ends past the name.
+RDNAME  ST   @>8320,>00
+        ST   @>8319,>21             ; buffer byte-pointer (>8300-based)
+RDNLP   ST   @>8314,*V@>8312
+        CALL ISNAMC
+        CZ   @>8309
+        BS   RDNEND
+        CEQ  @>8320,>0A             ; already 10 characters -> too long
+        BS   RDNERR
+        ST   *@>8319,@>8314
+        INC  @>8319
+        INC  @>8320
+        DINC @>8312
+        B    RDNLP
+RDNERR  ST   @>8315,>01
+RDNEND  RTN
+
+* KWID — classify NAMEBUF: @>832B := 1 print / 2 exit or quit / 0 a plain name.
+* (Keywords are matched case-insensitively by construction: the console keytab
+* folds typing to uppercase, and the stored keywords are uppercase.)
+KWID    ST   @>832B,>01
+        MOVE >0006,G@KWPRN,@>8350   ; stage {len,text} in the eval-stack area
+        CALL KWCMP
+        CZ   @>8309
+        BR   KWIDR
+        ST   @>832B,>02
+        MOVE >0005,G@KWEXI,@>8350
+        CALL KWCMP
+        CZ   @>8309
+        BR   KWIDR
+        MOVE >0005,G@KWQUI,@>8350
+        CALL KWCMP
+        CZ   @>8309
+        BR   KWIDR
+        ST   @>832B,>00
+KWIDR   RTN
+* KWCMP — @>8309 := 1 if NAMEBUF equals the staged {len,text} at >8350.
+KWCMP   ST   @>8309,>00
+        ST   @>8319,>20             ; NAMEBUF walker (the len byte first)
+        ST   @>830E,>50             ; staged walker
+        ST   @>830F,@>8320          ; compare len+1 bytes
+        INC  @>830F
+KWCLP   ST   @>8314,*@>8319
+        CEQ  @>8314,*@>830E
+        BR   KWCR
+        INC  @>8319
+        INC  @>830E
+        DEC  @>830F
+        CZ   @>830F
+        BR   KWCLP
+        ST   @>8309,>01
+KWCR    RTN
+
+* ---- the variable table (VRAM >1000-11FF: 32 x 16-byte slots) ---------------
+* Slot: {len:1, name:10, pad:1, value:2, pad:2}. len 0 = empty; the first
+* empty slot ends every walk (entries never unbind, so the fill is dense).
+* The same VRAM-resident discipline TI BASIC's symbol table uses — and the
+* reason v0's scratchpad table (>8320-834F, overlapping the FP package's FAC)
+* could be retired (docs/TI-PYTHON.md §5.0).
+* VFIND — seek NAMEBUF: @>8309 := 1 hit (@>832C = the slot), else 0
+* (@>832C = the first free slot, or >1200 when the table is full).
+VFIND   DST  @>832C,>1000
+VF_LP   DCEQ @>832C,>1200
+        BS   VF_NO
+        ST   @>8314,*V@>832C        ; the slot's len byte
+        CZ   @>8314
+        BS   VF_NO                  ; first empty slot ends the walk
+        CEQ  @>8314,@>8320
+        BR   VF_NXT
+        DST  @>832E,@>832C          ; lengths match: compare the text
+        ST   @>8319,>20
+        ST   @>830F,@>8320
+        INC  @>830F
+VF_CLP  ST   @>8314,*V@>832E
+        CEQ  @>8314,*@>8319
+        BR   VF_NXT
+        DINC @>832E
+        INC  @>8319
+        DEC  @>830F
+        CZ   @>830F
+        BR   VF_CLP
+        ST   @>8309,>01
+        RTN
+VF_NXT  DADD @>832C,>0010
+        B    VF_LP
+VF_NO   ST   @>8309,>00
+        RTN
+* VLOAD — NUMACC := the value bound to NAMEBUF, or NAME ERROR (ERR = 2, and
+* PRERR appends the name from NAMEBUF).
+VLOAD   CALL VFIND
+        CZ   @>8309
         BS   VL_NF
-        ST   @>831E,*@>8319         ; slot name
-        CZ   @>831E
-        BS   VL_NF
-        CEQ  @>831E,@>8314
-        BS   VL_HIT
-        ADD  @>8319,>03
-        B    VL_LP
-VL_HIT  INC  @>8319
-        DST  @>831C,*@>8319         ; value word
+        DADD @>832C,>000C           ; -> the slot's value word
+        ST   @>831C,*V@>832C
+        DINC @>832C
+        ST   @>831D,*V@>832C
         RTN
 VL_NF   ST   @>8315,>02             ; NAME ERROR
         RTN
-
-* VSTORE — store NUMACC into the variable named CHAR (@>8314).
-VSTORE  ST   @>8319,>20
-VS_LP   CEQ  @>8319,>50
-        BS   VS_RET                 ; table full -> silently drop
-        ST   @>831E,*@>8319
-        CZ   @>831E
-        BS   VS_NEW
-        CEQ  @>831E,@>8314
-        BS   VS_SET
-        ADD  @>8319,>03
-        B    VS_LP
-VS_NEW  ST   *@>8319,@>8314         ; claim the slot
-VS_SET  INC  @>8319
-        DST  *@>8319,@>831C
-VS_RET  RTN
+* VSTORE — bind NUMACC to NAMEBUF, claiming a slot for a new name.
+* All 32 slots taken by other names -> MEMORY ERROR (ERR = 5).
+VSTORE  CALL VFIND
+        CZ   @>8309
+        BR   VS_PUT
+        DCEQ @>832C,>1200
+        BR   VS_NEW
+        ST   @>8315,>05             ; MEMORY ERROR
+        RTN
+VS_NEW  ST   *V@>832C,@>8320        ; claim: the len byte...
+        DST  @>832E,@>832C
+        ST   @>8319,>21
+        ST   @>830F,@>8320
+VSNLP   DINC @>832E
+        ST   *V@>832E,*@>8319       ; ...then the text
+        INC  @>8319
+        DEC  @>830F
+        CZ   @>830F
+        BR   VSNLP
+VS_PUT  DADD @>832C,>000C
+        ST   *V@>832C,@>831C
+        DINC @>832C
+        ST   *V@>832C,@>831D
+        RTN
 
 * SKIPSP — advance IP over spaces.
 SKIPSP  ST   @>8314,*V@>8312
@@ -1087,11 +1412,14 @@ SKIPSP  ST   @>8314,*V@>8312
         B    SKIPSP
 SK_RET  RTN
 
-* APPLY — pop operator, pop b, pop a, compute a<op>b, push the result.
+* APPLY — pop the operator; negate takes ONE operand, everything else pops
+* b then a and computes a<op>b; push the result.
 APPLY   DEC  @>8311
         ST   @>8309,*@>8311         ; operator
         SUB  @>8310,>02
-        DST  @>8306,*@>8310         ; b
+        DST  @>8306,*@>8310         ; b (the only operand, for negate)
+        CEQ  @>8309,>6E
+        BS   AP_NEG
         SUB  @>8310,>02
         DST  @>8304,*@>8310         ; a
         CEQ  @>8309,>2B
@@ -1106,6 +1434,9 @@ APPLY   DEC  @>8311
         BS   AP_MOD
         ST   @>8315,>01
         RTN
+AP_NEG  DCLR @>8304                 ; -b
+        DSUB @>8304,@>8306
+        B    AP_PSH
 AP_ADD  DADD @>8304,@>8306
         B    AP_PSH
 AP_SUB  DSUB @>8304,@>8306
@@ -1125,10 +1456,12 @@ AP_PSH  DST  *@>8310,@>8304
         ADD  @>8310,>02
 AP_RET  RTN
 
-* SDIV — signed a/b (truncate toward zero) into @>8304; a=@>8304, b=@>8306.
+* SDIV — Python FLOOR division a/b into @>8304 (a=@>8304, b=@>8306):
+* the truncating quotient, rounded one more toward -inf when the signs
+* differ and the remainder is nonzero (7//2=3, -7//2=-4 — §3.4).
 SDIV    DCZ  @>8306
         BS   DV_ZERO
-        ST   @>8308,>00             ; result sign
+        ST   @>8308,>00             ; sign(a) XOR sign(b)
         DST  @>830A,@>8304          ; |a|
         DCH  @>8304,>7FFF
         BR   SD_AP
@@ -1143,53 +1476,76 @@ SD_AP   DST  @>830C,@>8306          ; |b|
         XOR  @>8308,>01
 SD_BP   DCLR @>8300
         DST  @>8302,@>830A
-        DDIV @>8300,@>830C          ; quotient -> >8300
+        DDIV @>8300,@>830C          ; quotient -> >8300, remainder -> >8302
         DST  @>8304,@>8300
         CZ   @>8308
-        BS   AP_RET2
+        BS   AP_RET2                ; signs agree: truncation IS the floor
         DCLR @>8300
         DSUB @>8300,@>8304
         DST  @>8304,@>8300
+        DCZ  @>8302                 ; signs differ + a remainder: floor is
+        BS   AP_RET2                ; one below the truncation
+        DDEC @>8304
 AP_RET2 RTN
 DV_ZERO ST   @>8315,>03             ; ZERO DIVISION
         RTN
 
-* SMOD — signed a%b (remainder takes the dividend's sign) into @>8304.
+* SMOD — Python modulo a%b into @>8304: the result takes the DIVISOR's sign
+* and a == (a//b)*b + a%b holds (-7%2=1, 7%-2=-1 — §3.4).
 SMOD    DCZ  @>8306
         BS   DV_ZERO
-        ST   @>8308,>00             ; remainder sign = sign of a
-        DST  @>830A,@>8304
+        ST   @>8308,>00             ; sign(a) XOR sign(b)
+        ST   @>830E,>00             ; sign(b)
+        DST  @>830A,@>8304          ; |a|
         DCH  @>8304,>7FFF
         BR   SM_AP
         DCLR @>830A
         DSUB @>830A,@>8304
-        ST   @>8308,>01
-SM_AP   DST  @>830C,@>8306
+        XOR  @>8308,>01
+SM_AP   DST  @>830C,@>8306          ; |b|
         DCH  @>8306,>7FFF
         BR   SM_BP
         DCLR @>830C
         DSUB @>830C,@>8306
+        XOR  @>8308,>01
+        ST   @>830E,>01
 SM_BP   DCLR @>8300
         DST  @>8302,@>830A
-        DDIV @>8300,@>830C          ; remainder -> >8302
+        DDIV @>8300,@>830C          ; remainder |a| mod |b| -> >8302
         DST  @>8304,@>8302
+        DCZ  @>8304
+        BS   SM_RET                 ; r = 0 is sign-free
         CZ   @>8308
-        BS   AP_RET2
+        BS   SM_SGN                 ; signs agree: |r| (sign applied below)
+        DST  @>8300,@>830C          ; signs differ: |b| - r
+        DSUB @>8300,@>8304
+        DST  @>8304,@>8300
+SM_SGN  CZ   @>830E                 ; a negative divisor makes it negative
+        BS   SM_RET
         DCLR @>8300
         DSUB @>8300,@>8304
         DST  @>8304,@>8300
-        RTN
+SM_RET  RTN
 
-* PRNUM — print the signed 16-bit NUMACC (@>831C) at the cursor (@>8312).
+* ---- output — everything goes through PUTCH, bounded at the row edge --------
+* PUTCH — write @>8314 at the output cursor (@>8332) unless it has reached
+* the bound (@>8330); past it, output truncates silently (§3.4: column 31).
+PUTCH   DCHE @>8332,@>8330
+        BS   PUTCHR
+        ST   *V@>8332,@>8314
+        DINC @>8332
+PUTCHR  RTN
+
+* PRNUM — print the signed 16-bit NUMACC (@>831C) at the output cursor.
 PRNUM   DCH  @>831C,>7FFF           ; negative?
         BR   PR_POS
         DCEQ @>831C,>8000           ; the un-negatable -32768?
         BR   PR_NEG
-        MOVE >0006,G@PYMIN,@>8350   ; "-32768" -> buffer
+        MOVE >0006,G@PYMIN,@>8350   ; "-32768" -> the staging buffer
         ST   @>8319,>06
         B    PR_STR
-PR_NEG  ST   *V@>8312,>2D           ; '-'
-        DINC @>8312
+PR_NEG  ST   @>8314,>2D             ; '-'
+        CALL PUTCH
         DCLR @>8300
         DSUB @>8300,@>831C          ; magnitude
         DST  @>831C,@>8300
@@ -1209,43 +1565,57 @@ PR_DL   DCLR @>8300
 PR_EL   CZ   @>8309                 ; pop the digits (reversed) to the screen
         BS   PR_RET
         DEC  @>8311
-        ST   @>8307,*@>8311
-        ST   *V@>8312,@>8307
-        DINC @>8312
+        ST   @>8314,*@>8311
+        CALL PUTCH
         DEC  @>8309
         B    PR_EL
 PR_RET  RTN
 
-* PR_STR — copy @>8319 bytes from buffer >8350 to the cursor (used by -32768).
-PR_STR  ST   @>8309,>50
+* PR_STR — emit @>8319 bytes from the staging buffer >8350.
+PR_STR  ST   @>830F,>50
 PS_LP   CZ   @>8319
         BS   PS_RET
-        ST   @>8307,*@>8309
-        ST   *V@>8312,@>8307
-        DINC @>8312
-        INC  @>8309
+        ST   @>8314,*@>830F
+        CALL PUTCH
+        INC  @>830F
         DEC  @>8319
         B    PS_LP
 PS_RET  RTN
 
-* PRERR — print the message for ERR (@>8315) at the cursor.
+* PRERR — print the message for ERR (@>8315) at the output cursor.
+* NAME ERROR names the offender: "NAME ERROR: " + NAMEBUF (§2.4).
 PRERR   CEQ  @>8315,>02
         BS   PE_NAME
         CEQ  @>8315,>03
         BS   PE_ZERO
         CEQ  @>8315,>04
         BS   PE_CPX
+        CEQ  @>8315,>05
+        BS   PE_MEM
         MOVE >000C,G@PYSYN,@>8350   ; "SYNTAX ERROR"
         ST   @>8319,>0C
         B    PR_STR
-PE_NAME MOVE >000A,G@PYNAM,@>8350   ; "NAME ERROR"
-        ST   @>8319,>0A
-        B    PR_STR
+PE_NAME MOVE >000C,G@PYNAM,@>8350   ; "NAME ERROR: "
+        ST   @>8319,>0C
+        CALL PR_STR
+        ST   @>8319,>21             ; ...then the name from NAMEBUF
+        ST   @>830E,@>8320
+PE_NLP  CZ   @>830E
+        BS   PE_NR
+        ST   @>8314,*@>8319
+        CALL PUTCH
+        INC  @>8319
+        DEC  @>830E
+        B    PE_NLP
+PE_NR   RTN
 PE_ZERO MOVE >0013,G@PYZERO,@>8350  ; "ZERO DIVISION ERROR"
         ST   @>8319,>13
         B    PR_STR
 PE_CPX  MOVE >000B,G@PYCPX,@>8350   ; "TOO COMPLEX"
         ST   @>8319,>0B
+        B    PR_STR
+PE_MEM  MOVE >000C,G@PYMEM,@>8350   ; "MEMORY ERROR" (all 32 slots bound)
+        ST   @>8319,>0C
         B    PR_STR
 
 * ---- data ------------------------------------------------------------------
@@ -1253,13 +1623,24 @@ PE_CPX  MOVE >000B,G@PYCPX,@>8350   ; "TOO COMPLEX"
 * (libre99_gpl::system_grom::sysinfo_block, GROM >575C, 20 bytes space-padded) so
 * its version is the workspace's CARGO_PKG_VERSION — one number shared by the
 * emulator, this GROM, and TI PYTHON, and shown on the system information
-* screen (SYSINF). TI PYTHON remains an early v0 stand-in (Joel, 2026-07-02);
-* the version string tells the user so.
+* screen (SYSINF). The spec of record for the language is docs/TI-PYTHON.md.
 PYMIN   TEXT '-32768'
 PYSYN   TEXT 'SYNTAX ERROR'
-PYNAM   TEXT 'NAME ERROR'
+PYNAM   TEXT 'NAME ERROR: '
 PYZERO  TEXT 'ZERO DIVISION ERROR'
 PYCPX   TEXT 'TOO COMPLEX'
+PYMEM   TEXT 'MEMORY ERROR'
+PYTAG1  TEXT 'A SUPER SIMPLE PYTHON-LIKE'
+PYTAG2  TEXT 'INTERPRETER FOR THE TI-99/4A'
+PYTAG3  TEXT 'EXIT() QUITS. 16-BIT INTEGERS.'
+PYBL32  TEXT '                                '
+PYCURS  BYTE >FF,>FF,>FF,>FF,>FF,>FF,>FF,>FF
+KWPRN   BYTE 5
+        TEXT 'PRINT'
+KWEXI   BYTE 4
+        TEXT 'EXIT'
+KWQUI   BYTE 4
+        TEXT 'QUIT'
 
 * ============================================================================
 * SYSINF — the system information screen ((S) on the selection menu).

@@ -43,12 +43,17 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-//! **Milestone 4 gate** — TI PYTHON, the integer-expression REPL that replaces
-//! TI BASIC as console GROM 1's program. Launch it from the menu (entry 1), type
-//! expressions, and read the answers back off the screen. Covers precedence,
-//! parentheses, truncating division/modulo, 16-bit wrap, variables, and the
-//! three error messages (the session in the plan §9 plus the sign/overflow
-//! edge cases).
+//! **The TI PYTHON v1 gates** — the language's spec of record is
+//! `docs/TI-PYTHON.md`; these tests pin it: the four-row banner and `>>> `
+//! prompt, the KSCAN new-key input engine (overlapped typing, backspace,
+//! ERASE, the input cap, blank lines), the terminal scroll and block cursor,
+//! full-size variable names in the VRAM table, Python floor `/` `//` `%` and
+//! real unary minus, `print(…)` with string literals, `#` comments,
+//! `exit()`/`quit()`, and the five error messages. Launches from the menu
+//! (entry 1) and reads everything back off the screen. Needs the authentic
+//! console ROM only when the clean-room ROM is not used — these gates run on
+//! the authentic ROM to match the rest of the boot-flow estate (skip green
+//! without third-party media).
 
 use std::sync::LazyLock;
 
@@ -81,37 +86,59 @@ fn row(m: &Machine, r: u16) -> String {
     (0..32)
         .map(|i| m.vdp().vram(base + r * 32 + i) as char)
         .collect::<String>()
-        .trim_end_matches([' ', '\0'])
+        // A trailing >1E is the blinking block cursor, not text.
+        .trim_end_matches([' ', '\0', '\u{1e}'])
         .to_string()
 }
 
-/// ASCII → (key, shift). Uppercase letters and digits are unshifted; the
-/// arithmetic operators are shifted keys on the TI-99/4A keyboard.
-fn key_for(c: char) -> (TiKey, bool) {
+fn rows(m: &Machine) -> Vec<String> {
+    (0..24).map(|r| row(m, r)).collect()
+}
+
+/// Some screen row holds exactly `want` (output rows carry no prompt, so an
+/// exact match can't be confused with the echoed input).
+fn has_row(m: &Machine, want: &str) -> bool {
+    rows(m).iter().any(|r| r == want)
+}
+
+/// ASCII → (modifier, key). The console keytab folds unshifted letters to
+/// uppercase in scan state 0, so plain letter keys type A–Z.
+fn key_for(c: char) -> (Option<TiKey>, TiKey) {
     use TiKey::*;
+    let bare = |k: TiKey| (None, k);
+    let shift = |k: TiKey| (Some(Shift), k);
+    let fctn = |k: TiKey| (Some(Fctn), k);
     match c {
-        '0' => (Num0, false), '1' => (Num1, false), '2' => (Num2, false), '3' => (Num3, false),
-        '4' => (Num4, false), '5' => (Num5, false), '6' => (Num6, false), '7' => (Num7, false),
-        '8' => (Num8, false), '9' => (Num9, false),
-        ' ' => (Space, false), '\n' => (Enter, false), '=' => (Equals, false), '/' => (Slash, false),
-        '+' => (Equals, true), '-' => (Slash, true), '*' => (Num8, true), '%' => (Num5, true),
-        '(' => (Num9, true), ')' => (Num0, true),
-        'X' => (X, false), 'Y' => (Y, false),
+        'A' => bare(A), 'B' => bare(B), 'C' => bare(C), 'D' => bare(D), 'E' => bare(E),
+        'F' => bare(F), 'G' => bare(G), 'H' => bare(H), 'I' => bare(I), 'J' => bare(J),
+        'K' => bare(K), 'L' => bare(L), 'M' => bare(M), 'N' => bare(N), 'O' => bare(O),
+        'P' => bare(P), 'Q' => bare(Q), 'R' => bare(R), 'S' => bare(S), 'T' => bare(T),
+        'U' => bare(U), 'V' => bare(V), 'W' => bare(W), 'X' => bare(X), 'Y' => bare(Y),
+        'Z' => bare(Z),
+        '0' => bare(Num0), '1' => bare(Num1), '2' => bare(Num2), '3' => bare(Num3),
+        '4' => bare(Num4), '5' => bare(Num5), '6' => bare(Num6), '7' => bare(Num7),
+        '8' => bare(Num8), '9' => bare(Num9),
+        ' ' => bare(Space), '=' => bare(Equals), '/' => bare(Slash),
+        ',' => bare(Comma), '.' => bare(Period),
+        '+' => shift(Equals), '-' => shift(Slash), '*' => shift(Num8),
+        '%' => shift(Num5), '(' => shift(Num9), ')' => shift(Num0),
+        '#' => shift(Num3),
+        '"' => fctn(P), '\'' => fctn(O), '_' => fctn(U),
         other => panic!("test uses an unmapped key {other:?}"),
     }
 }
 
-fn type_line(m: &mut Machine, line: &str) {
-    for c in line.chars() {
-        let (k, shift) = key_for(c);
-        if shift { m.set_key(TiKey::Shift, true); }
-        m.set_key(k, true);
-        frames(m, 3);
-        m.set_key(k, false);
-        if shift { m.set_key(TiKey::Shift, false); }
-        frames(m, 3);
+fn tap(m: &mut Machine, modifier: Option<TiKey>, k: TiKey) {
+    if let Some(mo) = modifier {
+        m.set_key(mo, true);
     }
-    press_enter(m);
+    m.set_key(k, true);
+    frames(m, 3);
+    m.set_key(k, false);
+    if let Some(mo) = modifier {
+        m.set_key(mo, false);
+    }
+    frames(m, 3);
 }
 
 fn press_enter(m: &mut Machine) {
@@ -121,18 +148,25 @@ fn press_enter(m: &mut Machine) {
     frames(m, 40); // let the evaluator run and print
 }
 
+fn type_line(m: &mut Machine, line: &str) {
+    for c in line.chars() {
+        let (mo, k) = key_for(c);
+        tap(m, mo, k);
+    }
+    press_enter(m);
+}
+
 /// Type with every adjacent pair of keys OVERLAPPED — each key goes down
 /// while the previous one is still held, the way fast typists roll. Under
 /// the v0 read loop (wait for a key, then wait for ALL keys up) the rolled
 /// key was eaten whole; the KSCAN new-key protocol must deliver every one.
-/// (Uses no shifted characters: SHIFT going up and down mid-roll is its own
-/// scenario, and unshifted rollover is the reported bug.)
+/// (Unshifted keys only: rollover of the plain rows is the reported bug.)
 fn type_line_overlapped(m: &mut Machine, line: &str) {
     let keys: Vec<TiKey> = line
         .chars()
         .map(|c| {
-            let (k, shift) = key_for(c);
-            assert!(!shift, "overlapped typing helper takes unshifted keys only");
+            let (modifier, k) = key_for(c);
+            assert!(modifier.is_none(), "overlapped typing helper takes unshifted keys only");
             k
         })
         .collect();
@@ -160,20 +194,6 @@ fn type_line_overlapped(m: &mut Machine, line: &str) {
     press_enter(m);
 }
 
-/// Tap a key with an optional modifier held (FCTN combos: backspace/ERASE).
-fn tap_combo(m: &mut Machine, modifier: Option<TiKey>, k: TiKey) {
-    if let Some(mo) = modifier {
-        m.set_key(mo, true);
-    }
-    m.set_key(k, true);
-    frames(m, 3);
-    m.set_key(k, false);
-    if let Some(mo) = modifier {
-        m.set_key(mo, false);
-    }
-    frames(m, 3);
-}
-
 /// Boot, walk the menu, and launch TI PYTHON (entry 1) — `None` when the
 /// authentic console ROM is absent (the caller then skips).
 fn launch_ti_python() -> Option<Machine> {
@@ -192,32 +212,199 @@ fn launch_ti_python() -> Option<Machine> {
     Some(m)
 }
 
+/// The four-row banner (docs/TI-PYTHON.md §3.1): the spliced version row,
+/// three taglines, a blank row, the first prompt on row 5.
+#[test]
+fn banner_says_what_this_is() {
+    let Some(m) = launch_ti_python() else { skip!() };
+    assert_eq!(row(&m, 0), "TI PYTHON 0.0.1", "the spliced version row");
+    assert_eq!(row(&m, 1), "A SUPER SIMPLE PYTHON-LIKE");
+    assert_eq!(row(&m, 2), "INTERPRETER FOR THE TI-99/4A");
+    assert_eq!(row(&m, 3), "EXIT() QUITS. 16-BIT INTEGERS.");
+    assert_eq!(row(&m, 4), "", "a blank row before the prompt");
+    assert!(row(&m, 5).starts_with(">>>"), "the Python prompt");
+}
+
+/// The reference session (docs/TI-PYTHON.md §2.3 core): precedence, names,
+/// parentheses, Python floor division and modulo, 16-bit wrap, and the
+/// errors. Expressions take two rows (input + output); assignments take one.
 #[test]
 fn ti_python_evaluates_the_reference_session() {
     let Some(mut m) = launch_ti_python() else { skip!() };
-    assert_eq!(row(&m, 0), "TI PYTHON 0.0.1", "versioned banner should be on screen");
 
-    // Each expression's answer lands on the row just below its input; prompts
-    // step down two rows per line (input rows 2,4,6,…, answers 3,5,7,…).
-    let session: &[(&str, &str)] = &[
-        ("2 + 3 * 4", "14"),        // precedence
-        ("X = 7", ""),              // assignment prints nothing
-        ("X * (X - 1)", "42"),      // variable + parentheses
-        ("10 / 3", "3"),            // truncating divide
-        ("-10 / 3", "-3"),          // truncates toward zero
-        ("-10 % 3", "-1"),          // remainder takes the dividend's sign
-        ("32767 + 1", "-32768"),    // 16-bit wrap
-        ("Y", "NAME ERROR"),        // undefined variable
-        ("10 / 0", "ZERO DIVISION ERROR"),
+    let session: &[(&str, Option<&str>)] = &[
+        ("2 + 3 * 4", Some("14")),               // precedence
+        ("X = 7", None),                         // assignment prints nothing
+        ("X * (X - 1)", Some("42")),             // variable + parentheses
+        ("10 / 3", Some("3")),                   // floor divide
+        ("-10 / 3", Some("-4")),                 // floors toward -inf (Python)
+        ("-10 % 3", Some("2")),                  // Python modulo
+        ("32767 + 1", Some("-32768")),           // 16-bit wrap
+        ("Y", Some("NAME ERROR: Y")),            // undefined name, named
+        ("10 / 0", Some("ZERO DIVISION ERROR")),
     ];
 
-    let mut input_row = 2u16;
+    let mut input_row = 5u16;
     for (expr, want) in session {
         type_line(&mut m, expr);
-        let got = row(&m, input_row + 1);
-        assert_eq!(&got, want, "`{expr}` -> got {got:?}, want {want:?}");
-        input_row += 2;
+        assert_eq!(
+            row(&m, input_row),
+            format!(">>> {expr}"),
+            "the echoed input line"
+        );
+        match want {
+            Some(want) => {
+                let got = row(&m, input_row + 1);
+                assert_eq!(&got, want, "`{expr}` -> got {got:?}, want {want:?}");
+                input_row += 2;
+            }
+            None => input_row += 1,
+        }
     }
+}
+
+/// Full-size names (§3.2): up to 10 characters of letters/digits/underscore
+/// in the 32-slot VRAM table; an 11th character is a SYNTAX ERROR; the 33rd
+/// distinct name is a MEMORY ERROR; names stay distinct by full spelling.
+#[test]
+fn full_size_names_bind_and_overflow_honestly() {
+    let Some(mut m) = launch_ti_python() else { skip!() };
+    type_line(&mut m, "RADIUS = 30");
+    type_line(&mut m, "AREA = 3 * RADIUS * RADIUS");
+    type_line(&mut m, "AREA");
+    assert!(has_row(&m, "2700"), "3 * 30 * 30 through named variables\n{:#?}", rows(&m));
+
+    type_line(&mut m, "_A1 = 5");
+    type_line(&mut m, "_A1 * 2");
+    assert!(has_row(&m, "10"), "underscores and digits in names");
+
+    type_line(&mut m, "TOTAL = 1");
+    type_line(&mut m, "TOTAL2 = 2");
+    type_line(&mut m, "TOTAL + TOTAL2");
+    assert!(has_row(&m, "3"), "TOTAL and TOTAL2 are distinct names");
+
+    type_line(&mut m, "ABCDEFGHIJK = 1"); // 11 characters
+    assert!(has_row(&m, "SYNTAX ERROR"), "an 11-character name is refused");
+}
+
+#[test]
+fn the_33rd_name_is_a_memory_error() {
+    let Some(mut m) = launch_ti_python() else { skip!() };
+    // 26 single letters + A0..A5 = 32 bindings; the 33rd distinct name fails.
+    for c in b'A'..=b'Z' {
+        type_line(&mut m, &format!("{} = 1", c as char));
+    }
+    for d in 0..6 {
+        type_line(&mut m, &format!("A{d} = 1"));
+    }
+    assert!(!has_row(&m, "MEMORY ERROR"), "32 names must all bind");
+    type_line(&mut m, "ZZ = 1");
+    assert!(has_row(&m, "MEMORY ERROR"), "the 33rd name reports MEMORY ERROR");
+    // And the table is intact: an existing name still reads and rebinds.
+    type_line(&mut m, "A0 = 9");
+    type_line(&mut m, "A0");
+    assert!(has_row(&m, "9"), "rebinding an existing name still works\n{:#?}", rows(&m));
+}
+
+/// Python arithmetic semantics (§3.4): the unary-minus fix (v0 evaluated
+/// 2*-3 as -3), floor `//`, and divisor-signed `%`.
+#[test]
+fn python_arithmetic_semantics() {
+    let Some(mut m) = launch_ti_python() else { skip!() };
+    for (expr, want) in [
+        ("2 * -3", "-6"),
+        ("2 - -3", "5"),
+        ("--5", "5"),
+        ("10 // 3", "3"),
+        ("-7 // 2", "-4"),
+        ("7 % -2", "-1"),
+        ("-5 % 3", "1"),
+        ("7 % 2", "1"),
+    ] {
+        type_line(&mut m, expr);
+        assert!(has_row(&m, want), "`{expr}` must print {want}\n{:#?}", rows(&m));
+    }
+    // The floor/mod identity a == (a//b)*b + a%b, spot-checked on a sign matrix.
+    for (a, b) in [(7i32, 2i32), (-7, 2), (7, -2), (-7, -2)] {
+        type_line(&mut m, &format!("{a} // {b} * {b} + {a} % {b}"));
+        assert!(has_row(&m, &a.to_string()), "identity broke for a={a} b={b}");
+    }
+}
+
+/// print(…) (§3.4): expression and string items, comma = single space,
+/// print() = a blank row, unterminated strings and stray text are errors.
+#[test]
+fn print_items_strings_comments_and_exit() {
+    let Some(mut m) = launch_ti_python() else { skip!() };
+    type_line(&mut m, "AREA = 2700");
+    type_line(&mut m, "PRINT(\"AREA =\", AREA)");
+    assert!(has_row(&m, "AREA = 2700"), "string + value items\n{:#?}", rows(&m));
+
+    type_line(&mut m, "PRINT(1, 2+3, \"OK\")");
+    assert!(has_row(&m, "1 5 OK"), "single-space separation");
+
+    type_line(&mut m, "PRINT('SINGLE')");
+    assert!(has_row(&m, "SINGLE"), "single-quoted strings work too");
+
+    type_line(&mut m, "5 # A COMMENT");
+    assert!(has_row(&m, "5"), "a # comment ends the line");
+
+    type_line(&mut m, "PRINT(\"UNTERMINATED");
+    assert!(has_row(&m, "SYNTAX ERROR"), "an unclosed string is refused");
+
+    type_line(&mut m, "PRINT(1) 2");
+    assert!(
+        rows(&m).iter().filter(|r| *r == "SYNTAX ERROR").count() >= 2,
+        "text after the close paren is refused"
+    );
+
+    // exit() returns to the selection menu (the same exit SYSINF takes).
+    type_line(&mut m, "EXIT()");
+    frames(&mut m, 260); // the menu redraws and rescans
+    assert!(
+        rows(&m).iter().any(|r| r.contains("FOR TI PYTHON")),
+        "exit() must land on the selection menu\n{:#?}",
+        rows(&m)
+    );
+}
+
+/// The screen scrolls like a terminal (§3.1): past the bottom, everything
+/// moves up one row, the banner eventually leaves, and the prompt sits on
+/// the bottom row instead of the screen clearing (the v0 wrap, B4).
+#[test]
+fn the_screen_scrolls_instead_of_clearing() {
+    let Some(mut m) = launch_ti_python() else { skip!() };
+    for _ in 0..12 {
+        type_line(&mut m, "7"); // two rows per interaction
+    }
+    assert_ne!(row(&m, 0), "TI PYTHON 0.0.1", "the banner scrolled off");
+    assert_eq!(row(&m, 23), ">>>", "the prompt rides the bottom row");
+    assert_eq!(row(&m, 22), "7", "the last answer is right above it");
+    assert_eq!(row(&m, 21), ">>> 7", "and its echo above that");
+    // History is preserved in order up the screen, not cleared.
+    assert_eq!(row(&m, 20), "7");
+    assert_eq!(row(&m, 19), ">>> 7");
+}
+
+/// The block cursor (§3.1): char >1E blinks at the input cell, phased by the
+/// ISR tick — over 40 frames the cell must show both the block and a space.
+#[test]
+fn the_cursor_blinks_at_the_input_cell() {
+    let Some(mut m) = launch_ti_python() else { skip!() };
+    let base = ((m.vdp().register(2) & 0x0F) as u16) * 0x400;
+    let cell = base + 5 * 32 + 4; // row 5, column 4 — the input position
+    let mut saw_block = false;
+    let mut saw_space = false;
+    for _ in 0..40 {
+        m.run_frame();
+        match m.vdp().vram(cell) {
+            0x1E => saw_block = true,
+            0x20 => saw_space = true,
+            _ => {}
+        }
+    }
+    assert!(saw_block, "the block cursor must appear");
+    assert!(saw_space, "and blink off again");
 }
 
 /// **Regression for docs/TI-PYTHON.md §4 B1 — fast (overlapped) typing
@@ -230,8 +417,8 @@ fn ti_python_evaluates_the_reference_session() {
 fn overlapped_typing_delivers_every_character() {
     let Some(mut m) = launch_ti_python() else { skip!() };
     type_line_overlapped(&mut m, "144 / 12");
-    assert_eq!(row(&m, 2), "> 144 / 12", "every rolled key must echo");
-    assert_eq!(row(&m, 3), "12", "and the line must evaluate");
+    assert_eq!(row(&m, 5), ">>> 144 / 12", "every rolled key must echo");
+    assert_eq!(row(&m, 6), "12", "and the line must evaluate");
 }
 
 /// **docs/TI-PYTHON.md §4 B2 — backspace.** FCTN+S (>08 — what the desktop
@@ -242,68 +429,62 @@ fn overlapped_typing_delivers_every_character() {
 fn backspace_erase_and_control_keys_edit_cleanly() {
     let Some(mut m) = launch_ti_python() else { skip!() };
 
-    // "12<BS>3" reads back as "13".
-    type_line(&mut m, "12");
-    // (type_line pressed ENTER: that line evaluated to 12 on row 3. Now edit
-    // a fresh line on row 4.)
-    for c in ["1", "2"] {
-        let (k, _) = key_for(c.chars().next().unwrap());
-        tap_combo(&mut m, None, k);
+    // "12<BS>3" reads back as "13" (input row 5, answer row 6).
+    for c in "12".chars() {
+        let (mo, k) = key_for(c);
+        tap(&mut m, mo, k);
     }
-    tap_combo(&mut m, Some(TiKey::Fctn), TiKey::S); // backspace
-    let (k3, _) = key_for('3');
-    tap_combo(&mut m, None, k3);
+    tap(&mut m, Some(TiKey::Fctn), TiKey::S); // backspace
+    let (mo, k3) = key_for('3');
+    tap(&mut m, mo, k3);
     press_enter(&mut m);
-    assert_eq!(row(&m, 4), "> 13", "backspace must rub out the 2");
-    assert_eq!(row(&m, 5), "13");
+    assert_eq!(row(&m, 5), ">>> 13", "backspace must rub out the 2");
+    assert_eq!(row(&m, 6), "13");
 
-    // ERASE clears the whole line; retype and evaluate.
+    // ERASE clears the whole line; retype and evaluate (rows 7/8).
     for c in "999".chars() {
-        let (k, _) = key_for(c);
-        tap_combo(&mut m, None, k);
+        let (mo, k) = key_for(c);
+        tap(&mut m, mo, k);
     }
-    tap_combo(&mut m, Some(TiKey::Fctn), TiKey::Num3); // ERASE
+    tap(&mut m, Some(TiKey::Fctn), TiKey::Num3); // ERASE
     for c in "42".chars() {
-        let (k, _) = key_for(c);
-        tap_combo(&mut m, None, k);
+        let (mo, k) = key_for(c);
+        tap(&mut m, mo, k);
     }
     press_enter(&mut m);
-    assert_eq!(row(&m, 6), "> 42", "ERASE must clear the 999");
-    assert_eq!(row(&m, 7), "42");
+    assert_eq!(row(&m, 7), ">>> 42", "ERASE must clear the 999");
+    assert_eq!(row(&m, 8), "42");
 
-    // An arrow key (FCTN+E, >0B) echoes nothing.
-    tap_combo(&mut m, Some(TiKey::Fctn), TiKey::E);
-    assert_eq!(row(&m, 8), ">", "control codes must not echo junk");
-
-    // Backspace with nothing typed is ignored (the prompt survives).
-    tap_combo(&mut m, Some(TiKey::Fctn), TiKey::S);
-    assert_eq!(row(&m, 8), ">");
-    press_enter(&mut m); // blank line: just re-prompts, no SYNTAX ERROR
-    assert_eq!(row(&m, 9), "", "a blank line must not print an error");
-    assert_eq!(row(&m, 10), ">", "and the REPL re-prompts");
+    // An arrow key (FCTN+E, >0B) echoes nothing; backspace on an empty line
+    // is ignored; ENTER on the empty line re-prompts without an error.
+    tap(&mut m, Some(TiKey::Fctn), TiKey::E);
+    tap(&mut m, Some(TiKey::Fctn), TiKey::S);
+    assert_eq!(row(&m, 9), ">>>", "control codes must not echo junk");
+    press_enter(&mut m);
+    assert!(!has_row(&m, "SYNTAX ERROR"), "a blank line must not error");
+    assert_eq!(row(&m, 10), ">>>", "the REPL just re-prompts");
 }
 
 /// **docs/TI-PYTHON.md §4 B3 — the input cap.** Typing past the row edge is
-/// swallowed: the echo stops at the last cell and the next row stays
-/// untouched until the result prints there.
+/// swallowed: the echo stops at column 31 and the next row stays untouched
+/// until the result prints there.
 #[test]
 fn input_stops_at_the_row_edge() {
     let Some(mut m) = launch_ti_python() else { skip!() };
-    let (k, _) = key_for('1');
+    let (_, k) = key_for('1');
     for _ in 0..40 {
-        tap_combo(&mut m, None, k);
+        tap(&mut m, None, k);
     }
-    // 30 digits fit after "> "; the 40 presses must not scribble row 3.
-    assert_eq!(row(&m, 2), format!("> {}", "1".repeat(30)));
-    assert_eq!(row(&m, 3), "", "no VRAM scribble past the input row");
+    // 28 digits fit after ">>> "; the 40 presses must not scribble row 6.
+    assert_eq!(row(&m, 5), format!(">>> {}", "1".repeat(28)));
+    assert_eq!(row(&m, 6), "", "no VRAM scribble past the input row");
     press_enter(&mut m);
-    // The 30-digit literal wraps mod 2^16 like all arithmetic.
+    // The 28-digit literal wraps mod 2^16 like all arithmetic.
     let mut v: u16 = 0;
-    for _ in 0..30 {
+    for _ in 0..28 {
         v = v.wrapping_mul(10).wrapping_add(1);
     }
-    let want = format!("{}", v as i16);
-    assert_eq!(row(&m, 3), want, "the capped line still evaluates");
+    assert_eq!(row(&m, 6), format!("{}", v as i16), "the capped line still evaluates");
 }
 
 /// **Regression for QUALITY-EVALUATION G1 — unguarded evaluator stacks.**
@@ -314,7 +495,7 @@ fn input_stops_at_the_row_edge() {
 /// data- and sub-stack pointers). Without a bound, ~17 nested `(` walks the
 /// operator-stack pointer past `>836F` into `>8370+`, corrupting the interpreter
 /// and derailing `CALL`/`RTN` mid-evaluation. The `console.gpl` fix guards every
-/// push site and aborts to a new `TOO COMPLEX` error (`EV_OVF`) before any push
+/// push site and aborts to a `TOO COMPLEX` error (`EV_OVF`) before any push
 /// reaches those cells. This pins it: the overflow is reported, the interpreter
 /// cells are untouched, and the REPL keeps evaluating.
 #[test]
@@ -338,7 +519,7 @@ fn deep_nesting_overflows_cleanly_and_the_repl_survives() {
     // the guard must fire first and report the overflow instead.
     type_line(&mut m, "((((((((((((((((((((");
     assert_eq!(
-        row(&m, 3),
+        row(&m, 6),
         "TOO COMPLEX",
         "deep nesting must report the overflow, not crash or corrupt memory"
     );
@@ -365,7 +546,7 @@ fn deep_nesting_overflows_cleanly_and_the_repl_survives() {
     // And the REPL is still healthy: a plain expression evaluates normally.
     type_line(&mut m, "1+1");
     assert_eq!(
-        row(&m, 5),
+        row(&m, 8),
         "2",
         "the REPL must survive the overflow and keep evaluating (1+1 = 2)"
     );
