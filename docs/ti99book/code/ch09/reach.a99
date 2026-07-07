@@ -1,5 +1,6 @@
 * REACH — the two-jump idiom for a long-distance conditional branch.  (Ch. 9)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * A Format-II jump reaches only -128..+127 words. When the target is
 * farther, invert the condition and jump OVER an unconditional B @far

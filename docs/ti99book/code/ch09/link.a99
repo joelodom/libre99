@@ -1,6 +1,7 @@
 * LINK — BL links the return address in R11; RT is B *R11 (>045B); and
 * a non-leaf that fails to save R11 first destroys its own way home. (Ch. 9)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Three things proven and painted green:
 *   1. BL sets R11 to the address of the NEXT instruction (the leaf reads it).

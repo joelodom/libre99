@@ -1,7 +1,8 @@
 * CRUSCAN — walk the peripheral-card CRU bases >1000..>1F00 and report which
 * answer: which present a DSR ROM (>AA header at >4000), and which merely
 * latch a CRU control bit.                                          (Ch. 10)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * HOW TO RUN (from docs/ti99book/):
 *   ../../target/release/libre99asm code/ch10/cruscan.a99 --name 'CRUSCAN' \

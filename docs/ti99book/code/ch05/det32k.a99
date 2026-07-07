@@ -1,6 +1,7 @@
 * DET32K — is the 32K expansion there? Ask the only way the machine  (Ch. 5)
 * allows: write, read back, and don't be fooled by an echo.
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Verdict in R0: >FFFF = expansion present, >0000 = absent. We write a
 * pattern AND its complement to the same cell; a floating bus that merely

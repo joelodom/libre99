@@ -1,5 +1,6 @@
 * RIG — Lab 5: one probe, four neighborhoods                    (Ch. 5)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * A timing rig. The probe (below) is a few position-independent
 * instructions that do no useful work; PLANT copies it into the

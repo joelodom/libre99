@@ -1,5 +1,6 @@
 * QUIZMASTER.GPL — a GPL program with a cartridge/program header.     (Ch. 27)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 * The header choreography (>AA + a program-list entry the master menu scans for
 * and lists as "n FOR NAME"), then an entry that draws a title with MOVE and
 * waits on SCAN. Built at >2000 because libre99gpl targets console-GROM space; a

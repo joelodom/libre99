@@ -1,5 +1,6 @@
 * ASSERT.INC — the verdict / panic-dump idiom.                         (Ch. 11)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Section 11.5's failed-check idiom, factored for reuse: on a decision,
 * RECORD a code to the pad AND FLASH the border in one call. A program

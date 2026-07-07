@@ -1,5 +1,6 @@
 * LOOPS — the pump family: copy, fill, scan                      (Ch. 7)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * The three canonical data-movement loops of §7.4, over pad buffers.
 * The copy loop is the reference form memlib's MEMCPY adopts verbatim.

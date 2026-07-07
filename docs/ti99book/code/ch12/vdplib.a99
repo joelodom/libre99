@@ -1,5 +1,6 @@
 * VDPLIB.A99 — self-test harness for vdplib.inc.                       (Ch. 12)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * This is the lib99 module PATTERN (Ch. 11, R-17), refined in Ch. 13 for
 * composition: the routines live in vdplib.inc (COPY-includable by any

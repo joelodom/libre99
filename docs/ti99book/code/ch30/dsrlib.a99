@@ -1,5 +1,6 @@
 * DSRLIB.A99 — assembles lib99's DSRLNK and shows a call site.        (Ch. 30)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 * NOT bench-runnable: BENCH99 has no DSR at >4000 (R-12). This harness proves
 * dsrlib.inc assembles with libre99asm; the DSR link path itself is verified in the
 * project's Rust harness (device_io.rs: the >AA scan, the DSK1 link, the ToD

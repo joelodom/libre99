@@ -1,5 +1,6 @@
 * MMIO — a plain MOVB is a conversation with hardware          (Ch. 5)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * No OS, no driver, no permission: a handful of MOVB instructions, and
 * a device answers. We aim the GROM's address pointer, then read it back

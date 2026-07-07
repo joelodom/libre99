@@ -1,5 +1,6 @@
 * MEMLIB — copy, fill, compare, scan (v0), with self-test        (Ch. 7)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * The first deposit toward lib99 (Ch. 11). Leaf routines: BL @NAME in,
 * RT out. Arguments ride R0-R2 and may be clobbered. Byte-sized cargo

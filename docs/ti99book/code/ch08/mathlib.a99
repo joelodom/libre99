@@ -1,6 +1,7 @@
 * MATHLIB — arithmetic, division, conversion, and pseudo-random routines,
 * with a self-checking harness.                                    (Ch. 8)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * The book's first self-checking lab. Leaf routines: BL @NAME in, RT out.
 * 32-bit values ride a register PAIR, HIGH word in the lower-numbered

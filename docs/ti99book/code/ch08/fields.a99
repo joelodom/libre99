@@ -1,6 +1,7 @@
 * FIELDS — packed status word for a game actor: test, set, clear, toggle,
 * extract, insert.                                                  (Ch. 8)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Layout of the status word (bit 15 = MSB):
 *   bit 15  ALIVE          bit 14  VISIBLE        bit 13  HOSTILE

@@ -1,5 +1,6 @@
 * INPLIB.A99 — self-test harness for lib99's input layer.             (Ch. 21)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Proves inplib on BENCH99. The edge detector is pure logic, so it is checked
 * against known prev/cur masks; the live joystick read is checked to return

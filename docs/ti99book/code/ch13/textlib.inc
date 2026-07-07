@@ -1,5 +1,6 @@
 * TEXTLIB.INC — lib99's text engine: a println for a machine without one. (Ch. 13)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Graphics I text output built on vdplib. A consumer COPYs, in order:
 *     COPY '../ch11/equates.inc'      ports + colors

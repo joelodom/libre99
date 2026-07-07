@@ -1,5 +1,6 @@
 * SYSCHK — lib99's first consumer: a system-information card.          (Ch. 11)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * SYSCHK interrogates the machine it wakes up on and writes what it finds
 * to a fixed block of scratchpad, then paints a border verdict. It is the

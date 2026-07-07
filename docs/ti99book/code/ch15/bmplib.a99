@@ -1,5 +1,6 @@
 * BMPLIB.A99 — self-test harness for lib99's bitmap engine.           (Ch. 15)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Proves bmplib on BENCH99. Brings up Graphics II, draws a full-screen box
 * outline and an X of diagonals through BLINE/BPSET, then checks that pixel

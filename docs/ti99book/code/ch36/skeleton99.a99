@@ -1,5 +1,6 @@
 * SKELETON99.A99 — the project's game template.                       (Ch. 36)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * The chassis every Part IX game instantiates: a phase STATE MACHINE (title ->
 * play -> over), a FIXED-SLOT entity table (Ch. 36.4), 8.8 FIXED-POINT positions

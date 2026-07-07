@@ -1,5 +1,6 @@
 * VDPLIB.INC — lib99's VDP core, as a COPY-includable module.         (Ch. 12)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * The routines only — no START, no data — so any consumer can pull them in.
 * A consumer must COPY 'equates.inc' (for VDPWA/VDPWD/VDPRD) BEFORE this file.

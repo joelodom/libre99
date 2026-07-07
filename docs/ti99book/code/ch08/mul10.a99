@@ -1,5 +1,6 @@
 * MUL10 — the times-ten showdown: hardware MPY versus shift-and-add.  (Ch. 8)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Two ways to compute R1 = R1 * 10, behind a common BL interface, both
 * run from the cartridge with operands on the pad so the bench times them

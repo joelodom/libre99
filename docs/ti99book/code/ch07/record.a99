@@ -1,5 +1,6 @@
 * RECORD — arrays and records by hand                           (Ch. 7)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * A 4-entry table of 6-byte records (X word, Y word, HP byte, FLAGS
 * byte), read in the RECORD costume (register base, EQU'd field offset),

@@ -1,5 +1,6 @@
 * BANKCART.A99 — bank 0 of a 2-bank cartridge: proves bank-switching.  (Ch. 35)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 * START copies a small PROBE to scratchpad RAM and runs it there (a resident
 * trampoline, S35.3) so switching the >6000 window does not pull the code out
 * from under the PC. The probe reads the bank marker (@TAG), switches to bank 1

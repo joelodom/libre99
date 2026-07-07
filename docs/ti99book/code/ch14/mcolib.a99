@@ -1,5 +1,6 @@
 * MCOLIB.A99 — self-test harness for lib99's Multicolor canvas.        (Ch. 14)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Proves mcolib on BENCH99. Brings up Multicolor mode, then paints sixteen
 * vertical colour bars (band b = colour b, four fat pixels wide) by plotting

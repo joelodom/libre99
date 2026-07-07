@@ -1,7 +1,8 @@
 * KEYSCAN — reading the console keyboard through the TMS9901 CRU: select a
 * column, shift the eight rows in with STCR, decode the pressed cell to an
 * ASCII byte.                                                       (Ch. 10)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * HOW TO RUN (from docs/ti99book/):
 *   ../../target/release/libre99asm code/ch10/keyscan.a99 --name 'KEYSCAN' \

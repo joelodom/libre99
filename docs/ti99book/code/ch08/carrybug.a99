@@ -1,5 +1,6 @@
 * CARRYBUG — the INCT-in-the-carry-chain bug, committed then fixed.  (Ch. 8)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Both routines add the 32-bit values 0000:FFFF + 0000:0001, whose true
 * sum is 0001:0000 — the low word wraps and must carry into the high word.

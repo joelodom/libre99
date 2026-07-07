@@ -1,5 +1,6 @@
 * MODECOST — the five doors, priced                             (Ch. 7)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * One MOV per addressing mode, destination held constant in a register,
 * everything on the fast island so the differences are the modes' own

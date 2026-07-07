@@ -1,5 +1,6 @@
 * SMOOTH.A99 — smooth (sub-cell) scrolling by pattern-shift.           (Ch. 17)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * The 9918A has NO hardware scroll register, and TERRAIN measured the cost of
 * the brute-force alternative: rewriting the 768-cell name table is ~163,000

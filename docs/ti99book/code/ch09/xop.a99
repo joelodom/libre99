@@ -1,5 +1,6 @@
 * XOP — the "extended operation": a BLWP whose vector you do NOT own.   (Ch. 9)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * XOP n (n = 0..15) traps through the vector at >0040 + n*4 = {WP, PC}, saving
 * the caller's WP/PC/ST into the new R13/R14/R15 exactly like BLWP. TWO things

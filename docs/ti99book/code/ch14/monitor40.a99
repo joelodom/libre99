@@ -1,5 +1,6 @@
 * MONITOR40.A99 — MONITOR99 ported to the 40-column TEXT screen.       (Ch. 14)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Lab 14, part 2. The ch13 hex viewer, rebuilt on textlib40: TEXT mode's extra
 * eight columns buy a wider row — the address then SIX words instead of four —

@@ -1,5 +1,6 @@
 * RLEDEC.A99 — self-test for lib99's RLE decompressor.                (Ch. 38)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 * Decompresses an embedded stream to DEST and checks it. The stream
 *   >85 >41  (run: 5 x 'A')   >03 >42 >43 >44  (literal: B C D)   >00 (end)
 * must expand to "AAAAABCD" = 41 41 41 41 41 42 43 44 (8 bytes). Verify:

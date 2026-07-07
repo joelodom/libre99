@@ -1,5 +1,11 @@
 # Programming the TI-99/4A — manuscript & companion code
 
+**Version 0.0.1** — the book tracks the [Libre99](../../README.md) project
+version; the single source of truth is the workspace `version` in the
+repo-root `Cargo.toml`, and the book releases in lock-step with the toolchain
+it documents. (The outline's `v1.x` amendments are editorial revisions, a
+separate thing from this release number.)
+
 A book-length guide to TMS9900 assembly and GPL programming on the TI-99/4A.
 Work in progress, written one chapter per session with an AI writing partner —
 **inside, and founded on, the [Libre99](../../README.md) project**: the

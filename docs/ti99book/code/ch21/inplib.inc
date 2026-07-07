@@ -1,5 +1,6 @@
 * INPLIB.INC — lib99's per-frame input layer (keyboard/joystick, 9901). (Ch. 21)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Reads the console's input hardware through the TMS9901 CRU (the mechanism
 * built and verified in ch10) and turns raw switch states into the pressed /

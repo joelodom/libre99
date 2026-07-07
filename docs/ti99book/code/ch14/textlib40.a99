@@ -1,5 +1,6 @@
 * TEXTLIB40.A99 — self-test harness for lib99's 40-column text engine. (Ch. 14)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Proves textlib40 (and its 6-pixel font) on BENCH99. Brings up TEXT mode, then
 * prints the whole alphabet and digits (so `pixels 1` can read every glyph), a

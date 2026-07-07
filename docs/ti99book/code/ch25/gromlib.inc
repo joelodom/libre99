@@ -1,5 +1,6 @@
 * GROMLIB.INC — lib99's GROM reader.                                  (Ch. 25)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * A GROM is a ROM with an internal 16-bit address counter, read one byte at a
 * time through memory-mapped ports (no parallel address bus). A consumer COPYs,

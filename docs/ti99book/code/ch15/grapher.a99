@@ -1,5 +1,6 @@
 * GRAPHER.A99 — a function grapher on the bitmap canvas.              (Ch. 15)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Lab 15 plotting demo. Draws x/y axes with BLINE, then plots a parabola
 * y = 40 + (|x-128|^2 >> 7) for every column x = 0..255 through BPSET — one

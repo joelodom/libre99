@@ -1,5 +1,6 @@
 * SECLIB.INC — lib99's sector-level disk access (the SECTOR subprogram). (Ch. 32)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Beneath the file abstraction (Ch. 31) the disk DSR exposes SUBPROGRAMS reached
 * by number, not by device name — and >10 (SECTOR) reads or writes one raw 256-

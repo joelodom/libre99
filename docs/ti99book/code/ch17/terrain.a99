@@ -1,5 +1,6 @@
 * TERRAIN.A99 — a coarse-scrolling landscape, and the cost of a frame. (Ch. 17)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Lab 17 (the scroll mechanic + the budget). A field of 32 vertical colour
 * stripes (Graphics I, the 8-character colour-group trick of ch13/14) scrolled

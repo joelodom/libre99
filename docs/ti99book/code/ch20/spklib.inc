@@ -1,5 +1,6 @@
 * SPKLIB.INC — lib99's speech-synthesizer interface.                  (Ch. 20)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * The TMS5200/5220 speech synthesizer lives in the sidecar Speech Synthesizer
 * unit, memory-mapped at >9000 (read status/data, SPCHRD) and >9400 (write

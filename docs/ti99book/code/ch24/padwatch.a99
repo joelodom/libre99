@@ -1,6 +1,7 @@
 * PADWATCH.A99 — snapshot the scratchpad, then diff it after a routine   (Ch. 24)
 * runs — a live "what did that touch?" tool.
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Lab 24. The scratchpad (>8300-83FF) is 256 bytes shared by your code, the GPL
 * interpreter, KSCAN, and the interrupt handler — and it is maddening to know

@@ -1,5 +1,6 @@
 * PLACEBENCH.A99 — placement is king: the workspace wait-state cost.  (Ch. 37)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 * A 100-iteration loop that does NOT set its own WP, so BENCH99 can point the
 * workspace at scratchpad (>8300, 0-wait) or expansion RAM (>2000, +4 waits/
 * access) and measure the difference: every DEC R1 reads and writes R1 in the

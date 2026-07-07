@@ -1,5 +1,6 @@
 * SPKLIB.A99 — self-test harness for lib99's speech interface.        (Ch. 20)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Proves the ONE thing this console can prove about speech: DETECTION. The
 * project models a console with no speech sidecar, so SPKDET must return

@@ -1,5 +1,6 @@
 * SPRITELIB.INC — lib99's sprite engine.                              (Ch. 16)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Sprites are the VDP's moving objects — 32 of them, drawn OVER any non-text
 * mode's background, positioned to the pixel, no background redraw required. A

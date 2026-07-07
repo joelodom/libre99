@@ -1,5 +1,6 @@
 * TASK99 — a cooperative multitasker in one page of code.              (Ch. 9)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * The whole idea in one sentence: BLWP/RTWP already IS a context switch, so a
 * scheduler is just BLWP/RTWP pointed at a table of saved contexts.

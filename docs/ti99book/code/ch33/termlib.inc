@@ -1,5 +1,6 @@
 * TERMLIB.INC — lib99's serial primitives (the TMS9902 as a CRU device). (Ch. 33)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * The RS232 card's UART, the TMS9902, is a CRU device (Ch. 10): you configure it,
 * send a byte, and receive a byte entirely through CRU bits at the card's base

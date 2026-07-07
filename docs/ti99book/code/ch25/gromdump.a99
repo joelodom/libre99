@@ -1,5 +1,6 @@
 * GROMDUMP.A99 — dump and checksum the console GROM.                  (Ch. 25)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Lab 25. Streams the first 256 bytes of the console GROM (address 0) through
 * gromlib and accumulates a 16-bit checksum (sum of the bytes, mod 2^16). The

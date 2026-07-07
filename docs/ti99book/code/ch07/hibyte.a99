@@ -1,5 +1,6 @@
 * HIBYTE — the high-byte law, demonstrated                      (Ch. 7)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Byte operations on a register touch its HIGH half (its own even
 * address, big end first). Result cells are pre-set to >FFFF so a byte

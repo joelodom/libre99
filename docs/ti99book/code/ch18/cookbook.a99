@@ -1,5 +1,6 @@
 * COOKBOOK.A99 — measure the canonical VDP operations, for the §18.6     (Ch. 18)
-* bandwidth cookbook.  Copyright (c) 2026 Joel Odom. All rights reserved.
+* bandwidth cookbook.  Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * A straight-line sequence of the operations Part III leans on, each ending at a
 * labeled point, so the bench can bracket every one with `cycles`:

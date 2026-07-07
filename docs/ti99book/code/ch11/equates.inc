@@ -1,5 +1,6 @@
 * EQUATES.INC — the console's magic addresses, named ONCE.            (Ch. 11)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * The book's first shared include (S11.3). Every hardware address the
 * machine forces on us — the VDP ports, the sound and speech and GROM

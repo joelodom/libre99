@@ -1,7 +1,8 @@
 * SCRAPS — the chapter's short fragments in one runnable file: the
 * signed/unsigned jump disagreement, the COC/CZC mask tests, the shift
 * idioms, and the carry-as-a-data-channel loop.               (Ch. 8)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 
 WS     EQU  >8300
 BITCNT EQU  >8360            count of 1-bits found by the carry-channel loop

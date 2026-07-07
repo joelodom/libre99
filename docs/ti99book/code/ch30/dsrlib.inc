@@ -1,5 +1,6 @@
 * DSRLIB.INC — lib99's own DSRLNK: link to a Device Service Routine.  (Ch. 30)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * A DSR is a peripheral's driver, in ROM on the card, paged into >4000-5FFF one
 * card at a time by that card's CRU bit. To use a device you must FIND its card,

@@ -1,5 +1,6 @@
 * FILELIB.INC — lib99's file I/O: the PAB and the opcode wrappers.   (Ch. 31)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * File I/O on the TI is a CONTRACT written into a block of bytes — the Peripheral
 * Access Block (PAB) — that lives in VRAM. You fill in its fields (what to do, to

@@ -1,5 +1,6 @@
 * MEMBNCH — the pump, priced by buffer placement                (Ch. 7)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * The copy loop's inner three instructions, run once with buffers on the
 * fast island and once with buffers across the funnel. The code lives in

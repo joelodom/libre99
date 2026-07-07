@@ -1,5 +1,6 @@
 * METEORBELT.A99 — Capstone I: the scrolling shooter.               (Ch. 39)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Part IX's first complete title, built on SKELETON99 (Ch. 36) + lib99. This
 * file is METEOR BELT's ENGINE: the phase state machine (ATTRACT -> PLAY ->

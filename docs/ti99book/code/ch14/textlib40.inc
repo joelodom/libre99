@@ -1,5 +1,6 @@
 * TEXTLIB40.INC — lib99's 40-column text engine (TEXT mode).          (Ch. 14)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * The productivity-mode sibling of ch13's textlib. Where textlib drives
 * Graphics I (32 wide, an 8x8 cell, colour by group of eight), this drives the

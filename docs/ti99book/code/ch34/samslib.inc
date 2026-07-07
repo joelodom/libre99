@@ -1,5 +1,6 @@
 * SAMSLIB.INC — lib99's SAMS paged-memory mapper.                     (Ch. 34)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * SAMS (Super AMS) turns the console's fixed 32K expansion into 1 MB+ of RAM,
 * seen 4 KiB at a time through a MAPPER. The CPU's memory map still has its eight

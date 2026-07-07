@@ -1,5 +1,6 @@
 * FILELIB.A99 — assembles lib99's file-I/O wrappers and shows a call site. (Ch.31)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 * NOT bench-runnable (no disk in BENCH99, R-12); the PAB path is verified in the
 * Rust harness (device_io.rs). This proves filelib.inc assembles with libre99asm.
        COPY '../ch11/equates.inc'

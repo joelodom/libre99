@@ -1,5 +1,6 @@
 * MONITOR99 — a live hex memory viewer, built entirely on textlib.      (Ch. 13)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Lab 13. Dumps eight rows of memory as "ADDR  WWWW WWWW WWWW WWWW" — the
 * address then four words — using nothing but textlib (TXMODE/TXLOC/TXHEX/

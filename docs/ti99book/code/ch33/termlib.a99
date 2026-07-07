@@ -1,5 +1,6 @@
 * TERMLIB.A99 — assembles lib99's serial primitives.                  (Ch. 33)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 * NOT runnable on this project's emulator or BENCH99: the TMS9902 is UNEMULATED
 * (R-12). Runs on Classic99/MAME/hardware. Proves termlib.inc assembles.
        COPY '../ch11/equates.inc'

@@ -1,5 +1,6 @@
 * PADRUN — stage the hot loop in the pad and pocket the toll.   (Ch. 5)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * A program resident in slow cartridge ROM runs its inner loop 1000
 * times where it sits, then copies that same loop into the fast pad and

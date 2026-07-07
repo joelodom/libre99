@@ -1,5 +1,6 @@
 * SNDLIB.INC — lib99's sound engine (SN76489 PSG).                    (Ch. 19)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Three square-wave tone channels and one noise channel, driven one byte at a
 * time through the write-only port at >8400 (SNDWR, from equates.inc). A

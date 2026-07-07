@@ -1,6 +1,7 @@
 * CRUDEMO — the five CRU instructions on real hardware: SBO / SBZ / TB
 * (single-bit) and LDCR / STCR (multi-bit), self-checked.          (Ch. 10)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * HOW TO RUN (from docs/ti99book/):
 *   ../../target/release/libre99asm code/ch10/crudemo.a99 --name 'CRUDEMO' \

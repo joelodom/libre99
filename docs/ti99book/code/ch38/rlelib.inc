@@ -1,5 +1,6 @@
 * RLELIB.INC — lib99's RLE decompressor (PackBits-style).             (Ch. 38)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Run-length encoding earns its keep at 3 MHz: a tiny, fast decoder (this) and
 * a compact stream, decompressed straight into VRAM or RAM at load time. The

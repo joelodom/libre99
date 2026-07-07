@@ -1,5 +1,6 @@
 * MCOLIB.INC — lib99's Multicolor-mode canvas (the PLOT64 API).        (Ch. 14)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Multicolor mode turns the 256x192 screen into a 64x48 grid of fat 4x4 pixels,
 * each independently one of 15 colours (or transparent). There is no font and no

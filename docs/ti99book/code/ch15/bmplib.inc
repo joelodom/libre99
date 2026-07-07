@@ -1,5 +1,6 @@
 * BMPLIB.INC — lib99's bitmap (Graphics II) drawing engine.           (Ch. 15)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Graphics II gives every one of the 256x192 pixels its own bit: a real bitmap,
 * the closest the 9918A comes to a framebuffer. A consumer COPYs, in order:

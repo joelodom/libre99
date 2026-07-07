@@ -1,5 +1,6 @@
 * TEXTLIB.A99 — self-test harness for textlib.inc.                     (Ch. 13)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * The lib99 composition chain in action: this consumer COPYs equates, then
 * vdplib.inc, then textlib.inc — dependencies first — and supplies START.

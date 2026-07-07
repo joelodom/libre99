@@ -1,5 +1,6 @@
 * DODGE.A99 — our first game: dodge the falling meteors.              (Ch. 16)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Lab 16. A player ball at the bottom and four meteor balls falling from the
 * top; each meteor that reaches the floor respawns at a new (pseudo-random)

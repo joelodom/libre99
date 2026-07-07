@@ -1,5 +1,6 @@
 * SNDLIB.A99 — self-test harness for lib99's sound engine.            (Ch. 19)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Proves sndlib on BENCH99. Plays a C-major chord — C4/E4/G4 on the three tone
 * channels, loaded from the NOTES table — with a little white noise under it,

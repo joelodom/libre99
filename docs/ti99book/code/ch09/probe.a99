@@ -1,6 +1,7 @@
 * PROBE — cycle costs of the control-flow instructions, and the BLWP
 * linkage, read straight off the bench.                            (Ch. 9)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Code lives in the cartridge (>6000+); workspace and stack in the pad.
 * Step with `s` and read the cycle column; read R7/R8/R9 in the new

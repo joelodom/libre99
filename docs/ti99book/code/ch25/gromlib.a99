@@ -1,5 +1,6 @@
 * GROMLIB.A99 — self-test harness for lib99's GROM reader.            (Ch. 25)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Proves gromlib on BENCH99. Reads the first sixteen bytes of the console GROM
 * (address 0) into BUF, checks the GROM header signature (byte 0 = >AA, the mark

@@ -1,5 +1,6 @@
 * FXCALC.A99 — 8.8 fixed-point multiply, the cheap alternative to the ROM    (Ch. 23)
-* floating-point package.  Copyright (c) 2026 Joel Odom. All rights reserved.
+* floating-point package.  Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * §23.5's judgment made concrete. The console's radix-100 floating-point package
 * is general and accurate but expensive (hundreds to thousands of cycles per

@@ -1,5 +1,6 @@
 * PROFILE99.A99 — a profiling harness: measure lib99 calls in cycles.  (Ch. 22)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Lab 22. On-machine profiling wants the 9901 interval timer — which the project
 * does not yet emulate (R-12, §22.6) — so we profile the way this book has all

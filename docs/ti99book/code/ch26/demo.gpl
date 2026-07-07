@@ -1,5 +1,6 @@
 * DEMO.GPL — a tiny GPL program, round-tripped through libre99gpl.       (Ch. 26)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 * Shows GPL's shape: the between-any-two-spaces MOVE, an immediate store, the
 * screen-fill ALL, and RTN. Assemble with `libre99gpl asm`, disassemble back with
 * `libre99gpl dis` — the instructions round-trip, proving the toolchain both ways.

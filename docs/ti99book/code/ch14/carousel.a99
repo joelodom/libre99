@@ -1,5 +1,6 @@
 * CAROUSEL.A99 — the mode carousel: switch cleanly among three VDP     (Ch. 14)
-* modes at runtime.  Copyright (c) 2026 Joel Odom. All rights reserved.
+* modes at runtime.  Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Lab 14, part 1. Cycles GRAPHICS I -> TEXT -> MULTICOLOR forever, holding each
 * for a beat, to show the register/VRAM dance a mode change really is. Each

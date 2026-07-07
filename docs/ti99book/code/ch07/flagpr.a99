@@ -1,5 +1,6 @@
 * FLAGPR — who reports to the flags, and who stays silent         (Ch. 7)
-* Copyright (c) 2026 Joel Odom. All rights reserved.
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
 *
 * Step this under BENCH99 (`s`) and read ST after each instruction: the
 * movers that test their cargo (MOV, MOVB, LI) versus the ones that
