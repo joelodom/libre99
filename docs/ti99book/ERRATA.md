@@ -316,3 +316,147 @@ SAL/law-of-four semantics, frame/scroll cycle economics, and the §18.6
 cookbook all reconcile internally and against `vdp.rs`/the datasheet
 model. (The `cycles` bench command referenced by Ex. 14.6/15.4/18.6 exists —
 verified in `code/bench/src/main.rs`.)
+
+---
+
+## Part IV — Sound and Speech
+
+### Chapter 19 — The Sound Generator
+
+- **19-1 `[BUG]`** — §19.2: "Ten bits of `N` (1 to 1023) gives a range from
+  about **3,494 Hz at `N = 1`** down to about 109 Hz at `N = 1023`."
+  3,494 Hz is `N = 32` (3,579,545 / (32×32)); at `N = 1` the output is
+  ~111,861 Hz — ultrasonic. The *musical* range the sentence means starts
+  around `N = 32`. Fix: "about 3,494 Hz at `N = 32` (smaller values climb
+  beyond hearing) down to about 109 Hz at `N = 1023`" — the "five octaves"
+  conclusion survives unchanged. (The even-address-only write rule in §19.1
+  was cross-checked against Classic99 `Tiemul.cpp` — "don't respond on odd
+  addresses" — and is correct.)
+
+### Chapter 20 — The Speech Synthesizer
+
+- **20-1 `[BUG]``[INCONSISTENT]`** — The sidecar is placed on the console's
+  **left** twice ("plug the Speech Synthesizer sidecar onto the left side,"
+  prologue; "clips onto the console's **left** expansion port," §20.2). The
+  I/O expansion port is on the console's **right** edge — as Ch. 2's own
+  block diagram says ("Side port (right edge of console)").
+
+---
+
+## Part V — Input, Interrupts, and Console Services
+
+### Chapter 21 — Keyboard, Joysticks, and the TMS9901
+
+- **21-1 `[BUG]`** — §21.6: "there is a scratchpad flag the firmware checks,
+  which a program **clears** to suppress the reset." Backwards. The ISR
+  checks *disable* bits at `>83C2` (verified in the clean-room
+  `rom/console.asm`, RECON §6: `>80` all VDP duties / `>40` sprite motion /
+  `>20` sound / `>10` QUIT) — a program **sets** `>10` to suppress QUIT.
+  Cross-check App. C's row for the same wording while fixing.
+- **21-2 `[VERIFY]`** — §21.4 says Alpha Lock shares a line with
+  "**joystick 1's** up direction." The community record generally has the
+  latched Alpha Lock interfering with UP on **both** joysticks (the lock's
+  select line back-feeds the shared row). Verify against Classic99's
+  keyboard wiring or Nouspikel before print; if both, s/joystick 1's/the
+  joysticks'/.
+
+### Chapters 22–23 *(reviewed clean)*
+
+`>8379` frame counter, `>83C4` hook, LOAD/RESET model, FAC/ARG addresses,
+radix-100 description, and the E/A-environment honesty all check out
+against the firmware source and App. C/K.
+
+### Chapter 24 — The Scratchpad Atlas
+
+- **24-1 `[INCONSISTENT]`** — The R10 stack top. Ch. 9's text and code
+  canonize `STKTOP = >8380` ("R10 balanced to >8380"); the companion code
+  then drifts — `>83FE` (ch10 `keyscan.a99` — *inside the `>83E0` GPL
+  workspace this very chapter calls sacred*), `>8370` (ch11–12), `>8340`
+  (ch13 onward, the settled value) — and Ch. 24 §24.4 declares ">8340 in
+  most of this book's programs" as if it had always been the convention.
+  Fix options: (a) add one sentence to Ch. 9 ("the top is per-program until
+  the libraries settle on `>8340` in Ch. 13") and a footnote in §24.4
+  acknowledging the early files; or (b) retrofit ch09–ch12 code + prose to
+  `>8340`. Either way, reconsider ch10's `>83FE` — harmless bare-metal, but
+  it models the opposite of the atlas's advice and will confuse a reader
+  who diffs code against Ch. 24.
+
+---
+
+## Part VI — GROM, GPL, and the Operating System
+
+### Chapter 25 — GROM *(reviewed clean — and note it explains the
+address-readback/prefetch correctly; fixing 5-2 should point Ch. 5 at this
+chapter's wording)*
+
+### Chapter 26 — The GPL Language
+
+- **26-1 `[BUG]`** — §26.5: "The core branches are **B** (unconditional
+  branch to a GROM address), **BR** (a short relative branch), and
+  **BS**/**BR** in their condition-testing forms." Muddled: GPL's `BR` is
+  not a relative branch, and `BR`/`BS` *are* the conditional pair — there
+  are no separate "condition-testing forms." Correct statement (per the
+  ISA in `libre99-gpl/src/isa.rs` and App. B): `B` is the long
+  unconditional branch; **`BR` (branch on status reset) and `BS` (branch
+  on status set)** test — and consume — the COND bit of `>837C`, taking a
+  13-bit within-slot GROM address.
+- **26-2 `[BUG]`** — §26.5: "`CALL` pushes the GPL program counter onto the
+  GPL **data stack**." GPL keeps two stacks — the data stack (pointer at
+  `>8372`) and the **subroutine stack** (pointer at `>8373`); `CALL`/`RTN`
+  use the subroutine stack. One-word fix, but readers cross-referencing
+  App. C will notice.
+- **26-3 `[VERIFY]`** — Lab 26 echoes the round-trip as "`ALL >20 / ST
+  V@>0000, >48 / MOVE >0005, V@>0002, …`" — the `MOVE` operand order shown
+  (count, *dest*, …) contradicts §26.7's own `MOVE >0005, G@MSG, V@>0002`
+  (count, src, dest). Check the actual `dis` output and make the two
+  agree.
+
+### Chapter 27 — Writing GPL Today
+
+- **27-1 `[STALE]`** — §27.2/Lab (and Ch. 28 §28.2/§28.7/Lab/Summary): the
+  verified transcript "the booted **clean-room** console menu … lists
+  `1 FOR TI BASIC`." At HEAD the clean-room GROM's program header is
+  **`TI PYTHON`** (`console.gpl` line ~752; GROM 1), plus the
+  system-information entry — TI BASIC appears only when booting authentic
+  firmware. Update the transcripts and prose to the machine actually
+  booted (the clean-room + TI PYTHON example is now the *better* story:
+  the same `>AA` scan discovering an original program). The title-screen
+  strings ("TEXAS INSTRUMENTS / HOME COMPUTER / READY-PRESS ANY KEY…")
+  are still accurate at HEAD — only the menu-entry name changed.
+
+### Chapter 28 — The OS in GROM
+
+- **28-1 `[STALE]`** — Same as 27-1: the "`PRESS / 1 FOR TI BASIC`"
+  transcript and the §28.7/summary claims that the clean-room menu lists
+  TI BASIC. Fix together with 27-1.
+
+### Chapter 29 — Hybrid Architecture
+
+- **29-1 `[STYLE]`** — Further Reading: "Chapter 36 (Extended BASIC and
+  the User)" — Ch. 36's title is *Program Architecture in 16–48K* (the
+  `CALL LINK` page is §36.8 inside it). Fix the label.
+
+---
+
+## Part VII — Storage and Peripherals
+
+### Chapters 30–33 *(reviewed clean, with one wording nit)*
+
+- **30-1 `[SUGGEST]`** — §30.5: "the console's ISR runs on `/INT2` (the VDP's
+  60 Hz), but the same interrupt line is shared by expansion cards." Loose:
+  at the 9901's pins the VDP arrives on INT2 and expansion cards on INT1
+  (EXTINT); what is shared is the CPU's single **level-1** line both funnel
+  into (which the ISR's source check distinguishes — the firmware's `ISRVDP`
+  test). One clarifying clause avoids teaching that cards share /INT2.
+- The PAB error-code semantics in Ch. 31 (error 2 for a missing file on
+  OPEN) were cross-checked against App. H's tier-1 matrix — consistent.
+
+### Chapter 34 — Modern Peripherals
+
+- **34-1 `[BUG]`** — §34.6 and Further Reading both say the consolidated
+  capability-detection recipes live in "**App. I**" — App. I is *Media &
+  File Formats* (and its outline spec contains no detection material).
+  No appendix currently owns these recipes. Either add a short section to
+  App. L (toolchain quick reference) or App. G, and point there, or cite
+  §34.6 itself as the consolidation. (If App. I's finishing session wants
+  to absorb them, update its stub spec first.)
