@@ -460,3 +460,159 @@ chapter's wording)*
   App. L (toolchain quick reference) or App. G, and point there, or cite
   §34.6 itself as the consolidation. (If App. I's finishing session wants
   to absorb them, update its stub spec first.)
+
+---
+
+## Part IX — Case Studies
+
+Chapters 39, 40, 41, and 43 reviewed clean — and unusually deeply verifiable:
+the printed traces, bit-packings (the FATE 5-bit trace decodes exactly), maze
+algebra, and cycle budgets all reconcile. Two findings:
+
+- **42-1 `[BUG]`** — Ch. 42 §42.3: "page the rest to **VRAM (24 kilobytes of
+  it**, addressable a byte at a time through the port)." VRAM is **16 KB**
+  total (roughly 15 KB free beyond text mode's tables). "24 KB" belongs to
+  the *high expansion RAM*; as written it misstates the machine. Fix the
+  number (and pick which far store the sentence means — VRAM through the
+  port is the one the parenthetical describes).
+
+## Part X — Beyond the Console
+
+Chapters 44–45 reviewed clean (Geneve/F18A/99000 facts check against the
+community record and are properly hedged).
+
+- **45-1 `[STYLE]`** — §45.4: "the **byte-high law**" — the book's canon
+  handle (R-8, App. M) is "the **high-byte law**."
+
+---
+
+## Appendices (drafted)
+
+### Appendix B — GPL Reference *(reviewed clean)*
+B.4.3's `BR`/`BS` rows are the correct semantics to align Ch. 26's fix
+(26-1) against.
+
+### Appendix C — Memory Maps & Scratchpad Atlas
+
+- **C-1 `[INCONSISTENT]`** — Shares erratum 24-1 (the stack top): C.3/C.5
+  print `>8340` as *the* stack top "(Ch. 9)" though Ch. 9 canonized `>8380`
+  and the code drifted through four values. Additionally C.5 is internally
+  contradictory: it assigns `>8320`–`>833F` to "hot variables" *and* has the
+  stack growing **down from `>8340`** — i.e., into that same range. Resolve
+  with 24-1: state the settled layout precisely (e.g., "the stack grows down
+  from `>8340` into the *upper* end of `>8320`–`>833F`; keep hot variables
+  at the low end, and keep the stack shallow — R-16 pushes are transient"),
+  or renumber.
+
+### Appendix D — TMS9918A Reference
+
+- **D-1 `[BUG]`** — D.7 (the timing cookbook): "the whole **~4,000-cycle**
+  blanking interval is yours." Same error as 12-2, propagated: the vertical
+  blank is ~70 of 262 lines ≈ **13,400 CPU cycles** (≈ 4.5 ms at 3 MHz).
+  Fix both places together; the recurring "4,x00" reads like a
+  milliseconds-value mislabeled as cycles.
+
+### Appendix E — Sound Reference *(reviewed clean)*
+E.3 already prints the correct `N = 1` ≈ 111,861 Hz row — fix 19-1 to match
+it. One nit: E.3 sets its formula in `$$…$$` LaTeX, the manuscript's only
+use; the house style is code-block/ASCII math (R-5).
+
+### Appendix G — CRU Map
+
+- **G-a `[SUGGEST]`** — G.4: "The project emulator runs a **genuine** disk
+  DSR" — ambiguous at HEAD, where the *default* is the clean-room DSR and
+  `--disk-dsr` installs an authentic image. Reword ("a complete disk DSR —
+  the clean-room rewrite by default"). G.3's Alpha-Lock note shares
+  erratum 21-2 (joystick 1 vs. both joysticks — verify and fix together).
+
+### Appendix H — DSR & PAB Reference *(reviewed clean; Ch. 31's error-code
+usage checked against H.6 and consistent)*
+
+### Appendix J — Character Sets & Key Codes *(reviewed clean)*
+
+### Appendix K — Console Entry Points
+
+- **K-1 `[VERIFY]`** — K.4/K.5's XTAB row names `XML >1A` = `SGROM` ("search
+  GROM headers — the device/subprogram scan"), while Ch. 29 §29.2 glosses
+  `XML >19` as "find the next card with a power-up routine" and `>1A` as
+  "**call** it." One of the two mislabels which code searches and which
+  calls. Reconcile both texts against `rom/console.asm`'s XTAB and
+  `console.gpl`'s power-up walk, and use one set of glosses in both places.
+
+### Appendix L — Toolchain Quick Reference *(reviewed clean — fully current
+with HEAD; use it as the model for the Ch. 3 G-1 rewrite)*
+One addition folded into G-2: L.3 should say where BENCH99's `boot` gets its
+firmware (today: authentic images from the maintainer-local `third-party/`,
+absent from a public clone).
+
+### Appendix M — Glossary
+
+- **M-1 `[BUG]`** — The **prefetch** entry: "…so the first read after
+  setting an address is **stale**." Backwards: the prefetch is what makes
+  the first *data* read correct; what is off-by-one is the *address
+  counter read-back* (Ch. 25 §25.2 states it correctly). Rewrite the
+  definition to match Ch. 25.
+- **M-2 `[STYLE]`** — **CQ-82**'s origin pointer reads "(Ch. 36; Part IX)";
+  the checklist is coined in **Ch. 2 §2.6** (Part IX enforces it). Also:
+  the **high-byte law** entry points at "(Ch. 4, Ch. 8)" — Ch. 7 is the
+  chapter that names it; and the **TMS5220** entry could note the console
+  sidecar shipped the TMS5200 sibling (as Ch. 20 does).
+
+### Appendix N — Bibliography *(reviewed clean)*
+
+---
+
+## Stubs — detailed guidance for the finishing sessions
+
+### Appendix A — TMS9900 Instruction Reference `[STUB]`
+
+The natural next appendix; opcodes/encodings/status are machine-verifiable
+here (libre99asm round-trips + `cpu.rs` + Classic99's `WStatusLookup`); the
+cycle-formula column needs the TMS9900 datasheet (Mac). Guidance from this
+review pass:
+
+- **A-s1** — App. A is the declared audit target for premises the body
+  already printed. Reconcile these while drafting: Ex. 4.7's premises
+  (erratum 4-1 — `MOVB Rs,@addr` = C 22 / M 5); Ch. 7 §7.1's mode-cost
+  table (the "extra accesses" column counts only workspace-external
+  accesses — footnote it or normalize); Ch. 8's shift model (12 + 2n, +8
+  for the R0-count path) and `MPY` 52 / `DIV` 92–124 hardware ranges
+  (Ch. 37 cites them); jumps 10 taken / 8 not.
+- **A-s2** — Carry the emulator-deviation rows prominently: `MOV`/`MOVB`
+  destination pre-read unmodeled (re-verified at HEAD in `cpu.rs`);
+  `MPY`/`DIV` flat-cost timing (Ch. 8/37); DIV's data-dependent range is
+  datasheet-only.
+- **A-s3** — G-4 (the bit-numbering declaration) wants its permanent home
+  in App. A's front matter.
+
+### Appendix F — Speech Reference `[STUB]`
+
+Correctly deferred: the project models no synthesizer, and no
+TMS5200/5220 datasheet is on this PC — drafting now would violate R-21/R-15
+(fabricated tables). When a session has the datasheet (or the project grows
+speech): align with Ch. 20's asserted facts (TMS5200 in the sidecar, cousin
+of the 5220; `>9000` read / `>9400` write; ~16-byte FIFO; buffer-low/empty
+status bits; Speak External; energy + pitch + K1–K10, ~25 ms frames,
+~1,200 bits/s; resident vocabulary "a few hundred" entries) and fix App. M's
+TMS5220 entry in the same pass. Ch. 20's `SPKDET` "read-signature protocol"
+should be documented as F's detection section.
+
+### Appendix I — Media & File Formats `[STUB]`
+
+Half is tier-1-ready **now**: the disk half (VIB/FDR/FDIR/cluster chains,
+`.dsk` sector-dump geometry and v9t9/PC99 variants) can be drafted from
+`disk.rs` + `RECON.md` §5 + Ch. 32's live `Tunnels.Dsk` decode (reuse that
+worked example). The tagged-object/EA5/cassette half waits on Ch. 6 (Mac).
+Two coordination items: resolve erratum 34-1 (Ch. 34 points "consolidated
+detection recipes" at App. I, which its spec doesn't cover — either absorb
+them deliberately or fix Ch. 34's pointer); and Ch. 6's §6.4/6.5 dissections
+should feed I's tagged-object/EA5 sections from the same verified bytes.
+
+### Chapter 6 `[STUB]` — see the Part II section (6-1…6-4).
+
+### Front matter *(not yet begun)*
+
+When `00a-preface.md`/`00b-how-to-use-this-book.md` are written: include
+the three-reading-tracks statement (outline §1.5), and run the final-pass
+forward-reference reconciliation the outline's review-pass ① and ④ call
+for — this ERRATA's per-chapter entries are the input to that pass.

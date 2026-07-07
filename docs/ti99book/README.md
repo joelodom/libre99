@@ -47,6 +47,13 @@ Chapter 6), and the front matter (preface, how-to-use). See
 `manuscript/00-master-outline.md` for the full 45-chapter plan (amendments at
 the end).
 
+A **cover-to-cover technical review pass** (session 10, 2026-07-07) has been
+completed over every drafted chapter and appendix: its findings — errors,
+inconsistencies, stale claims (notably the pre-fork emulator description in
+Ch. 1/3), and detailed guidance for the remaining stubs — live in
+**[ERRATA.md](ERRATA.md)**, written to be worked from entry by entry. Work
+the errata before (or as part of) the outline's review passes.
+
 ## Layout
 - `manuscript/` — the book plus its three working files (`_style.md`, `_ledger.md`, `_summaries.md`)
 - `code/` — `bench/` (BENCH99) and per-chapter assembly sources (machine-verified with `libre99asm`)
