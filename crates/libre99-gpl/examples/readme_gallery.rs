@@ -75,7 +75,7 @@ const CLEAN_GROM: &[u8] =
 /// Bundled cartridges shown in the gallery.
 const TITRIS: &[u8] = include_bytes!("../../../original-content/cartridges/titris/titris.ctg");
 const SOKOBAN: &[u8] = include_bytes!("../../../original-content/cartridges/sokoban/sokoban.ctg");
-const JAYWALK: &[u8] = include_bytes!("../../../original-content/cartridges/jaywalk/jaywalk.ctg");
+const JAYWALKER99: &[u8] = include_bytes!("../../../original-content/cartridges/jaywalker99/jaywalker99.ctg");
 
 // ---------------------------------------------------------------------------
 // PNG writing: 4-bit indexed color over the fixed TMS9918A palette, stored
@@ -322,17 +322,17 @@ fn main() {
     frames(&mut m, 30);
     shot(&mut m, "sokoban");
 
-    // 5. Jaywalk (the third original cartridge): start a run and hop north a
+    // 5. Jaywalker 99 (the third original cartridge): start a run and hop north
     //    few times so the camera has scrolled fresh lanes into view.
-    let mut m = boot(Some(JAYWALK));
+    let mut m = boot(Some(JAYWALKER99));
     to_menu(&mut m);
-    tap(&mut m, TiKey::Num2, 150); // "2 FOR JAYWALK"
-    tap(&mut m, TiKey::Space, 30); // leave the Jaywalk title: start a run
+    tap(&mut m, TiKey::Num2, 150); // "2 FOR JAYWALKER 99"
+    tap(&mut m, TiKey::Space, 30); // leave the Jaywalker 99 title: start a run
     for _ in 0..2 {
         tap(&mut m, TiKey::Joy1Up, 12); // hop north onto the meadow's edge
     }
     frames(&mut m, 30);
-    shot(&mut m, "jaywalk");
+    shot(&mut m, "jaywalker99");
 
     // 6. TI PYTHON: launch from the menu and evaluate a tiny session.
     let mut m = boot(Some(TITRIS));

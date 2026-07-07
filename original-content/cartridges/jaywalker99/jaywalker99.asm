@@ -2,8 +2,8 @@
 * with Commons Clause — see LICENSE.md at the repository root.
 
 * ============================================================================
-* JAYWALK — an endless-hopper arcade game for the TI-99/4A, assembled by this
-* project's own libre99asm.
+* JAYWALKER 99 — an endless-hopper arcade game for the TI-99/4A, assembled by
+* this project's own libre99asm.
 * A fledgling blue jay — too young to fly — hops north forever across a
 * procedurally generated world of grass, roads, rivers, and rail lines.
 * Cars, drifting logs, lily pads, level-crossing signals with real trains,
@@ -15,10 +15,13 @@
 * shimmering river), and all four SN76489 voices (three tones + noise).
 * Controls:  E/S/D/X or joystick 1 (host arrow keys) = hop N/W/E/S
 *            H or AID at the title = help
-* Build: cargo run -p libre99-asm -- original-content/cartridges/jaywalk/jaywalk.asm \
-*        -o original-content/cartridges/jaywalk/jaywalk.ctg
+* Build (the full 12-char menu title rides on --name; E/A's IDT caps at 8):
+*   cargo run -p libre99-asm -- \
+*       original-content/cartridges/jaywalker99/jaywalker99.asm \
+*       --name 'JAYWALKER 99' \
+*       -o original-content/cartridges/jaywalker99/jaywalker99.ctg
 * ============================================================================
-        IDT  'JAYWALK'
+        IDT  'JAYWLK99'
 
 VDPWD   EQU  >8C00            ; VDP VRAM write data
 VDPWA   EQU  >8C02            ; VDP address/register write (byte writes only)
@@ -190,90 +193,68 @@ TITLE   CLR  @GMODE
         LI   R0,>D000
         MOVB R0,@VDPWD
         BL   @CLRNT           ; clear the name table
-* big "JAYWALK" in block glyphs: variable-width 5-row letters (the W needs
-* five columns to read as a W), kerned one column apart, rows 3..7
-        LI   R4,BIGLET
-        LI   R5,1             ; current screen column
-BTL     MOVB *R4+,R0          ; letter width; 0 ends the table
-        SRL  R0,8
-        JEQ  BTDONE
-        MOV  R0,R13
-        CLR  R6               ; row 0..4
-BTR     MOVB *R4+,R7          ; this row's bits (low `width` bits)
-        SRL  R7,8
-        MOV  R13,R0           ; leftmost column's mask = 1 << (width-1)
-        DEC  R0
-        LI   R10,1
-        MOV  R0,R0
-        JEQ  BTM1
-        SLA  R10,0
-BTM1    CLR  R8               ; column within the letter
-BTC     COC  R10,R7           ; is this cell filled?
-        JNE  BTCN
-        MOV  R6,R1            ; name = (3+row)*32 + col
-        AI   R1,3
-        SLA  R1,5
-        A    R5,R1
-        A    R8,R1
-        BL   @SETWR
-        LI   R0,>E000         ; solid block glyph (light blue, like the jay)
-        MOVB R0,@VDPWD
-BTCN    SRL  R10,1
-        INC  R8
-        C    R8,R13
-        JNE  BTC
-        INC  R6
-        CI   R6,5
-        JNE  BTR
-        A    R13,R5           ; advance by width + 1 (the kerning gap)
-        INC  R5
-        JMP  BTL
-BTDONE
-* subtitle and prompts
-        LI   R1,>0124         ; "A TINY JAY VS THE WORLD" (row 9, col 4)
+* the stacked big-block wordmark: JAY over WALKER (nine 4-column letters
+* would run 35 columns — wider than the screen — so the name stacks), with
+* the "99" painted on the diorama's asphalt below as a route marker
+        LI   R4,BIGJAY
+        LI   R5,10            ; JAY: 11 columns, centered (rows 2-6)
+        LI   R9,2
+        BL   @BIGDRW
+        LI   R4,BIGWLK
+        LI   R5,3             ; WALKER: 25 columns (rows 8-12)
+        LI   R9,8
+        BL   @BIGDRW
+* tagline and prompts
+        LI   R1,>01C5         ; "A TINY JAY ON ROUTE 99" (row 14, col 5)
         BL   @SETWR
         LI   R2,TSUB
-        LI   R3,23
+        LI   R3,22
         BL   @VMBW
-        LI   R1,>0245         ; "PRESS ANY KEY TO PLAY" (row 18, col 5)
+        LI   R1,>02A5         ; "PRESS ANY KEY TO PLAY" (row 21, col 5)
         BL   @SETWR
         LI   R2,TPRESS
         LI   R3,21
         BL   @VMBW
-        LI   R1,>0287         ; "H OR AID FOR HELP" (row 20, col 7)
+        LI   R1,>02E7         ; "H OR AID FOR HELP" (row 23, col 7)
         BL   @SETWR
         LI   R2,THELP
         LI   R3,17
         BL   @VMBW
-* the diorama: a grass band (rows 12-13) over a road band (rows 14-15)
-        LI   R5,>0180         ; row 12, col 0
+* the diorama: a grass band (rows 16-17) over a road band (rows 18-19),
+* with the game's namesake painted on the blacktop
+        LI   R5,>0200         ; row 16, col 0
         BL   @TGRROW
-        LI   R5,>01A0         ; row 13
+        LI   R5,>0220         ; row 17
         BL   @TGRROW
-        LI   R1,>01C0         ; row 14: the road's dashed center line
+        LI   R1,>0240         ; row 18: the road's dashed center line
         BL   @SETWR
         LI   R2,32
         LI   R0,>8900
 TRD1    MOVB R0,@VDPWD
         DEC  R2
         JNE  TRD1
-        LI   R1,>01E0         ; row 15: plain asphalt
+        LI   R1,>0260         ; row 19: plain asphalt
         BL   @SETWR
         LI   R2,32
         LI   R0,>8800
 TRD2    MOVB R0,@VDPWD
         DEC  R2
         JNE  TRD2
-* the session best, once a run has been played
+        LI   R1,>026C         ; "ROUTE 99" road paint (row 19, col 12)
+        BL   @SETWR
+        LI   R2,TROUTE
+        LI   R3,8
+        BL   @VMBW
+* the session best, once a run has been played (top row, HUD-style)
         MOV  @BEST,R0
         JEQ  TNOB
-        LI   R1,>02CB         ; "BEST" (row 22, col 11)
+        LI   R1,>000B         ; "BEST" (row 0, col 11)
         BL   @SETWR
         LI   R2,TBEST
         LI   R3,4
         BL   @VMBW
         MOV  @BEST,R5
-        LI   R1,>02D0         ; its five digits (row 22, col 16)
+        LI   R1,>0010         ; its five digits (row 0, col 16)
         BL   @DNUM5
 TNOB
         LI   R0,SFXTUNE       ; the title jingle (two-voice)
@@ -319,6 +300,47 @@ SHWR    BL   @WAITVB
         JNE  SHWR
         B    @TITLE
 
+* BIGDRW: draw one word of variable-width big-block letters: R4 = the letter
+* table (width byte then 5 row-bit bytes per letter, 0 ends), R5 = start
+* column, R9 = top row. Letters advance by width + 1 (the kerning gap).
+* uses R14 save (calls SETWR); clobbers R0,R1,R4-R10,R13.
+BIGDRW  MOV  R11,R14
+BTL     MOVB *R4+,R0          ; letter width; 0 ends the table
+        SRL  R0,8
+        JEQ  BTDONE
+        MOV  R0,R13
+        CLR  R6               ; row 0..4
+BTR     MOVB *R4+,R7          ; this row's bits (low `width` bits)
+        SRL  R7,8
+        MOV  R13,R0           ; leftmost column's mask = 1 << (width-1)
+        DEC  R0
+        LI   R10,1
+        MOV  R0,R0
+        JEQ  BTM1
+        SLA  R10,0
+BTM1    CLR  R8               ; column within the letter
+BTC     COC  R10,R7           ; is this cell filled?
+        JNE  BTCN
+        MOV  R6,R1            ; name = (top+row)*32 + col
+        A    R9,R1
+        SLA  R1,5
+        A    R5,R1
+        A    R8,R1
+        BL   @SETWR
+        LI   R0,>E000         ; solid block glyph (light blue, like the jay)
+        MOVB R0,@VDPWD
+BTCN    SRL  R10,1
+        INC  R8
+        C    R8,R13
+        JNE  BTC
+        INC  R6
+        CI   R6,5
+        JNE  BTR
+        A    R13,R5           ; advance by width + 1 (the kerning gap)
+        INC  R5
+        JMP  BTL
+BTDONE  B    *R14
+
 * TGRROW: one 32-char row of title grass (checkered tufts) at name addr R5.
 * uses R14 save (calls SETWR).
 TGRROW  MOV  R11,R14
@@ -340,19 +362,19 @@ TANIM   MOV  R11,R14
         INC  @TICK
         LI   R1,>0780
         BL   @SETWR
-* jay: sits on the grass band (rows 12-13 = y 96), bobbing with a hop cycle
+* jay: sits on the grass band (rows 16-17 = y 128), bobbing with a hop cycle
         MOV  @TICK,R3
         SRL  R3,4
         ANDI R3,>0003         ; 4-phase cycle
-        LI   R0,>5F00         ; y = 96-1
+        LI   R0,>7F00         ; y = 128-1
         LI   R2,>0000         ; idle pattern
         CI   R3,1
         JNE  TAN1
-        LI   R0,>5D00         ; a 2 px bounce on the up phases
+        LI   R0,>7D00         ; a 2 px bounce on the up phases
         LI   R2,>0400         ; hop pattern
 TAN1    CI   R3,3
         JNE  TAN2
-        LI   R0,>5D00
+        LI   R0,>7D00
         LI   R2,>0400
 TAN2    MOVB R0,@VDPWD        ; sprite 0: Y
         LI   R0,>3C00         ; X = 60
@@ -360,12 +382,12 @@ TAN2    MOVB R0,@VDPWD        ; sprite 0: Y
         MOVB R2,@VDPWD        ; pattern (0 or 4)
         LI   R0,>0500         ; light blue
         MOVB R0,@VDPWD
-* car: crosses the road band (rows 14-15 = y 112) at 2 px/frame
+* car: crosses the road band (rows 18-19 = y 144) at 2 px/frame
         INCT @HAWKX
         MOV  @HAWKX,R0
         ANDI R0,>00FF
         MOV  R0,R2
-        LI   R0,>6F00         ; sprite 1: Y = 112-1
+        LI   R0,>8F00         ; sprite 1: Y = 144-1
         MOVB R0,@VDPWD
         SWPB R2
         MOVB R2,@VDPWD        ; X = the wrapping counter
@@ -2232,18 +2254,23 @@ GENTAB  BYTE 7,12,15,0
         BYTE 3,8,13,0
         BYTE 2,8,13,0
 
-* big-title letters "JAYWALK": width byte then 5 row-bit bytes per letter,
-* 0 ends. Total 3+3+3+5+3+3+3 wide + 6 kerning gaps = 29 columns.
-BIGLET  BYTE 3,>07,>01,>01,>05,>02   ; J
+* big-title letters (width byte then 5 row-bit bytes per letter, 0 ends):
+* "JAYWALKER" stacks as JAY (11 columns) over WALKER (25 columns) — the W
+* needs five columns to read as a W.
+BIGJAY  BYTE 3,>07,>01,>01,>05,>02   ; J
         BYTE 3,>02,>05,>07,>05,>05   ; A
         BYTE 3,>05,>05,>02,>02,>02   ; Y
-        BYTE 5,>11,>11,>15,>15,>0A   ; W
+        BYTE 0
+BIGWLK  BYTE 5,>11,>11,>15,>15,>0A   ; W
         BYTE 3,>02,>05,>07,>05,>05   ; A
         BYTE 3,>04,>04,>04,>04,>07   ; L
         BYTE 3,>05,>05,>06,>05,>05   ; K
+        BYTE 3,>07,>04,>06,>04,>07   ; E
+        BYTE 3,>06,>05,>06,>05,>05   ; R
         BYTE 0
 
-TSUB    TEXT 'A TINY JAY VS THE WORLD'
+TSUB    TEXT 'A TINY JAY ON ROUTE 99'
+TROUTE  TEXT 'ROUTE 99'
 TPRESS  TEXT 'PRESS ANY KEY TO PLAY'
 THELP   TEXT 'H OR AID FOR HELP'
 TSCORE  TEXT 'SCORE'
@@ -2265,7 +2292,7 @@ CAUSTB  DATA >0167,TCAUS1,17
         DATA >0165,TCAUS4,21
 
 * help-screen copy
-H1      TEXT 'JAYWALK HELP'
+H1      TEXT 'JAYWALKER 99 HELP'
 H2      TEXT 'HOP NORTH. NEVER STOP.'
 H3      TEXT 'CONTROLS'
 H4      TEXT 'E S D X - HOP N W E S'
@@ -2279,7 +2306,7 @@ H11     TEXT 'RIDE LOGS. 10 A LANE. 25 A COIN.'
 H12     TEXT 'HAWKS TAKE IDLE BIRDS'
 
 * HELP layout: (name-table addr, string, length) per line, terminated by 0
-HLPTAB  DATA >002A,H1,12
+HLPTAB  DATA >0027,H1,17
         DATA >0065,H2,22
         DATA >00A2,H3,8
         DATA >00C4,H4,21

@@ -15,18 +15,18 @@ clean-room firmware it embeds, and TI PYTHON's banner.
   tabs (`1`–`4` jump; the footer now also hints `←`/`→`). The embedded fonts
   now interpret point sizes as em sizes (CSS-like), so design-handoff values
   render true; the unused Silkscreen Bold face was dropped.
-- **Jaywalk**, a third original demonstration cartridge
-  (`original-content/cartridges/jaywalk/`): an endless-hopper arcade game —
+- **Jaywalker 99**, a third original demonstration cartridge
+  (`original-content/cartridges/jaywalker99/`): an endless-hopper arcade game —
   a fledgling blue jay crossing procedurally generated roads, rivers, and
   rail lines — built, like Titris and Sokoban, entirely with the project's
   own assembler and gameplay-tested end to end on the emulated console.
-  Where the first two cartridges are character-graphics puzzles, Jaywalk
+  Where the first two cartridges are character-graphics puzzles, Jaywalker 99
   works the arcade hardware: up to 24 simultaneous 16×16 sprites at
   independent sub-pixel speeds (early-clock edge slide-ins, priority-aware
   four-per-line budgeting), color-table and pattern-table animation (the
   flashing level-crossing signal, the shimmering river), and a table-driven
   driver for all four SN76489 voices. Its regression suite
-  (`crates/libre99-asm/tests/jaywalk.rs`) plays the game headlessly —
+  (`crates/libre99-asm/tests/jaywalker99.rs`) plays the game headlessly —
   movement, scoring, scrolling, every hazard and death, the hawk, sounds on
   the real PSG, and a 5,000-frame random-input soak.
 

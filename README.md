@@ -4,7 +4,7 @@ A cycle-aware **Texas Instruments TI-99/4A** home-computer emulator in pure
 Rust — together with the toolchain of a complete retro-computing platform: a
 from-scratch **TMS9900 assembler**, a **GPL toolchain**, an original
 **clean-room console firmware** (booted by default), original **Titris**,
-**Sokoban**, and **Jaywalk** cartridges built end-to-end with the project's
+**Sokoban**, and **Jaywalker 99** cartridges built end-to-end with the project's
 own tools, and a book in progress about programming the machine.
 
 <p align="center">
@@ -43,7 +43,7 @@ right, and the firmware does the rest.
   (`--cartridge <path>` closes the loop), `libre99gpl` builds GPL firmware, and
   three original games prove the pipeline: **Titris** (falling blocks),
   **Sokoban** (the warehouse-keeper puzzle, with twelve credited Microban
-  levels), and **Jaywalk** (an endless hopper that works the sprite and sound
+  levels), and **Jaywalker 99** (an endless hopper that works the sprite and sound
   hardware) — all gameplay-tested end to end on the emulated console.
 - **A pleasant desktop app.** On-screen help overlay with a pictured TI
   keyboard, layout-independent typing (QWERTY/Dvorak/AZERTY all just work),
@@ -63,9 +63,9 @@ The clean-room firmware and original content:
 |---|---|
 | ![Titris gameplay](docs/screenshots/titris.png) | ![Sokoban gameplay](docs/screenshots/sokoban.png) |
 
-| Jaywalk (original cartridge — 24 sprites and all four sound voices) |
+| Jaywalker 99 (original cartridge — 24 sprites and all four sound voices) |
 |---|
-| ![Jaywalk gameplay](docs/screenshots/jaywalk.png) |
+| ![Jaywalker 99 gameplay](docs/screenshots/jaywalker99.png) |
 
 Third-party titles running on the emulator (historical screenshots — the
 commercial cartridge images themselves are **not** part of this repository;
@@ -129,7 +129,7 @@ cargo run --release -p libre99-app -- --system-rom path/to/994aROM.Bin --system-
 | `original-content/system-roms` | The clean-room console ROM + GROM rewrite (Libre99): original firmware, differentially verified, booted by default. | [original-content/system-roms/README.md](original-content/system-roms/README.md) |
 | `original-content/cartridges/titris` | Titris, an original cartridge authored with the project's own assembler. | [its README](original-content/cartridges/titris/README.md) |
 | `original-content/cartridges/sokoban` | Sokoban, a second original cartridge — the classic puzzle with twelve credited Microban levels. | [its README](original-content/cartridges/sokoban/README.md) |
-| `original-content/cartridges/jaywalk` | Jaywalk, a third original cartridge — an endless hopper that demonstrates the sprite and sound hardware. | [its README](original-content/cartridges/jaywalk/README.md) |
+| `original-content/cartridges/jaywalker99` | Jaywalker 99, a third original cartridge — an endless hopper that demonstrates the sprite and sound hardware. | [its README](original-content/cartridges/jaywalker99/README.md) |
 | `docs/ti99book` | *Programming the TI-99/4A* — a book manuscript in progress, founded on this project's toolchain. | [its README](docs/ti99book/README.md) |
 | `third-party/` | **Git-ignored, maintainer-local** TI firmware and commercial media used only by the differential test suites (absent from a fresh checkout; the public suite skips those tests). | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
 

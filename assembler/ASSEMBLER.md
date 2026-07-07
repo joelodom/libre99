@@ -12,7 +12,7 @@ the richer CLI/diagnostics surface) is explicitly marked *(future)* where it
 appears. The shipped CLI is §8; the worked full-scale examples are the
 [Titris](../original-content/cartridges/titris/README.md),
 [Sokoban](../original-content/cartridges/sokoban/README.md), and
-[Jaywalk](../original-content/cartridges/jaywalk/README.md) cartridges; the
+[Jaywalker 99](../original-content/cartridges/jaywalker99/README.md) cartridges; the
 bootstrap record is archived at
 [docs/history/ASSEMBLER-POC-PLAN.md](../docs/history/ASSEMBLER-POC-PLAN.md).
 

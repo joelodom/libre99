@@ -1,9 +1,9 @@
-# JAYWALK — an endless-hopper arcade game for the TI-99/4A, in TMS9900 assembly
+# JAYWALKER 99 — an endless-hopper arcade game for the TI-99/4A, in TMS9900 assembly
 
-**Jaywalk** is the third original cartridge in this repository, and the first
+**Jaywalker 99** is the third original cartridge in this repository, and the first
 built to show off the machine's **arcade** hardware: where
 [Titris](../titris/README.md) and [Sokoban](../sokoban/README.md) are
-character-graphics puzzle games, Jaywalk is a sprite game — up to two dozen
+character-graphics puzzle games, Jaywalker 99 is a sprite game — up to two dozen
 16×16 hardware sprites moving at independent sub-pixel speeds, with all four
 voices of the sound chip working. Every byte was written in TI
 Editor/Assembler-style source, assembled by the repo's own `libre99asm`
@@ -13,11 +13,15 @@ Editor/Assembler-style source, assembled by the repo's own `libre99asm`
 The concept is a love letter to the modern **endless hopper** — the genre
 Crossy Road popularized in 2014 — rebuilt from scratch for 1981 silicon with
 original code, art, name, and sound. (Game mechanics are not copyrightable;
-everything expressive here is this project's own.)
+everything expressive here is this project's own.) The name works twice: the
+hero is literally a jay, walking — down an endless **Route 99**, the "99"
+being both the fiction's highway and the TI-99 homebrew signature. It also
+keeps the title clear of the several unrelated jaywalking-themed games on
+modern storefronts, which plain "Jaywalk"/"Jaywalker" would collide with.
 
 <p align="center">
-  <img src="../../../docs/screenshots/jaywalk.png"
-       alt="Jaywalk gameplay: the jay crossing a road, with rivers, logs, lily pads, and rail lines ahead"
+  <img src="../../../docs/screenshots/jaywalker99.png"
+       alt="Jaywalker 99 gameplay: the jay crossing a road, with rivers, logs, lily pads, and rail lines ahead"
        width="512">
 </p>
 
@@ -42,13 +46,14 @@ procedurally generated world:
 ```
    ====== title screen ======       ============= gameplay =============
                                     SCORE 00120 COIN 02 BEST 00470
-     J A Y W A L K  (big blocks)    ~~~(pad)~~~[log>~~~~~~[log>~~(pad)~~  river
-                                    ==[TRAIN>==============:!:=========  rails
-     A TINY JAY VS THE WORLD        .. (o) ..  ..  (o)  .. (25) ..  ..   grass
-                                    <car]  - - - - - - - - -   [truck>   road
-     PRESS ANY KEY TO PLAY          .. .. .. .. .. ^JAY .. ..  ..  ..    grass
+         J A Y                      ~~~(pad)~~~[log>~~~~~~[log>~~(pad)~~  river
+      W A L K E R   (big blocks)    ==[TRAIN>==============:!:=========  rails
+                                    .. (o) ..  ..  (o)  .. (25) ..  ..   grass
+     A TINY JAY ON ROUTE 99         <car]  - - - - - - - - -   [truck>   road
+     ,,,,,,,,^jay,,,,,,,,,,,        .. .. .. .. .. ^JAY .. ..  ..  ..    grass
+     ===[car>==ROUTE 99=====
+     PRESS ANY KEY TO PLAY          the camera follows; the world doesn't end
      H OR AID FOR HELP
-                                    the camera follows; the world doesn't end
 
    controls:  E / up-arrow  hop north (scores)    X / down  hop south
               S / left      hop west              D / right hop east
@@ -60,8 +65,8 @@ procedurally generated world:
 
 | File | What it is |
 |------|------------|
-| `jaywalk.asm` | The complete game source (TMS9900 assembly, ~2500 lines). |
-| `jaywalk.ctg` | The compiled cartridge image, ready to mount in the emulator. |
+|  `jaywalker99.asm` | The complete game source (TMS9900 assembly, ~2500 lines). |
+|  `jaywalker99.ctg` | The compiled cartridge image, ready to mount in the emulator. |
 | `README.md` | This document. |
 
 The `.ctg` is committed so you can play immediately without building anything.
@@ -72,10 +77,10 @@ From the repository root:
 
 ```sh
 cargo run --release -p libre99-app -- \
-    --cartridge original-content/cartridges/jaywalk/jaywalk.ctg
+    --cartridge original-content/cartridges/jaywalker99/jaywalker99.ctg
 ```
 
-On the console's selection screen press **2** (`2 FOR JAYWALK`); the game's
+On the console's selection screen press **2** (`2 FOR JAYWALKER 99`); the game's
 own title screen appears (the jay hopping on its meadow while traffic rolls
 by), so **press any key to play** — or **H** (or **AID**, `FCTN`+`7`) for a
 help screen with a field guide to the world's glyphs. Then hop:
@@ -96,22 +101,24 @@ title.
 
 ## Build it yourself
 
-The assembler ships in this repo, so you can edit `jaywalk.asm` and rebuild:
+The assembler ships in this repo, so you can edit  `jaywalker99.asm` and rebuild:
 
 ```sh
 cargo run -p libre99-asm -- \
-    original-content/cartridges/jaywalk/jaywalk.asm \
-    -o original-content/cartridges/jaywalk/jaywalk.ctg
+    original-content/cartridges/jaywalker99/jaywalker99.asm \
+    --name 'JAYWALKER 99' \
+    -o original-content/cartridges/jaywalker99/jaywalker99.ctg
 ```
 
-(See [assembler/ASSEMBLER.md](../../../assembler/ASSEMBLER.md) for the
-language.)
+The `--name` flag carries the full 12-character menu title; the source's
+`IDT` stays within the Editor/Assembler dialect's 8-character cap. (See
+[assembler/ASSEMBLER.md](../../../assembler/ASSEMBLER.md) for the language.)
 
 ---
 
 ## How it works — a tour of the tricks
 
-Titris proved the toolchain; Jaywalk was written to exercise the parts of
+Titris proved the toolchain; Jaywalker 99 was written to exercise the parts of
 the TI-99/4A that a falling-blocks puzzle never touches.
 
 ### A 24-sprite world on a 4-per-line chip
@@ -123,7 +130,7 @@ every frame (`SATBLD`) and blasted to VRAM in one 100-byte write during
 vertical blank (`SATFLSH`), a classic double-buffer.
 
 The TMS9918A draws at most **four sprites per scanline**, dropping the
-highest-numbered ones. Jaywalk turns that limit into a policy: slots are
+highest-numbered ones. Jaywalker 99 turns that limit into a policy: slots are
 assigned bottom-lane-first, so the sprites nearest the player always win and
 any drop lands on the farthest, least-noticeable lane. Mid-hop the jay spans
 two lanes (its own slot 0 always draws — sprite 0 has top priority), so a
@@ -214,7 +221,7 @@ assembly bites, and both bit during this game's bring-up:
 
 ### Proven by its test suite
 
-`crates/libre99-asm/tests/jaywalk.rs` assembles *this exact source*, boots
+`crates/libre99-asm/tests/jaywalker99.rs` assembles *this exact source*, boots
 the real emulated console, and plays: hops and scoring, camera scroll,
 bush blocking, coin pickup, log riding and drowning, lily-pad footing, the
 train and its flashing signal, the hawk (and that hopping resets it), each

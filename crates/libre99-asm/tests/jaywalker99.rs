@@ -43,12 +43,12 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-//! End-to-end JAYWALK test: assemble the game, boot the real console, drive
+//! End-to-end JAYWALKER 99 test: assemble the game, boot the real console, drive
 //! the keyboard and joystick, and inspect game state in RAM, the sprite
 //! attribute table, and the name table.
 //!
 //! It assembles the tracked, playable source at
-//! `original-content/cartridges/jaywalk/jaywalk.asm`, so the game and its
+//! `original-content/cartridges/jaywalker99/jaywalker99.asm`, so the game and its
 //! regression test can never drift apart.
 //!
 //! Controls: E/S/D/X or joystick 1 (host arrows) hop north/west/east/south.
@@ -64,9 +64,9 @@ static CONSOLE_ROM: LazyLock<Option<Vec<u8>>> =
     LazyLock::new(|| libre99_core::third_party::load("roms/994aROM.Bin"));
 static CONSOLE_GROM: LazyLock<Option<Vec<u8>>> =
     LazyLock::new(|| libre99_core::third_party::load("roms/994AGROM.Bin"));
-const SRC: &str = include_str!("../../../original-content/cartridges/jaywalk/jaywalk.asm");
+const SRC: &str = include_str!("../../../original-content/cartridges/jaywalker99/jaywalker99.asm");
 
-// Scratchpad state (see the EQU block in jaywalk.asm).
+// Scratchpad state (see the EQU block in jaywalker99.asm).
 const GMODE: u16 = 0x8320;
 const VBOT: u16 = 0x832A;
 const PLANE: u16 = 0x832C;
@@ -104,8 +104,11 @@ fn boot_to_title() -> Option<Machine> {
         eprintln!("SKIPPED: third-party media not present");
         return None;
     };
-    let asm = assemble(SRC, &Options::default()).expect("JAYWALK assembles");
-    assert_eq!(asm.title, "JAYWALK");
+    // The 12-char menu title rides on `--name` (E/A's IDT caps at 8 chars);
+    // the committed .ctg is built the same way.
+    let opts = Options { name: Some("JAYWALKER 99".into()), ..Options::default() };
+    let asm = assemble(SRC, &opts).expect("JAYWALKER 99 assembles");
+    assert_eq!(asm.title, "JAYWALKER 99");
     let cart = Cartridge::parse(&asm.ctg()).unwrap();
     let mut m = Machine::new(rom, grom);
     m.mount_cartridge(&cart);
@@ -121,7 +124,7 @@ fn boot_to_title() -> Option<Machine> {
     for _ in 0..120 {
         m.run_frame();
     }
-    m.set_key(TiKey::Num2, true); // pick "2 FOR JAYWALK"
+    m.set_key(TiKey::Num2, true); // pick "2 FOR JAYWALKER 99"
     for _ in 0..20 {
         m.run_frame();
     }
@@ -193,14 +196,15 @@ fn title_screen_shows_then_waits() {
     let Some(mut m) = boot_to_title() else { return };
     assert!(
         count_name(&m, |c| c == 0xE0) > 30,
-        "expected the big JAYWALK title in block glyphs"
+        "expected the big JAY/WALKER wordmark in block glyphs"
     );
-    assert_eq!(m.vdp().vram(0x0245), b'P', "the PLAY prompt should be on screen");
+    assert_eq!(m.vdp().vram(0x02A5), b'P', "the PLAY prompt should be on screen");
+    assert_eq!(text_at(&m, 0x026C, 8), b"ROUTE 99", "the route marker is painted");
     assert_eq!(m.bus().peek_word(GMODE), 0, "still on the title");
     // The diorama animates: the jay sprite (0) sits on the grass band and the
     // car sprite (1) keeps moving.
     let jay = sprite(&m, 0);
-    assert!(jay[0] == 0x5F || jay[0] == 0x5D, "the title jay bobs on the grass band");
+    assert!(jay[0] == 0x7F || jay[0] == 0x7D, "the title jay bobs on the grass band");
     let car_x0 = sprite(&m, 1)[1];
     for _ in 0..30 {
         m.run_frame();
@@ -341,7 +345,7 @@ fn cars_kill_and_the_panel_returns_to_title() {
     }
     assert_eq!(m.bus().peek_word(GMODE), 0, "back on the title");
     assert!(count_name(&m, |c| c == 0xE0) > 30, "the big letters are back");
-    assert_eq!(text_at(&m, 0x02D0, 5), b"00010", "the title shows the best");
+    assert_eq!(text_at(&m, 0x0010, 5), b"00010", "the title shows the best");
 }
 
 #[test]
@@ -584,7 +588,7 @@ fn help_screen_opens_with_h_and_aid() {
     for _ in 0..20 {
         m.run_frame();
     }
-    assert_eq!(text_at(&m, 0x002A, 12), b"JAYWALK HELP", "H opens the help screen");
+    assert_eq!(text_at(&m, 0x0027, 17), b"JAYWALKER 99 HELP", "H opens the help screen");
     assert_eq!(text_at(&m, 0x00A2, 8), b"CONTROLS");
     assert_eq!(m.vdp().vram(0x0142), 0x82, "the bush icon is drawn");
     assert_eq!(m.bus().peek_word(GMODE), 0, "help must not start a game");
@@ -611,7 +615,7 @@ fn help_screen_opens_with_h_and_aid() {
     for _ in 0..20 {
         m.run_frame();
     }
-    assert_eq!(text_at(&m, 0x002A, 12), b"JAYWALK HELP", "AID opens help too");
+    assert_eq!(text_at(&m, 0x0027, 17), b"JAYWALKER 99 HELP", "AID opens help too");
 }
 
 #[test]
