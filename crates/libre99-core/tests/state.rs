@@ -219,6 +219,46 @@ fn disk_writes_survive_save_and_reload() {
     assert_eq!(read_back, payload, "the written sector did not survive save/reload");
 }
 
+/// The in-memory disk shelf rides along in the save state: eject a keyed disk,
+/// save, load into a fresh machine, and remounting the same file reattaches
+/// the shelved image — no host media required (bare firmware images suffice).
+#[test]
+fn the_disk_shelf_survives_save_and_reload() {
+    let mut image = vec![0u8; 4 * 256];
+    image[0] = 0xA5;
+
+    let mut m = Machine::new(&[], &[]);
+    assert!(!m.mount_disk_keyed(0, "C:/disks/game.dsk", image.clone()));
+    m.eject_disk(0);
+
+    let snapshot = m.save_state();
+    let mut restored = Machine::new(&[], &[]);
+    restored.load_state(&snapshot).expect("load the shelf session");
+    assert_eq!(restored.save_state(), snapshot, "shelf session not byte-identical");
+
+    let shelf = restored.bus().disk.in_memory_disks();
+    assert_eq!(shelf.len(), 1, "the ejected disk did not come back");
+    assert_eq!(shelf[0].key, "C:/disks/game.dsk");
+    assert_eq!(shelf[0].drive, None);
+
+    // Remounting the same file reattaches the restored in-memory copy (the
+    // host bytes offered here are different, and lose).
+    assert!(restored.mount_disk_keyed(0, "C:/disks/game.dsk", vec![0u8; 4 * 256]));
+    assert_eq!(restored.bus().disk.drive_image(0).unwrap()[0], 0xA5);
+}
+
+/// A mounted keyed disk's identity survives save/reload, so the frontend can
+/// still export it and the window title can still name it.
+#[test]
+fn a_mounted_disk_identity_survives_save_and_reload() {
+    let mut m = Machine::new(&[], &[]);
+    m.mount_disk_keyed(0, "K", vec![0u8; 4 * 256]);
+
+    let mut restored = Machine::new(&[], &[]);
+    restored.load_state(&m.save_state()).expect("load");
+    assert_eq!(restored.bus().disk.drive_key(0), Some("K"));
+}
+
 #[test]
 fn rejects_a_file_that_is_not_a_save_state() {
     let (Some(rom), Some(grom)) = (CONSOLE_ROM.as_deref(), CONSOLE_GROM.as_deref()) else {

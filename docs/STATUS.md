@@ -4,12 +4,15 @@ Where the project stands, at a glance. Kept current: update this file in the
 same commit as any change that lands or retires a milestone-sized piece of
 work (see the documentation policy in [DEVELOPMENT.md](DEVELOPMENT.md)).
 
-_Last updated: 2026-07-06 — **this repository is the IP-clean fork**: born from
-a snapshot of the (discontinued) private predecessor's tree, history clean from
-commit 1. Same date: the project rebranded **Libre99** throughout (crates
-`libre99-*`, binaries `libre99`/`libre99asm`/`libre99gpl`, data dir
-`~/.libre99/` with automatic migration); documentation reorganization;
-clean-room firmware boots by default._
+_Last updated: 2026-07-07 — live disk mount/eject (no reboot) and the disk
+persistence model landed (host `.dsk` never written; in-memory images + `F4`
+export/unload; save-state format v2). 2026-07-06: **this repository is the
+IP-clean fork**: born from a snapshot of the (discontinued) private
+predecessor's tree, history clean from commit 1. Same date: the project
+rebranded **Libre99** throughout (crates `libre99-*`, binaries
+`libre99`/`libre99asm`/`libre99gpl`, data dir `~/.libre99/` with automatic
+migration); documentation reorganization; clean-room firmware boots by
+default._
 
 ## The emulator
 
@@ -24,6 +27,7 @@ clean-room firmware boots by default._
 | SN76489 PSG + host audio | ✅ complete |
 | Desktop app (window, input, audio, overlays, file chooser, config, logging, save states) | ✅ complete, playable |
 | Media model: **zero embedded media** — `.ctg`/`.dsk` load at run time (CLI paths / `F9` system file chooser) | ✅ complete (2026-07-06) |
+| Disk persistence: host `.dsk` never written — live mount/eject, in-memory images survive eject/remount and save states, `F4` export/unload | ✅ complete (2026-07-07) |
 | macOS `.app` bundle (packaging) | ⬜ open — run via `cargo run` for now |
 
 The four historical validation gates all pass as integration tests: boot to
@@ -70,9 +74,10 @@ and [rom/README.md](../original-content/system-roms/rom/README.md).
 
 Feature direction lives in [ROADMAP.md](ROADMAP.md). The current priority is the
 **[Road to 0.1.0](ROADMAP.md#road-to-010--the-first-public-release-early-testing)**
-release gate — rename to *libre99*, purge others' IP, load media on demand instead
-of embedding it, finish the clean-room disk DSR, make save states portable and
-atomic across macOS/Windows, and refresh docs/help. Other
+release gate — make save states portable and atomic across macOS/Windows,
+decide TI PYTHON's 0.1.0 shape, revamp the `F1` help and first-run docs, and
+package the release (the IP purge, rename/fork, on-demand media, clean-room
+DSR default, live disk mounting, and disk persistence have all landed). Other
 near-term **[next]** items are the macOS `.app` bundle, key/joystick remapping, and
 the alpha-lock host toggle. User-visible quirks and open issues are tracked in
 [KNOWN-ISSUES.md](KNOWN-ISSUES.md); firmware-rewrite limitations in

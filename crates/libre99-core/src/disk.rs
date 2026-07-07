@@ -91,11 +91,22 @@
 //! layout, not the recording density — so the same reversal applies to DSDD
 //! images with per-drive geometry substituted for the constants.
 //!
-//! ## Write-back volatility
-//! A Write Sector command mutates only the **in-memory** image; nothing is written
-//! back to the host `.Dsk` file. Written sectors survive **only** inside a save
-//! state (which serializes the whole image, edits included). Absent a save state,
-//! disk writes are lost when the machine is dropped.
+//! ## Disk persistence — the source file is never touched
+//! A Write Sector command mutates only the **in-memory** image; the emulator
+//! never writes back to the host `.dsk` file. Instead, every image mounted with
+//! a host identity ([`mount_keyed`](Disk::mount_keyed)) stays in memory for the
+//! life of the machine: ejecting moves it to an in-memory **shelf**, and
+//! remounting the same file reattaches the shelved image — written sectors
+//! intact — rather than re-reading the host bytes. A per-image **dirty** flag
+//! records whether the DSR has written to it since it left its host file.
+//! Save states serialize the drives *and* the shelf, so in-memory disks (and
+//! their edits) survive quit-and-resume. Getting edits back onto the host
+//! filesystem is an explicit frontend **export**:
+//! [`image_for_key`](Disk::image_for_key) hands over the delta-applied bytes to
+//! write to a file of the user's choosing, and [`forget`](Disk::forget) drops
+//! an in-memory image so the next mount starts over from the host file.
+//! (The bare [`mount`](Disk::mount) is the *anonymous* variant — no identity,
+//! nothing remembered across an eject — used by tests and diagnostics.)
 
 /// Size of the DSR ROM window (`>4000–5FFF`); the top 16 bytes are the FD1771
 /// register overlay.
@@ -191,6 +202,31 @@ const STATUS_TRACK_0: u8 = 0x04;
 const STATUS_DRQ: u8 = 0x02;
 const STATUS_BUSY: u8 = 0x01;
 
+/// One in-memory disk image, as reported by [`Disk::in_memory_disks`] for the
+/// frontend's disk-memory view — either mounted in a drive right now or
+/// shelved after an eject.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DiskInfo {
+    /// The host identity the image is keyed by (the source file's path string,
+    /// as given to [`Disk::mount_keyed`]).
+    pub key: String,
+    /// Image size in bytes.
+    pub len: usize,
+    /// Has the DSR written to this image since it was read from its host file
+    /// (and not since been exported)?
+    pub dirty: bool,
+    /// The drive the image is mounted in (0 = DSK1), or `None` if shelved.
+    pub drive: Option<usize>,
+}
+
+/// A keyed disk image parked in memory after an eject, waiting to be
+/// reattached by a later mount of the same host file.
+struct ShelvedDisk {
+    key: String,
+    image: Vec<u8>,
+    dirty: bool,
+}
+
 /// The TI Disk Controller card: FD1771 state, the DSR ROM, and up to three
 /// mounted disk images (DSK1–DSK3).
 pub struct Disk {
@@ -199,6 +235,18 @@ pub struct Disk {
     dsr: Option<Box<[u8; DSR_SIZE]>>,
     /// Raw sector-dump images for DSK1/DSK2/DSK3.
     drives: [Option<Vec<u8>>; 3],
+    /// Host identity of each mounted image (`None` = an anonymous [`mount`]
+    /// that is not remembered across an eject).
+    ///
+    /// [`mount`]: Disk::mount
+    drive_keys: [Option<String>; 3],
+    /// Whether the DSR has written to each mounted image since it was read
+    /// from its host file (cleared by [`mark_clean`](Disk::mark_clean) after
+    /// an export).
+    drive_dirty: [bool; 3],
+    /// The shelf: every keyed image ejected this session, kept in memory so a
+    /// remount of the same file reattaches it, edits intact.
+    shelf: Vec<ShelvedDisk>,
     /// Per-drive geometry, parsed from each image's VIB at mount time and used
     /// for the LBA mapping (default until a drive is mounted). Derived state —
     /// re-parsed from the images on save-state load, never serialized.
@@ -253,6 +301,9 @@ impl Disk {
         Disk {
             dsr: None,
             drives: [None, None, None],
+            drive_keys: [None, None, None],
+            drive_dirty: [false; 3],
+            shelf: Vec::new(),
             geometry: [Geometry::default(); 3],
             rom_enabled: false,
             selected: None,
@@ -286,10 +337,154 @@ impl Disk {
     /// tracks, sides) used by the LBA mapping; an absent or inconsistent VIB falls
     /// back to a size-derived default. Kept infallible (the core has no logging) —
     /// a bad header simply degrades to the default rather than rejecting the mount.
+    ///
+    /// This is the **anonymous** mount (tests/diagnostics): the image carries no
+    /// host identity and is dropped on eject. The frontend mounts through
+    /// [`mount_keyed`](Self::mount_keyed) so edits survive eject/remount.
     pub fn mount(&mut self, drive: usize, image: Vec<u8>) {
         if drive < self.drives.len() {
+            self.shelve(drive);
             self.geometry[drive] = parse_geometry(&image);
             self.drives[drive] = Some(image);
+        }
+    }
+
+    /// Mount `image` — freshly read from the host file identified by `key` —
+    /// into drive `drive`, preferring the in-memory copy: if a disk with the
+    /// same key is on the shelf (ejected earlier, possibly carrying written
+    /// sectors), the shelved image is reattached instead and `image` is
+    /// dropped. Whatever the drive held before is shelved first (if keyed) so
+    /// its edits are not lost either. Returns `true` when the shelved copy was
+    /// used, so the frontend can tell the user their in-memory changes apply.
+    pub fn mount_keyed(&mut self, drive: usize, key: &str, image: Vec<u8>) -> bool {
+        if drive >= self.drives.len() {
+            return false;
+        }
+        self.shelve(drive);
+        let (image, dirty, resumed) = match self.shelf.iter().position(|s| s.key == key) {
+            Some(i) => {
+                let s = self.shelf.remove(i);
+                (s.image, s.dirty, true)
+            }
+            None => (image, false, false),
+        };
+        self.geometry[drive] = parse_geometry(&image);
+        self.drives[drive] = Some(image);
+        self.drive_keys[drive] = Some(key.to_string());
+        self.drive_dirty[drive] = dirty;
+        resumed
+    }
+
+    /// Empty drive `drive` — the live equivalent of pulling the floppy. A keyed
+    /// image moves to the in-memory shelf (edits intact, ready to reattach on a
+    /// later [`mount_keyed`](Self::mount_keyed) of the same file); an anonymous
+    /// image is dropped.
+    pub fn eject(&mut self, drive: usize) {
+        if drive < self.drives.len() {
+            self.shelve(drive);
+            self.geometry[drive] = Geometry::default();
+        }
+    }
+
+    /// Move `drive`'s keyed image (if any) onto the shelf, replacing any older
+    /// shelved copy with the same key; an anonymous image is dropped. Leaves
+    /// the drive empty either way.
+    fn shelve(&mut self, drive: usize) {
+        let image = self.drives[drive].take();
+        let key = self.drive_keys[drive].take();
+        let dirty = std::mem::replace(&mut self.drive_dirty[drive], false);
+        if let (Some(image), Some(key)) = (image, key) {
+            self.shelf.retain(|s| s.key != key);
+            self.shelf.push(ShelvedDisk { key, image, dirty });
+        }
+    }
+
+    /// Every disk image held in memory — mounted in a drive or shelved after an
+    /// eject — for the frontend's disk-memory view. Mounted drives come first
+    /// (in drive order), then the shelf (in eject order).
+    pub fn in_memory_disks(&self) -> Vec<DiskInfo> {
+        let mut out = Vec::new();
+        for (d, (image, key)) in self.drives.iter().zip(&self.drive_keys).enumerate() {
+            if let (Some(image), Some(key)) = (image, key) {
+                out.push(DiskInfo {
+                    key: key.clone(),
+                    len: image.len(),
+                    dirty: self.drive_dirty[d],
+                    drive: Some(d),
+                });
+            }
+        }
+        for s in &self.shelf {
+            out.push(DiskInfo { key: s.key.clone(), len: s.image.len(), dirty: s.dirty, drive: None });
+        }
+        out
+    }
+
+    /// Drop the in-memory image identified by `key` — off the shelf, or straight
+    /// out of the drive holding it (which then reads empty). The next mount of
+    /// the same file starts over from the host file's bytes. Returns whether
+    /// anything was dropped.
+    pub fn forget(&mut self, key: &str) -> bool {
+        let before = self.shelf.len();
+        self.shelf.retain(|s| s.key != key);
+        let mut removed = self.shelf.len() != before;
+        for d in 0..self.drives.len() {
+            if self.drive_keys[d].as_deref() == Some(key) {
+                self.drives[d] = None;
+                self.drive_keys[d] = None;
+                self.drive_dirty[d] = false;
+                self.geometry[d] = Geometry::default();
+                removed = true;
+            }
+        }
+        removed
+    }
+
+    /// The in-memory image identified by `key` (mounted or shelved) — the
+    /// delta-applied bytes a frontend export writes out.
+    pub fn image_for_key(&self, key: &str) -> Option<&[u8]> {
+        for (image, k) in self.drives.iter().zip(&self.drive_keys) {
+            if k.as_deref() == Some(key) {
+                return image.as_deref();
+            }
+        }
+        self.shelf.iter().find(|s| s.key == key).map(|s| s.image.as_slice())
+    }
+
+    /// Mark `key`'s in-memory image clean — called after an export writes its
+    /// bytes to a host file, so unsaved-changes warnings stand down.
+    pub fn mark_clean(&mut self, key: &str) {
+        for (k, dirty) in self.drive_keys.iter().zip(&mut self.drive_dirty) {
+            if k.as_deref() == Some(key) {
+                *dirty = false;
+            }
+        }
+        if let Some(s) = self.shelf.iter_mut().find(|s| s.key == key) {
+            s.dirty = false;
+        }
+    }
+
+    /// Host identity of the image in `drive`, if it was mounted keyed.
+    pub fn drive_key(&self, drive: usize) -> Option<&str> {
+        self.drive_keys.get(drive)?.as_deref()
+    }
+
+    /// Has the DSR written to `drive`'s image since it was read from its host
+    /// file (and not since been exported)?
+    pub fn drive_dirty(&self, drive: usize) -> bool {
+        self.drive_dirty.get(drive).copied().unwrap_or(false)
+    }
+
+    /// Adopt `key` as the host identity of the image already mounted in
+    /// `drive`, if it has none — used when resuming a version-1 save state,
+    /// whose drives carried no identities, with the identity the frontend
+    /// recorded separately at exit.
+    pub fn adopt_drive_key(&mut self, drive: usize, key: &str) {
+        if drive < self.drives.len()
+            && self.drives[drive].is_some()
+            && self.drive_keys[drive].is_none()
+        {
+            self.drive_keys[drive] = Some(key.to_string());
         }
     }
 
@@ -433,12 +628,15 @@ impl Disk {
         }
     }
 
-    /// Copy the sector buffer back into the selected drive's image.
+    /// Copy the sector buffer back into the selected drive's image and mark the
+    /// image dirty (it now differs from its host file until exported).
     fn flush_sector(&mut self, lba: usize) {
-        if let Some(image) = self.selected.and_then(|d| self.drives[d].as_mut()) {
+        let Some(d) = self.selected else { return };
+        if let Some(image) = self.drives[d].as_mut() {
             let start = lba * SECTOR_SIZE;
             if let Some(dst) = image.get_mut(start..start + SECTOR_SIZE) {
                 dst.copy_from_slice(&self.buffer);
+                self.drive_dirty[d] = true;
             }
         }
     }
@@ -607,8 +805,12 @@ impl Disk {
     }
 
     /// Serialize the controller: the DSR ROM, the three drive images (with any
-    /// written-back sectors), the CRU latches, the FD1771 registers, and any
-    /// in-progress sector transfer. Diagnostics (the read log/trace) are not saved.
+    /// written-back sectors) plus their host identities and dirty flags, the
+    /// in-memory shelf of ejected disks, the CRU latches, the FD1771 registers,
+    /// and any in-progress sector transfer. Diagnostics (the read log/trace)
+    /// are not saved. The identity/dirty/shelf fields are the save-format
+    /// version-2 tail — appended after the version-1 layout so a v1 file loads
+    /// by simply stopping short of them.
     pub(crate) fn save_state(&self, w: &mut crate::state::StateWriter) {
         match &self.dsr {
             Some(rom) => {
@@ -638,14 +840,30 @@ impl Disk {
         w.usize(self.buf_pos);
         w.usize(self.buf_left);
         w.opt_usize(self.write_lba);
+        // --- version-2 tail: host identities, dirty flags, the shelf ---
+        for key in &self.drive_keys {
+            w.opt_string(key.as_deref());
+        }
+        for dirty in self.drive_dirty {
+            w.bool(dirty);
+        }
+        w.usize(self.shelf.len());
+        for s in &self.shelf {
+            w.string(&s.key);
+            w.blob(&s.image);
+            w.bool(s.dirty);
+        }
     }
 
-    /// Restore the controller from a save state. The transfer cursor and the
-    /// selected-drive index are sanitized so a corrupt or foreign file can never
-    /// drive a later register access out of bounds.
+    /// Restore the controller from a save state of format `version`. The
+    /// transfer cursor and the selected-drive index are sanitized so a corrupt
+    /// or foreign file can never drive a later register access out of bounds.
+    /// A version-1 file has no identity/dirty/shelf tail: those default to
+    /// anonymous/clean/empty.
     pub(crate) fn load_state(
         &mut self,
         r: &mut crate::state::StateReader<'_>,
+        version: u32,
     ) -> Result<(), crate::state::StateError> {
         self.dsr = if r.u8()? != 0 {
             let mut rom = Box::new([0u8; DSR_SIZE]);
@@ -677,8 +895,35 @@ impl Disk {
         self.buf_pos = r.usize()?;
         self.buf_left = r.usize()?;
         self.write_lba = r.opt_usize()?;
+        self.drive_keys = [None, None, None];
+        self.drive_dirty = [false; 3];
+        self.shelf.clear();
+        if version >= 2 {
+            for key in &mut self.drive_keys {
+                *key = r.opt_string()?;
+            }
+            for dirty in &mut self.drive_dirty {
+                *dirty = r.bool()?;
+            }
+            let n = r.usize()?;
+            for _ in 0..n {
+                // No pre-allocation from the untrusted count: each entry reads at
+                // least a byte or errors, so a lying count fails fast as Truncated.
+                let key = r.string()?;
+                let image = r.blob()?;
+                let dirty = r.bool()?;
+                self.shelf.push(ShelvedDisk { key, image, dirty });
+            }
+        }
 
         // --- sanitize against a corrupt/foreign file ---
+        // An identity or dirty flag on an empty drive is meaningless — drop it.
+        for (d, drive) in self.drives.iter().enumerate() {
+            if drive.is_none() {
+                self.drive_keys[d] = None;
+                self.drive_dirty[d] = false;
+            }
+        }
         if self.selected.is_some_and(|d| d >= self.drives.len()) {
             self.selected = None;
         }
@@ -783,5 +1028,146 @@ mod tests {
             parse_geometry(&dssd),
             Geometry { sectors_per_track: 9, tracks: 40, sides: 2 }
         );
+    }
+
+    // ----------------------------------------------------------------------
+    // Disk persistence: the keyed-mount shelf, dirty tracking, forget/export.
+    // ----------------------------------------------------------------------
+
+    /// A controller with a dummy DSR installed (register access requires a
+    /// card) and DSK1 selected.
+    fn card() -> Disk {
+        let mut d = Disk::new();
+        d.load_dsr(&[0u8; 4]);
+        d.write_cru(4, true); // select DSK1
+        d
+    }
+
+    /// Write a register byte through the bus window (which one's-complements).
+    fn put(d: &mut Disk, addr: u16, value: u8) {
+        d.write_byte(addr, value ^ 0xFF);
+    }
+
+    /// Write 256 bytes of `fill` into sector 0 of the selected drive via the
+    /// FD1771, exactly as the DSR does.
+    fn write_sector_zero(d: &mut Disk, fill: u8) {
+        put(d, 0x5FFC, 0); // sector 0
+        put(d, 0x5FF8, 0xA0); // Write Sector
+        for _ in 0..SECTOR_SIZE {
+            put(d, 0x5FFE, fill);
+        }
+    }
+
+    #[test]
+    fn keyed_eject_and_remount_reattaches_the_written_image() {
+        let mut d = card();
+        let host = vec![0u8; 4 * SECTOR_SIZE];
+        assert!(!d.mount_keyed(0, "K", host.clone()), "first mount is from host bytes");
+        assert!(!d.drive_dirty(0));
+        write_sector_zero(&mut d, 0xEE);
+        assert!(d.drive_dirty(0), "a flushed write marks the image dirty");
+
+        d.eject(0);
+        assert!(d.drive_image(0).is_none(), "the drive is empty after eject");
+        let shelved = d.in_memory_disks();
+        assert_eq!(shelved.len(), 1);
+        assert_eq!(shelved[0].key, "K");
+        assert!(shelved[0].dirty);
+        assert_eq!(shelved[0].drive, None);
+
+        // Remount the same file: the shelved copy wins over fresh host bytes.
+        assert!(d.mount_keyed(0, "K", host), "remount reattaches the in-memory copy");
+        assert_eq!(d.drive_image(0).unwrap()[0], 0xEE, "written sectors survive the eject");
+        assert!(d.drive_dirty(0), "the dirty flag rides along");
+        assert_eq!(d.in_memory_disks()[0].drive, Some(0));
+    }
+
+    #[test]
+    fn mounting_a_different_disk_shelves_the_current_one() {
+        let mut d = card();
+        d.mount_keyed(0, "A", vec![0u8; 4 * SECTOR_SIZE]);
+        write_sector_zero(&mut d, 0x11);
+        d.mount_keyed(0, "B", vec![0u8; 4 * SECTOR_SIZE]);
+        let disks = d.in_memory_disks();
+        assert_eq!(disks.len(), 2);
+        assert!(disks.iter().any(|i| i.key == "A" && i.dirty && i.drive.is_none()));
+        assert!(disks.iter().any(|i| i.key == "B" && !i.dirty && i.drive == Some(0)));
+        // And A's edits reattach later.
+        assert!(d.mount_keyed(0, "A", vec![0u8; 4 * SECTOR_SIZE]));
+        assert_eq!(d.drive_image(0).unwrap()[0], 0x11);
+    }
+
+    #[test]
+    fn forget_reverts_to_the_host_bytes_on_the_next_mount() {
+        let mut d = card();
+        d.mount_keyed(0, "K", vec![0u8; 4 * SECTOR_SIZE]);
+        write_sector_zero(&mut d, 0xEE);
+        // Forgetting a *mounted* disk also empties the drive.
+        assert!(d.forget("K"));
+        assert!(d.drive_image(0).is_none());
+        assert!(d.in_memory_disks().is_empty());
+        // The next mount is from host bytes again.
+        assert!(!d.mount_keyed(0, "K", vec![0u8; 4 * SECTOR_SIZE]));
+        assert_eq!(d.drive_image(0).unwrap()[0], 0x00);
+    }
+
+    #[test]
+    fn image_for_key_and_mark_clean_reach_both_drive_and_shelf() {
+        let mut d = card();
+        d.mount_keyed(0, "K", vec![0u8; 4 * SECTOR_SIZE]);
+        write_sector_zero(&mut d, 0xEE);
+        assert_eq!(d.image_for_key("K").unwrap()[0], 0xEE, "mounted image is exportable");
+        d.mark_clean("K");
+        assert!(!d.drive_dirty(0), "export marks the mounted image clean");
+
+        write_sector_zero(&mut d, 0xDD);
+        d.eject(0);
+        assert_eq!(d.image_for_key("K").unwrap()[0], 0xDD, "shelved image is exportable");
+        d.mark_clean("K");
+        assert!(!d.in_memory_disks()[0].dirty, "export marks the shelved image clean");
+    }
+
+    #[test]
+    fn anonymous_mounts_are_not_remembered() {
+        let mut d = card();
+        d.mount(0, vec![0u8; 4 * SECTOR_SIZE]);
+        write_sector_zero(&mut d, 0xEE);
+        d.eject(0);
+        assert!(d.in_memory_disks().is_empty(), "no identity, nothing shelved");
+    }
+
+    #[test]
+    fn version1_disk_state_loads_with_no_identities_and_an_empty_shelf() {
+        // Hand-write the version-1 layout (no identity/dirty/shelf tail).
+        let mut w = crate::state::StateWriter::new();
+        w.u8(0); // no DSR
+        w.u8(1); // DSK1 mounted
+        w.blob(&vec![0xABu8; 4 * SECTOR_SIZE]);
+        w.u8(0); // DSK2 empty
+        w.u8(0); // DSK3 empty
+        w.bool(false); // rom_enabled
+        w.opt_usize(None); // selected
+        w.u8(0); // side
+        w.u8(1); // step_dir
+        w.u8(0); // status
+        w.u8(0); // track
+        w.u8(0); // sector
+        w.u8(0); // data
+        w.raw(&[0u8; SECTOR_SIZE]); // buffer
+        w.usize(0); // buf_pos
+        w.usize(0); // buf_left
+        w.opt_usize(None); // write_lba
+        let bytes = w.into_bytes();
+
+        let mut d = Disk::new();
+        let mut r = crate::state::StateReader::new(&bytes);
+        d.load_state(&mut r, 1).expect("a version-1 disk section loads");
+        assert_eq!(d.drive_image(0).unwrap()[0], 0xAB);
+        assert_eq!(d.drive_key(0), None);
+        assert!(!d.drive_dirty(0));
+        assert!(d.in_memory_disks().is_empty());
+        // The frontend can then adopt the identity it recorded at exit.
+        d.adopt_drive_key(0, "K");
+        assert_eq!(d.drive_key(0), Some("K"));
     }
 }

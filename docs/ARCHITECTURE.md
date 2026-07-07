@@ -92,7 +92,7 @@ its tests run against.)
 | `cru` | TMS9901 + the CRU bit bus: keyboard column/row scanning, the VDP interrupt line, the interval timer. |
 | `keyboard` | The 8×8 key/joystick matrix as pure state. |
 | `cartridge` | The `ti99sim` `.ctg` parser (RLE + region records) → CPU-ROM banks and GROM blobs; ROM bank switching. |
-| `disk` | The FD1771 controller registers, disk-image sector access (geometry from the VIB), DSR-ROM paging. |
+| `disk` | The FD1771 controller registers, disk-image sector access (geometry from the VIB), DSR-ROM paging, and the disk-persistence model: keyed in-memory images, the eject shelf, dirty tracking, export/forget accessors. |
 | `state` | Versioned, `std`-only (de)serialization of a complete machine snapshot behind a magic+version header (no `serde`). |
 | `sysinfo` | The Libre99 emulator-identification block: the layout contract shared by the GROM build, the frontend's stamp, and the firmware gates. |
 | `machine` | `Tms9900Bus` (the console memory map + CRU routing) and `Machine`: wires everything, `run_frame()`, framebuffer/audio/key access, mounting, save/load state. |
@@ -104,7 +104,8 @@ its tests run against.)
 | `cli` | Hand-rolled parser: `--cartridge`/`--disk`/`--system-rom`/`--system-grom`/`--disk-dsr`/`--scale`/`--fullscreen`/`--log-level`/`--help` (media flags take file paths; nothing is embedded). |
 | `config` | The preferences TOML (resilient parse, clean rewrite); owns the data-dir/log/save-state/screenshot paths. |
 | `assets` | The **clean-room firmware** embedded in the binary (console ROM/GROM + disk DSR) — and nothing else. |
-| `media` | Runtime media loading: the OS-native file chooser (`rfd`), `.ctg`/`.dsk` type detection, size guard, read-and-validate shared by the CLI and `F9`. |
+| `media` | Runtime media loading: the OS-native file chooser + export save dialog + unload confirmation (`rfd`), `.ctg`/`.dsk` type detection, size guard, disk identity keys (canonical paths), read-and-validate shared by the CLI and `F9`. |
+| `disks` | The `F4` disk-memory overlay: lists the in-memory disk images (mounted + shelved, `CHANGED`/`CLEAN`) and drives export/unload. |
 | `logging` | Leveled logging to terminal + run-log file. |
 | `app` | The winit application: window, ~60 Hz frame loop, input routing, hotkeys, overlays, save/load + auto-save on exit. |
 | `pacing` | The frame-pacing arithmetic (pure, unit-tested). |
@@ -206,12 +207,24 @@ routine — runs unmodified, and the DSR itself parses the TI on-disk structures
 geometry is read from a mounted image's Volume Information Block, with the
 classic 40×9 single-sided layout as the fallback.
 
+**Persistence:** the host `.dsk` file is never written back. Sector writes
+mutate the machine's in-memory image; every image mounted with a host identity
+(its file's canonical path) stays in memory for the life of the machine — an
+eject moves it to a **shelf**, a remount of the same file reattaches it, edits
+intact, and save states carry drives and shelf alike. Getting edits onto the
+host filesystem is an explicit frontend export (the `F4` overlay + the
+OS-native save dialog). Disks mount and eject **live**; only a cartridge
+change rebuilds the machine, and the frontend transplants the whole `Disk`
+across that rebuild.
+
 ### Save states
 `state.rs` serializes a complete, self-contained snapshot (RAM, VRAM, GROM,
-cartridge ROM, mounted disk images including writes) behind a magic+version
-header. Loads are **staged** — the snapshot decodes into a scratch machine and
-is swapped in only on success, so a corrupt file can never half-corrupt a
-session — and per-device sanitizers clamp restored cursors/indices.
+cartridge ROM, every in-memory disk image — mounted drives and the eject shelf,
+writes and host identities included) behind a magic+version header (format v2;
+v1 files still load, with no identities/shelf). Loads are **staged** — the
+snapshot decodes into a scratch machine and is swapped in only on success, so a
+corrupt file can never half-corrupt a session — and per-device sanitizers clamp
+restored cursors/indices.
 
 ---
 

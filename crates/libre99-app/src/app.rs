@@ -62,10 +62,11 @@ use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Fullscreen, Window, WindowId};
 
 use crate::audio::Audio;
+use crate::disks::{self, DiskAction, DiskOverlay};
 use crate::font::Fonts;
 use crate::help::{self, HelpTab};
 use crate::input::{self, KeyLayout};
-use crate::media::{self, MediaItem, MediaKind};
+use crate::media::{self, MediaItem, MediaKind, UnloadChoice};
 use crate::pacing;
 use crate::screenshot;
 use crate::speed::Speed;
@@ -122,6 +123,13 @@ pub struct App {
     // When true, the F1 help overlay is shown (full-screen, native resolution)
     // and TI key input is suspended.
     keyboard_help: bool,
+    // The F4 disk-memory overlay (list / export / unload of in-memory disks).
+    // While open it captures key input; the machine keeps running.
+    disk_ui: DiskOverlay,
+    // The window title last applied, so the per-frame refresh only touches the
+    // window when the title actually changes (the DSK1 dirty marker can flip
+    // on any frame the DSR writes).
+    title_cache: String,
     // The embedded smooth fonts used by the native-resolution help overlay.
     fonts: Fonts,
     // The active help tab, and a cached render of it reused across frames until
@@ -180,6 +188,8 @@ impl App {
             toast: None,
             toast_frames: 0,
             keyboard_help: false,
+            disk_ui: DiskOverlay::default(),
+            title_cache: String::new(),
             fonts: Fonts::new(),
             help_tab: HelpTab::Start,
             help_image: Vec::new(),
@@ -204,24 +214,39 @@ impl App {
         self.disk.as_ref().map(MediaItem::name).unwrap_or_else(|| "(none)".into())
     }
 
-    /// Window title showing the current media.
+    /// Window title showing the current media. A `*` after the disk name marks
+    /// in-memory changes that have not been exported to a host file.
     fn title(&self) -> String {
-        format!("Libre99  —  {}  ·  DSK1: {}", self.cart_name(), self.disk_name())
+        let star = if self.machine.bus().disk.drive_dirty(0) { "*" } else { "" };
+        format!("Libre99  —  {}  ·  DSK1: {}{star}", self.cart_name(), self.disk_name())
     }
 
-    /// Rebuild the machine with the currently-held media (a warm media change)
-    /// and reflect it in the window title.
+    /// Apply the title to the window if it changed since last applied (called
+    /// once per frame — the disk dirty marker can flip on any frame).
+    fn sync_title(&mut self) {
+        let title = self.title();
+        if title != self.title_cache {
+            if let Some(window) = &self.window {
+                window.set_title(&title);
+            }
+            self.title_cache = title;
+        }
+    }
+
+    /// Rebuild the machine around a **cartridge** change — mounting or ejecting
+    /// a cartridge is a cold boot, since the console scans cartridge ROM at
+    /// power-up. The whole disk subsystem — mounted image, the in-memory shelf,
+    /// controller state — is carried over intact, so a cartridge swap never
+    /// costs disk edits. (Disks themselves mount and eject **live**, without
+    /// coming through here.)
     fn rebuild_machine(&mut self) {
-        self.machine = crate::build_machine(
-            self.cart.as_ref().map(|m| m.bytes.as_slice()),
-            self.disk.as_ref().map(|m| m.bytes.as_slice()),
-        );
+        let disk = std::mem::take(&mut self.machine.bus_mut().disk);
+        self.machine = crate::build_machine(self.cart.as_ref().map(|m| m.bytes.as_slice()));
+        self.machine.bus_mut().disk = disk;
         if let Some(audio) = &self.audio {
             self.machine.set_audio_sample_rate(audio.sample_rate());
         }
-        if let Some(window) = &self.window {
-            window.set_title(&self.title());
-        }
+        self.sync_title();
         log::info!("media: cartridge={:?} disk={:?}", self.cart_name(), self.disk_name());
     }
 
@@ -421,20 +446,40 @@ impl App {
             return;
         };
         match media::load(kind, &path) {
-            Ok(item) => {
+            Ok(mut item) => {
                 if let Some(dir) = item.path.parent() {
                     self.browser_dir = dir.to_path_buf();
                 }
                 let name = item.name();
                 match kind {
-                    MediaKind::Cartridge => self.cart = Some(item),
-                    MediaKind::Disk => self.disk = Some(item),
+                    // A cartridge mount is a cold boot (the console scans
+                    // cartridge ROM at power-up).
+                    MediaKind::Cartridge => {
+                        self.cart = Some(item);
+                        self.rebuild_machine();
+                        self.flash(format!("CART: {name}"));
+                    }
+                    // A disk slots into the *running* machine, like a real
+                    // floppy — no reboot. If this same file was mounted (and
+                    // written to) earlier this session, the in-memory copy
+                    // reattaches instead of the host bytes.
+                    MediaKind::Disk => {
+                        let key = media::disk_key(&item.path);
+                        let bytes = std::mem::take(&mut item.bytes);
+                        let resumed = self.machine.mount_disk_keyed(0, &key, bytes);
+                        self.disk = Some(item);
+                        self.sync_title();
+                        log::info!(
+                            "mounted DSK1 live: {key}{}",
+                            if resumed { " (in-memory copy reattached)" } else { "" }
+                        );
+                        self.flash(if resumed {
+                            format!("DSK1: {name} (IN-MEMORY CHANGES APPLY)")
+                        } else {
+                            format!("DSK1: {name}")
+                        });
+                    }
                 }
-                self.rebuild_machine();
-                self.flash(format!(
-                    "{}: {name}",
-                    if kind == MediaKind::Cartridge { "CART" } else { "DSK1" }
-                ));
             }
             Err(message) => {
                 log::warn!("mount failed: {message}");
@@ -443,19 +488,138 @@ impl App {
         }
     }
 
-    /// `F2`/`F3`: unmount the cartridge / empty DSK1 (warm reset), for the
-    /// bare console or a clean drive.
+    /// `F2`: unmount the cartridge (a cold boot, back to the bare console).
+    /// `F3`: empty DSK1 **live** — no reboot; the image stays in memory (see
+    /// the `F4` overlay), so remounting the same file brings its edits back.
     fn eject(&mut self, kind: MediaKind) {
-        let (slot, label) = match kind {
-            MediaKind::Cartridge => (&mut self.cart, "CARTRIDGE EJECTED"),
-            MediaKind::Disk => (&mut self.disk, "DSK1 EMPTIED"),
-        };
-        if slot.take().is_some() {
-            self.rebuild_machine();
-            self.flash(label);
-        } else {
-            self.flash("ALREADY EMPTY");
+        match kind {
+            MediaKind::Cartridge => {
+                if self.cart.take().is_some() {
+                    self.rebuild_machine();
+                    self.flash("CARTRIDGE EJECTED");
+                } else {
+                    self.flash("ALREADY EMPTY");
+                }
+            }
+            MediaKind::Disk => {
+                // The machine is the source of truth for whether a disk is in
+                // the drive (a resumed session can have one the app never
+                // mounted itself).
+                if self.machine.bus().disk.drive_image(0).is_none() {
+                    self.flash("ALREADY EMPTY");
+                    return;
+                }
+                let dirty = self.machine.bus().disk.drive_dirty(0);
+                self.machine.eject_disk(0);
+                self.disk = None;
+                self.sync_title();
+                self.flash(if dirty {
+                    "DSK1 EJECTED - CHANGES KEPT IN MEMORY (F4)"
+                } else {
+                    "DSK1 EJECTED"
+                });
+            }
         }
+    }
+
+    /// `F4`: toggle the disk-memory overlay (in-memory disks: export / unload).
+    fn toggle_disk_ui(&mut self) {
+        if self.disk_ui.open {
+            self.disk_ui.open = false;
+            return;
+        }
+        // Like the file dialog: lift held keys (the F4 press included) since
+        // TI input is suspended while the overlay captures the keyboard.
+        self.release_all_keys();
+        self.speed.set_turbo(false);
+        self.disk_ui.open();
+    }
+
+    /// Route a key to the open disk-memory overlay and run the action it asks
+    /// for.
+    fn disk_ui_key(&mut self, code: KeyCode) {
+        let disks = self.machine.bus().disk.in_memory_disks();
+        match self.disk_ui.handle_key(code, &disks) {
+            DiskAction::Close => self.disk_ui.open = false,
+            DiskAction::Export(key) => {
+                self.export_disk(&key);
+            }
+            DiskAction::Unload(key) => self.unload_disk(&key),
+            DiskAction::None => {}
+        }
+    }
+
+    /// Export the in-memory disk image identified by `key` to a host `.dsk`
+    /// file the user picks with the **native save dialog** — which is what
+    /// confirms an overwrite of an existing file; the app never overwrites a
+    /// host `.dsk` without that prompt. On success the image is marked clean
+    /// (its bytes are now safe on the host filesystem). Returns whether the
+    /// file was written.
+    fn export_disk(&mut self, key: &str) -> bool {
+        let Some(image) = self.machine.bus().disk.image_for_key(key).map(<[u8]>::to_vec) else {
+            self.flash("NO SUCH DISK IN MEMORY");
+            return false;
+        };
+        // Modal dialog: same input caveats as the F9 chooser.
+        self.release_all_keys();
+        self.speed.set_turbo(false);
+        let Some(path) = media::save_dsk_file(&self.browser_dir, disks::file_name(key)) else {
+            return false; // canceled
+        };
+        match std::fs::write(&path, &image) {
+            Ok(()) => {
+                if let Some(dir) = path.parent() {
+                    self.browser_dir = dir.to_path_buf();
+                }
+                self.machine.bus_mut().disk.mark_clean(key);
+                self.sync_title();
+                log::info!("exported disk {key} -> {}", path.display());
+                self.flash("DISK EXPORTED");
+                true
+            }
+            Err(e) => {
+                log::error!("disk export to {} failed: {e}", path.display());
+                self.flash("EXPORT FAILED (SEE LOG)");
+                false
+            }
+        }
+    }
+
+    /// Unload the in-memory disk image identified by `key`, so the next mount
+    /// of that file starts over from the host file's bytes. If the image has
+    /// unexported changes, a **native message dialog** offers to export it
+    /// first (canceling either dialog keeps the disk in memory — no data is
+    /// lost without an explicit choice). Unloading a disk that is mounted also
+    /// empties the drive.
+    fn unload_disk(&mut self, key: &str) {
+        let disks = self.machine.bus().disk.in_memory_disks();
+        let Some(info) = disks.iter().find(|d| d.key == key) else {
+            self.flash("NO SUCH DISK IN MEMORY");
+            return;
+        };
+        if info.dirty {
+            self.release_all_keys();
+            self.speed.set_turbo(false);
+            match media::confirm_unload(disks::file_name(key)) {
+                UnloadChoice::Save => {
+                    // A canceled or failed export aborts the unload — the user
+                    // asked to save first, and nothing has been saved.
+                    if !self.export_disk(key) {
+                        return;
+                    }
+                }
+                UnloadChoice::Discard => {}
+                UnloadChoice::Cancel => return,
+            }
+        }
+        let was_mounted = info.drive == Some(0);
+        self.machine.bus_mut().disk.forget(key);
+        if was_mounted {
+            self.disk = None;
+        }
+        self.sync_title();
+        log::info!("unloaded disk from memory: {key}");
+        self.flash("DISK UNLOADED FROM MEMORY");
     }
 
     /// Write a snapshot of the machine to the single save-state file, logging the
@@ -509,6 +673,15 @@ impl App {
                 if let Some(audio) = &self.audio {
                     self.machine.set_audio_sample_rate(audio.sample_rate());
                 }
+                // The snapshot names the disk it carries (its host identity);
+                // let the machine, not whatever was mounted a moment ago, drive
+                // the title and the exit bookkeeping. (Bytes stay empty — disk
+                // images live in the machine, the item is path bookkeeping.)
+                self.disk = self.machine.bus().disk.drive_key(0).map(|k| MediaItem {
+                    path: PathBuf::from(k),
+                    bytes: Vec::new(),
+                });
+                self.sync_title();
                 log::info!("loaded state from {}", path.display());
                 self.flash("STATE LOADED");
             }
@@ -561,6 +734,12 @@ impl App {
             let mut canvas = text::Canvas::new(&mut self.framebuffer, WIDTH, HEIGHT);
             canvas.dim_rect(x, 2, w, text::GLYPH_H + 4, 2);
             canvas.draw_text(x + 3, 4, label, 0x00FF_EE33, 1);
+        }
+        // The disk-memory overlay (F4): in-memory disks, export/unload.
+        if self.disk_ui.open {
+            let disks = self.machine.bus().disk.in_memory_disks();
+            let mut canvas = text::Canvas::new(&mut self.framebuffer, WIDTH, HEIGHT);
+            self.disk_ui.render(&mut canvas, &disks);
         }
         if self.toast_frames == 0 {
             return;
@@ -638,6 +817,14 @@ impl ApplicationHandler for App {
                         }
                         return;
                     }
+                    // Same for the disk-memory overlay (the machine keeps
+                    // running underneath; TI input is suspended).
+                    if self.disk_ui.open {
+                        if down && !event.repeat {
+                            self.disk_ui_key(code);
+                        }
+                        return;
+                    }
                     // One-shot emulator hotkeys. Skip auto-repeat events so a
                     // held key can't fire them many times — e.g. F11 toggling
                     // fullscreen on and straight back off mid-transition.
@@ -647,6 +834,7 @@ impl ApplicationHandler for App {
                             KeyCode::F9 if down => self.mount_via_dialog(),
                             KeyCode::F2 if down => self.eject(MediaKind::Cartridge),
                             KeyCode::F3 if down => self.eject(MediaKind::Disk),
+                            KeyCode::F4 if down => self.toggle_disk_ui(),
                             KeyCode::F5 if down => self.machine.reset(),
                             KeyCode::F7 if down => self.toggle_layout(),
                             // Fullscreen: F11 (cross-platform) or the macOS-standard
@@ -738,6 +926,9 @@ impl ApplicationHandler for App {
                 if frames > 0 {
                     self.feed_audio();
                 }
+                // The DSK1 dirty marker in the title can flip on any frame the
+                // DSR writes; this only touches the window on a real change.
+                self.sync_title();
                 self.present();
             }
             _ => {}

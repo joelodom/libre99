@@ -102,7 +102,13 @@ pub const LINES_PER_FRAME: u64 = 262;
 /// Magic bytes at the head of every save-state file (`"TI99SAVE"`).
 const SAVE_MAGIC: [u8; 8] = *b"TI99SAVE";
 /// Save-state format version. Bump this when the layout changes incompatibly.
-const SAVE_VERSION: u32 = 1;
+/// Version 2 (2026-07-07) appended the disk card's host identities, dirty
+/// flags, and in-memory shelf of ejected disks to the version-1 layout.
+const SAVE_VERSION: u32 = 2;
+/// Oldest save-state version this build still loads. Version-1 files predate
+/// the disk-persistence tail; they load with anonymous, clean drives and an
+/// empty shelf.
+const MIN_SAVE_VERSION: u32 = 1;
 
 /// The console memory map and CRU routing — the [`Bus`] the CPU talks to.
 pub struct Tms9900Bus {
@@ -533,9 +539,28 @@ impl Machine {
         self.bus.disk.load_dsr(dsr_rom);
     }
 
-    /// Insert a raw sector-dump disk image into drive `drive` (0 = DSK1).
+    /// Insert a raw sector-dump disk image into drive `drive` (0 = DSK1),
+    /// anonymously (not remembered across an eject — tests/diagnostics; the
+    /// frontend uses [`mount_disk_keyed`](Self::mount_disk_keyed)). Disks
+    /// mount **live**, like a real floppy — no reset required.
     pub fn mount_disk(&mut self, drive: usize, image: Vec<u8>) {
         self.bus.disk.mount(drive, image);
+    }
+
+    /// Insert a disk image read from the host file identified by `key` into
+    /// drive `drive`, **live** — preferring the in-memory copy if the same
+    /// file was mounted (and possibly written to) earlier this session.
+    /// Returns `true` when that in-memory copy was reattached. See
+    /// [`Disk::mount_keyed`](crate::disk::Disk::mount_keyed).
+    pub fn mount_disk_keyed(&mut self, drive: usize, key: &str, image: Vec<u8>) -> bool {
+        self.bus.disk.mount_keyed(drive, key, image)
+    }
+
+    /// Empty disk drive `drive` **live** — no reset, exactly like pulling the
+    /// floppy. A keyed image stays in memory (edits intact) for a later
+    /// remount; see [`Disk::eject`](crate::disk::Disk::eject).
+    pub fn eject_disk(&mut self, drive: usize) {
+        self.bus.disk.eject(drive);
     }
 
     /// Set the host audio sample rate the SN76489 synthesises at.
@@ -577,7 +602,8 @@ impl Machine {
     }
 
     /// Serialize the entire machine — CPU, all RAM, VRAM, the GROM image, the
-    /// cartridge ROM, the mounted disk images (with any written-back sectors),
+    /// cartridge ROM, every in-memory disk image (mounted drives *and* the
+    /// shelf of ejected disks, written sectors and host identities included),
     /// and every chip latch — into a self-contained save-state blob. Restore it
     /// with [`load_state`](Self::load_state).
     ///
@@ -609,7 +635,7 @@ impl Machine {
             return Err(StateError::BadMagic);
         }
         let version = r.u32()?;
-        if version != SAVE_VERSION {
+        if !(MIN_SAVE_VERSION..=SAVE_VERSION).contains(&version) {
             return Err(StateError::UnsupportedVersion(version));
         }
         // Decode into a blank staging machine; the empty ROM/GROM it starts with
@@ -617,7 +643,7 @@ impl Machine {
         // images. A mid-stream error therefore cannot corrupt the live machine.
         let mut staged = Machine::new(&[], &[]);
         staged.cpu.load_state(&mut r)?;
-        staged.bus.load_state(&mut r)?;
+        staged.bus.load_state(&mut r, version)?;
         staged.interrupts_enabled = r.bool()?;
         *self = staged;
         Ok(())
@@ -699,8 +725,13 @@ impl Tms9900Bus {
         self.psg.save_state(w);
     }
 
-    /// Restore the whole bus from a save state.
-    pub(crate) fn load_state(&mut self, r: &mut StateReader<'_>) -> Result<(), StateError> {
+    /// Restore the whole bus from a save state of format `version` (which only
+    /// the disk card's layout depends on).
+    pub(crate) fn load_state(
+        &mut self,
+        r: &mut StateReader<'_>,
+        version: u32,
+    ) -> Result<(), StateError> {
         r.fill(&mut self.rom[..])?;
         r.fill(&mut self.scratchpad[..])?;
         r.fill(&mut self.low_ram[..])?;
@@ -712,7 +743,7 @@ impl Tms9900Bus {
         self.grom.load_state(r)?;
         self.keyboard.load_state(r)?;
         self.tms9901.load_state(r)?;
-        self.disk.load_state(r)?;
+        self.disk.load_state(r, version)?;
         self.psg.load_state(r)?;
         Ok(())
     }

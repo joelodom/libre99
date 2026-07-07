@@ -21,6 +21,7 @@ Windows/Linux; every other `Ctrl` chord still reaches the TI's own CTRL key.)
 - [Joystick](#joystick)
 - [Emulator hotkeys](#emulator-hotkeys)
 - [Mounting media (F9) and ejecting (F2/F3)](#mounting-media-f9-and-ejecting-f2f3)
+- [Disk persistence — your .dsk files are never modified](#disk-persistence--your-dsk-files-are-never-modified)
 - [Save state, auto-save, and resume](#save-state-auto-save-and-resume)
 - [Screenshots](#screenshots)
 - [Speed control](#speed-control-pause-frame-advance-fast-forward)
@@ -113,9 +114,10 @@ Nothing is embedded; the console boots bare until you mount media, two ways:
    run, e.g. straight out of `libre99asm`.
 2. **In-app**, while running: `F9` opens your **system's file chooser**; pick
    any `.ctg` (cartridge port) or `.dsk` (DSK1) — the two are told apart by
-   extension. `F2` ejects the cartridge, `F3` empties DSK1. Every in-app
-   change **warm-boots** the console with the new media, and the window title
-   always shows what is mounted.
+   extension. `F2` ejects the cartridge, `F3` ejects DSK1. A **disk** mounts
+   and ejects **live**, like a real floppy — the running session is untouched;
+   a **cartridge** change reboots the console (it scans cartridge ROM at
+   power-up). The window title always shows what is mounted.
 
 ## The keyboard
 
@@ -189,8 +191,9 @@ overlay or media browser is open, except the keys that close those overlays.
 | Key | Action |
 |---|---|
 | `F1` or `Esc` | **Help overlay** — five tabs (Start, Keyboard, Hotkeys, Media & State, Settings); switch with `1`–`5`, `Tab`, `←`/`→`. |
-| `F2` | **Eject** the cartridge (warm reset — back to the bare console). |
-| `F3` | **Empty DSK1** (warm reset). |
+| `F2` | **Eject** the cartridge (reboots — back to the bare console). |
+| `F3` | **Eject DSK1** (live — no reboot; the image stays in memory, see `F4`). |
+| `F4` | **Disk memory** overlay — list the in-memory disk images, **export** one to a `.dsk` file, or **unload** one from memory. |
 | `F5` | **Reset** the console. |
 | `F6` | **Save state** — snapshot the whole machine to the save file. |
 | `F7` | **Keyboard layout** — toggle positional ⇄ character. |
@@ -213,20 +216,60 @@ overlay or media browser is open, except the keys that close those overlays.
 `F9` opens your **operating system's native file chooser** (the standard
 Open dialog on Windows and macOS), filtered to TI media. Pick any `.ctg`
 cartridge or `.dsk` disk image — the extension decides which port it goes to
-(cartridge slot vs. DSK1) — and the console warm-boots with it mounted. The
-chooser opens in the folder you last mounted from (your home directory on
-first run) and remembers the spot across sessions. The emulation pauses while
-the dialog is up and resumes when it closes; canceling changes nothing.
+(cartridge slot vs. DSK1). The chooser opens in the folder you last mounted
+from (your home directory on first run) and remembers the spot across
+sessions. The emulation pauses while the dialog is up and resumes when it
+closes; canceling changes nothing.
 
-`F2` **ejects the cartridge** (back to the bare console) and `F3` **empties
-DSK1** — each a warm reset, confirmed by a toast. A file that can't be read
-or isn't a usable image is a toast plus a log line, never a dead machine.
+A **disk** slots into the **running** machine, exactly like inserting a real
+floppy — no reboot, the session keeps going; `F3` ejects it just as live. A
+**cartridge** mount or `F2` eject reboots the console, as on hardware: the
+console scans cartridge ROM at power-up. A cartridge reboot never costs disk
+data — the whole disk subsystem (mounted image, in-memory changes, ejected
+images) carries across it. A file that can't be read or isn't a usable image
+is a toast plus a log line, never a dead machine.
+
+## Disk persistence — your `.dsk` files are never modified
+
+The emulator treats a mounted `.dsk` as **read-only source material**. What a
+TI program writes goes to an **in-memory copy** of the image; the file on
+your host filesystem is never touched. In exchange:
+
+- **Ejecting keeps the image in memory.** Eject a disk (`F3`), play something
+  else, remount the same file — your writes are still there. Every disk
+  mounted this session stays in memory (a disk is identified by its file's
+  canonical path).
+- **A `*` in the window title** after the DSK1 name means the image has
+  in-memory changes that haven't been exported.
+- **Save states carry all of it.** The save state (and the auto-save on quit)
+  includes every in-memory disk image — mounted or ejected — so changed disks
+  survive quitting and relaunching without you doing anything.
+- **Export writes a `.dsk` when *you* choose.** The disk-memory overlay
+  (below) exports the changed image through your OS's **native Save dialog**
+  to any file you pick — a new file, or the original if you really want. The
+  dialog itself asks before replacing an existing file: **the emulator never
+  overwrites a `.dsk` on your filesystem without that prompt.**
+
+### The disk-memory overlay (`F4`)
+
+`F4` lists every disk image held in memory — the one in DSK1 and the ejected
+ones — with its status: `CHANGED` (has writes not yet exported) or `CLEAN`,
+plus its size and whether it is mounted. The machine keeps running; TI input
+is suspended while the overlay is open.
+
+| Key | Action |
+|---|---|
+| `↑` / `↓` | Select a disk. |
+| `Enter` or `E` | **Export** — write the in-memory image to a `.dsk` file via the native Save dialog (which confirms any overwrite). A successful export marks the image `CLEAN`. |
+| `U` or `Delete` | **Unload** — drop the image from memory, so the next mount of that file re-reads it fresh from your filesystem. If the image is `CHANGED`, a native dialog first offers **Yes** (export it, then unload), **No** (discard the changes), or **Cancel** (keep it in memory). Unloading a mounted disk also empties the drive. |
+| `Esc` / `F4` | Close the overlay. |
 
 ## Save state, auto-save, and resume
 
 `F6` writes a **complete, self-contained snapshot** of the running machine —
-all RAM and VRAM, the GROM image, the cartridge ROM, and the mounted disk
-images **including any sectors a program has written** — to a single file:
+all RAM and VRAM, the GROM image, the cartridge ROM, and **every in-memory
+disk image** (mounted *and* ejected-but-remembered, written sectors included)
+— to a single file:
 
 ```
 ~/.libre99/savestate.ti99
@@ -244,14 +287,16 @@ it. Launching with explicit media or firmware (`--cartridge`, `--disk`,
 `--system-rom`, `--system-grom`) skips the resume and boots fresh.
 
 > The snapshot itself is self-contained, but the frontend also re-reads the
-> mounted media's *files* (recorded in the preferences) on resume, so a later
-> in-app media change keeps the other side mounted. If one of those files has
-> moved or gone, the resumed session still runs; the log notes the miss.
+> mounted *cartridge* file (recorded in the preferences) on resume, so a later
+> cartridge change keeps working. If that file has moved or gone, the resumed
+> session still runs; the log notes the miss. Disks need no re-read — their
+> images (and identities) travel inside the snapshot.
 
-> **Disk writes live only in the save state.** A program's writes to a mounted
-> disk go to the machine's **in-memory** copy of the image — never back to a
-> host `.Dsk` file. They persist only through a save state (the exit auto-save
-> keeps them across a normal quit-and-resume).
+> **Disk writes never touch your `.dsk` files.** They live in the machine's
+> in-memory images, which the save state (and the exit auto-save) carries in
+> full — so changed disks survive a normal quit-and-resume automatically. To
+> get them onto the host filesystem, **export** from the
+> [disk-memory overlay (`F4`)](#the-disk-memory-overlay-f4).
 
 ## Screenshots
 
@@ -299,7 +344,7 @@ break startup.
 | Key | Type | Meaning |
 |---|---|---|
 | `log_level` | string | Logging verbosity: `error` / `warn` / `info` / `debug` / `trace`. |
-| `last_cartridge`, `last_disk` | string | File **paths** of the media mounted when the session was last saved — written on exit so a resume re-reads the same files. Managed by the app; no need to edit. |
+| `last_cartridge`, `last_disk` | string | File **paths** of the media mounted at exit. The cartridge is re-read on resume; the disk path is bookkeeping (its image travels inside the save state). Managed by the app; no need to edit. |
 | `browser_dir` | string | Where the `F9` file chooser opens — follows your last mount. Managed by the app. |
 | `window_scale` | integer | Integer upscale of the 256×192 image (`1`–`8`). |
 | `fullscreen` | bool | Start fullscreen. |

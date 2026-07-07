@@ -76,8 +76,11 @@ impl MediaKind {
     }
 }
 
-/// A loaded media file: where it came from and its bytes (kept in memory so a
-/// warm machine rebuild re-mounts without re-reading the file).
+/// A loaded media file: where it came from and its bytes. A cartridge item
+/// keeps its bytes so the cold-boot rebuild a cartridge change requires can
+/// re-mount without re-reading the file; a *disk* item hands its bytes to the
+/// machine at mount time (the in-memory image lives there from then on) and
+/// keeps only the path, for the window title and the exit bookkeeping.
 #[derive(Clone, Debug)]
 pub struct MediaItem {
     pub path: PathBuf,
@@ -107,6 +110,75 @@ pub fn pick_media_file(start_dir: &Path) -> Option<PathBuf> {
         dialog = dialog.set_directory(start_dir);
     }
     dialog.pick_file()
+}
+
+/// Ask the OS where to write an exported disk image with its **native save
+/// dialog** (blocking, like [`pick_media_file`]). The dialog itself asks
+/// "replace existing file?" when the user picks a name that exists — that is
+/// the app's overwrite guarantee: no host `.dsk` is ever overwritten without
+/// that prompt. The returned path is written **exactly as the dialog returned
+/// it** (no extension fix-ups afterwards, which would dodge the check the OS
+/// just performed on the name the user confirmed).
+pub fn save_dsk_file(start_dir: &Path, suggested_name: &str) -> Option<PathBuf> {
+    let mut dialog = rfd::FileDialog::new()
+        .add_filter("Disk images (*.dsk)", &["dsk"])
+        .set_title("Export disk image (.dsk)")
+        .set_file_name(suggested_name);
+    if start_dir.is_dir() {
+        dialog = dialog.set_directory(start_dir);
+    }
+    dialog.save_file()
+}
+
+/// The user's answer to the native "unsaved disk changes" prompt shown before
+/// unloading a modified in-memory disk.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnloadChoice {
+    /// Export the image to a `.dsk` file first, then unload.
+    Save,
+    /// Unload without exporting — the in-memory changes are discarded.
+    Discard,
+    /// Keep the disk in memory; nothing happens.
+    Cancel,
+}
+
+/// Ask — with the OS's **native message dialog** — whether to export a
+/// modified disk image before unloading it from memory (the point of no
+/// return for its in-memory changes; the host file was never touched).
+pub fn confirm_unload(name: &str) -> UnloadChoice {
+    let result = rfd::MessageDialog::new()
+        .set_level(rfd::MessageLevel::Warning)
+        .set_title("Unload disk from memory")
+        .set_description(format!(
+            "{name} has in-memory changes that have not been exported.\n\n\
+             Save it to a .dsk file before unloading?\n\n\
+             Yes: choose where to save, then unload.\n\
+             No: unload and discard the changes (the original file on disk is untouched).\n\
+             Cancel: keep the disk in memory."
+        ))
+        .set_buttons(rfd::MessageButtons::YesNoCancel)
+        .show();
+    match result {
+        rfd::MessageDialogResult::Yes => UnloadChoice::Save,
+        rfd::MessageDialogResult::No => UnloadChoice::Discard,
+        _ => UnloadChoice::Cancel,
+    }
+}
+
+/// The host identity a disk image is remembered by — across ejects, in save
+/// states, and in the disk-memory overlay: the canonicalized absolute path
+/// when the file resolves (so case and relative-vs-absolute spellings of the
+/// same file collapse to one identity), else the path as given. Windows'
+/// canonical form carries the `\\?\` verbatim prefix; it is stripped so keys
+/// stay readable (the key is an identity and display string, never re-opened
+/// as a path).
+pub fn disk_key(path: &Path) -> String {
+    let canon = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let s = canon.display().to_string();
+    match s.strip_prefix(r"\\?\") {
+        Some(stripped) => stripped.to_string(),
+        None => s,
+    }
 }
 
 /// The media kind of `path` by extension (case-insensitive): `.ctg` is a
@@ -177,6 +249,23 @@ mod tests {
     fn a_missing_file_is_an_error_message_not_a_panic() {
         let err = load(MediaKind::Disk, Path::new("no/such/file.dsk")).unwrap_err();
         assert!(err.contains("cannot read"), "{err}");
+    }
+
+    #[test]
+    fn disk_key_collapses_spellings_of_the_same_file() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("libre99-media-test-key.dsk");
+        std::fs::write(&path, [0u8; 4]).unwrap();
+        let key = disk_key(&path);
+        // A redundant `.` component resolves to the same identity.
+        assert_eq!(disk_key(&dir.join(".").join("libre99-media-test-key.dsk")), key);
+        assert!(!key.starts_with(r"\\?\"), "verbatim prefix leaked into the key: {key}");
+        let _ = std::fs::remove_file(&path);
+        // A file that doesn't resolve still yields a stable identity.
+        assert_eq!(
+            disk_key(Path::new("no/such.dsk")),
+            Path::new("no/such.dsk").display().to_string()
+        );
     }
 
     #[test]

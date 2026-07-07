@@ -79,12 +79,29 @@ release-gating · **[decide]** an owner decision gates it.
 
 | # | Phase | Work item | What it involves — and why it sits here | Gate |
 |:--:|---|---|---|:--:|
-| 1 | **3 · Polish & ship** | **Save states: atomic + portable** | Replace the plain `fs::write` with temp-file-plus-rename (atomic on both OSes); store a **portable** media re-mount reference (name/relative path, not an absolute `C:\…` vs `/…` path); add a macOS↔Windows round-trip test. Core format already ports (little-endian, self-contained, version-magic-guarded). | [blocker] |
-| 2 | **3 · Polish & ship** | **Mount a disk without rebooting the console** | Mounting media on `F9` (and `F2`/`F3` eject) currently calls `rebuild_machine()` → `build_machine()` → a fresh `Machine::new` + `reset()` — a **full cold boot** that wipes RAM and the running session (the `F1` help even mislabels this a "warm reset"). Real hardware needs no reboot to insert a floppy, and `Machine::mount_disk` already inserts into a *live* machine — so a disk mount/eject should slot the image into the running machine **without** rebuilding. Scope to the disk path first: a *cartridge* mount may still warrant a reset (the console scans cartridge ROM at boot). *Bug, Joel 2026-07-07.* | [blocker] |
-| 3 | **3 · Polish & ship** | **Disk persistence — original untouched · tracked delta · export** | Today a Write Sector mutates only the **in-memory** image; the host `.dsk` is never written back, and edits survive only inside a save state (`disk.rs` "Write-back volatility"). Desired model (Joel, 2026-07-07): the mounted `.dsk` stays **byte-for-byte unmodified**; the machine remembers the **delta** — the sectors the program has written — against it; and an **export** writes a *new* `.dsk` with the delta applied, leaving the source intact (`Disk::drive_image` already exposes the delta-applied image, so it is a ready-made export source). Design sub-questions in the owner-decisions list below. | [target] |
-| 4 | **3 · Polish & ship** | **TI PYTHON — decide what "complete" means for 0.1.0** | The clean-room firmware ships **TI PYTHON**, an original **integer-expression REPL**, in console GROM 1's old TI-BASIC menu slot (GROM-rewrite milestone **M4**: operator precedence, parentheses, truncating `/` and `mod`, 16-bit wrap, variables, three error messages). Joel's call (2026-07-07): as it stands it's too thin — *"right now it just sucks."* **Decide the 0.1.0 target for it**, then scope the work the decision implies: *polish* the current integer calculator (nicer prompt/UX, more operators/built-ins), *grow* it toward a fuller mini-language (strings, `print`, control flow), or *reframe/rename* it so the "PYTHON" name doesn't over-promise. Occupies the same slot as the deferred M6 BASIC (callout below). | [decide] |
-| 5 | **3 · Polish & ship** | **Docs, in-app help & first-run** | **Revamp the `F1` help (`help.rs`) — explicitly still required before 0.1.0** (the 2026-07-06 media rework and rename made only accuracy edits to it — Joel); first-run onboarding on an empty console; README + USER-GUIDE pass; state plainly that **BASIC/XB need user-supplied authentic ROMs** and note the Video Vegas GROM-2 exception. Fold in the two disk rows above once they land — the `F1` mount help still says "warm reset." | [blocker] |
-| 6 | **3 · Polish & ship** | **Package & release** | Set the workspace to **0.1.0**, add a `CHANGELOG`, tag; ship prebuilt Windows + macOS binaries via GitHub Releases (incl. the macOS `.app` bundle); final crash/robustness pass (first run, missing dir, bad input, no media). | [blocker] |
+| 1 | **3 · Polish & ship** | **Save states: atomic + portable** | Replace the plain `fs::write` with temp-file-plus-rename (atomic on both OSes); store a **portable** media re-mount reference (name/relative path, not an absolute `C:\…` vs `/…` path) — since 2026-07-07 that includes the disk images' **host identity keys** (canonical absolute paths) the format-v2 disk persistence serializes; add a macOS↔Windows round-trip test. Core format already ports (little-endian, self-contained, version-magic-guarded). | [blocker] |
+| 2 | **3 · Polish & ship** | **TI PYTHON — decide what "complete" means for 0.1.0** | The clean-room firmware ships **TI PYTHON**, an original **integer-expression REPL**, in console GROM 1's old TI-BASIC menu slot (GROM-rewrite milestone **M4**: operator precedence, parentheses, truncating `/` and `mod`, 16-bit wrap, variables, three error messages). Joel's call (2026-07-07): as it stands it's too thin — *"right now it just sucks."* **Decide the 0.1.0 target for it**, then scope the work the decision implies: *polish* the current integer calculator (nicer prompt/UX, more operators/built-ins), *grow* it toward a fuller mini-language (strings, `print`, control flow), or *reframe/rename* it so the "PYTHON" name doesn't over-promise. Occupies the same slot as the deferred M6 BASIC (callout below). | [decide] |
+| 3 | **3 · Polish & ship** | **Docs, in-app help & first-run** | **Revamp the `F1` help (`help.rs`) — explicitly still required before 0.1.0** (the 2026-07-06 media rework and rename made only accuracy edits to it — Joel; the 2026-07-07 disk-persistence work likewise touched only its media/hotkey facts); first-run onboarding on an empty console; README + USER-GUIDE pass; state plainly that **BASIC/XB need user-supplied authentic ROMs** and note the Video Vegas GROM-2 exception. | [blocker] |
+| 4 | **3 · Polish & ship** | **Package & release** | Set the workspace to **0.1.0**, add a `CHANGELOG`, tag; ship prebuilt Windows + macOS binaries via GitHub Releases (incl. the macOS `.app` bundle); final crash/robustness pass (first run, missing dir, bad input, no media). | [blocker] |
+
+**Landed 2026-07-07 — live disk mounting + disk persistence (two rows left the
+table).** The former **"mount a disk without rebooting"** blocker (*bug, Joel
+2026-07-07*) and the **"disk persistence — original untouched · tracked delta ·
+export"** target landed together. Disks now mount (`F9`) and eject (`F3`)
+**live** into the running machine, like a real floppy; only a *cartridge*
+change still cold-boots (the console scans cartridge ROM at power-up), and even
+that reboot carries the whole disk subsystem across intact. The persistence
+model: the host `.dsk` is **never written** — writes mutate the machine's
+in-memory image (a whole mutated copy, keyed by the file's canonical path); an
+ejected image moves to an in-memory **shelf** and reattaches, edits intact,
+when the same file is remounted; save states (format v2 — v1 still loads)
+serialize drives *and* shelf, so changed disks survive quit-and-resume. The new
+**`F4` disk-memory overlay** lists every in-memory image (`CHANGED`/`CLEAN`),
+**exports** one through the OS-native save dialog — whose own replace-prompt is
+the guarantee that **no host `.dsk` is ever overwritten unprompted** — and
+**unloads** one (native save-first/discard/cancel dialog when dirty) so the
+next mount re-reads the host file. The `F1` help's stale "warm reset" wording
+went with it.
 
 **Landed 2026-07-07 — the Legal-notices blocker (left the table):** a single root
 [`NOTICE.md`](../NOTICE.md) now consolidates all legal notices, kept distinct from
@@ -97,16 +114,21 @@ level credit (David W. Skinner) that the Sokoban cartridge already shows on scre
 **Open decisions (owner)** — each rides on the row noted:
 - **Save-slot split** (row 1): keep the single auto-slot (F6/F8 today), or add multiple
   named/manual slots? Whatever the shape, slot naming must be cross-platform-safe.
-- **Disk delta — persistence & export shape** (row 3): is the written-sector delta kept
-  only for the live session (and its save state), or also written under `~/.libre99/` so a
-  disk's edits survive a plain quit-and-relaunch **without** a save state? Is export
-  **on-demand only** (a key / menu action) or is there an opt-in write-through? And the
-  delta's form — a whole-image copy vs. a sparse dirty-sector map, plus how an exported
-  file is associated back to its source `.dsk`.
-- **TI PYTHON — what "complete" means for 0.1.0** (row 4): the shipped integer REPL is too
+- **TI PYTHON — what "complete" means for 0.1.0** (row 2): the shipped integer REPL is too
   thin as-is; decide whether to polish the calculator, grow it toward a mini-language, or
   reframe/rename it — then scope the implied work. Full framing in the table row.
 - **system-roms README "no TI bytes" headline wording** — still open from earlier.
+
+> **Decided 2026-07-07 (owner, via the disk-persistence requirements):** the disk
+> delta's shape. The machine keeps a **whole mutated copy** of each disk image in
+> memory (not a sparse sector map — simpler, and the images are ≤ ~1.4 MB); an
+> image is **keyed by its source file's canonical path**, which is how an export
+> or a remount associates back to the original `.dsk`. Persistence is **the live
+> session plus its save states** (the exit auto-save already covers a plain
+> quit-and-relaunch); there is **no separate write-through** under `~/.libre99/`
+> and no opt-in write-through to the source — export is **on-demand only**
+> (`F4`), through the OS-native save dialog, whose replace-prompt enforces the
+> never-overwrite-unprompted rule.
 
 > **Decided 2026-07-06 (owner, via "rebrand everything"):** the data directory is
 > `~/.libre99/` with the `libre99.toml` / `libre99.log` names; startup adopts an
@@ -198,15 +220,18 @@ Each item is tagged: **[done]** implemented and merged to `main` ·
   on-screen browser and F2/F3/F4 cycling) when the media embeds were removed
   with the third-party IP (2026-07-06; owner call: system chooser over a
   custom browser). Nothing is bundled — the console boots bare. **[done]**
-- **Mounting a disk must not reboot the console** *(bug, Joel 2026-07-07)*. `F9`
-  and eject rebuild the whole machine today — a cold boot that wipes the running
-  session — where inserting a floppy should be **live** (`Machine::mount_disk`
-  already supports it). **0.1.0 blocker — Road-to-0.1.0 row 2.** **[next]**
-- **Disk persistence — keep the source `.dsk` untouched, track the write delta,
-  export to a new file.** Writes live only in memory today (lost on quit unless a
-  save state captured them); the goal is a byte-for-byte-intact source image, a
-  remembered written-sector delta, and an on-demand export of the delta-applied
-  image to a *new* `.dsk`. **A 0.1.0 target — Road-to-0.1.0 row 3.** **[next]**
+- **Disks mount and eject live — no reboot** *(was: bug, Joel 2026-07-07)*. `F9`
+  slots a disk into the **running** machine and `F3` pulls it just as live,
+  like a real floppy; only a *cartridge* change cold-boots (the console scans
+  cartridge ROM at power-up), and the rebuild carries the disk subsystem across
+  intact. **[done]** (2026-07-07)
+- **Disk persistence — the source `.dsk` is never written; in-memory images +
+  on-demand export.** Writes mutate the machine's in-memory copy, keyed by the
+  file's canonical path; ejected images shelve in memory and reattach on
+  remount; save states carry all of it (format v2). The **`F4` disk-memory
+  overlay** exports an image via the OS-native save dialog (its replace-prompt
+  means no host `.dsk` is ever overwritten unprompted) or unloads one (with a
+  native save-first prompt when changed). **[done]** (2026-07-07)
 - **Create / format blank disks**; **import/export** files to and from TI disk
   images (TIFILES / FIAD). **[later]**
 - **Recently-used** media list; per-title default disk. **[later]**

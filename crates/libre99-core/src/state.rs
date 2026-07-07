@@ -117,6 +117,20 @@ impl StateWriter {
         self.u32(bytes.len() as u32);
         self.raw(bytes);
     }
+    /// A length-prefixed UTF-8 string (stored as a blob).
+    pub fn string(&mut self, s: &str) {
+        self.blob(s.as_bytes());
+    }
+    /// `Option<&str>` as a presence flag followed by the string when present.
+    pub fn opt_string(&mut self, s: Option<&str>) {
+        match s {
+            Some(s) => {
+                self.u8(1);
+                self.string(s);
+            }
+            None => self.u8(0),
+        }
+    }
     /// `Option<u8>` as a presence flag followed by the value when present.
     pub fn opt_u8(&mut self, v: Option<u8>) {
         match v {
@@ -197,6 +211,19 @@ impl<'a> StateReader<'a> {
         let n = self.u32()? as usize;
         Ok(self.take(n)?.to_vec())
     }
+    /// Read a length-prefixed string. Invalid UTF-8 is replaced rather than
+    /// rejected — strings here are identities/labels, not machine state, so a
+    /// mangled one degrades display without corrupting the load.
+    pub fn string(&mut self) -> Result<String, StateError> {
+        Ok(String::from_utf8_lossy(&self.blob()?).into_owned())
+    }
+    pub fn opt_string(&mut self) -> Result<Option<String>, StateError> {
+        if self.u8()? != 0 {
+            Ok(Some(self.string()?))
+        } else {
+            Ok(None)
+        }
+    }
     pub fn opt_u8(&mut self) -> Result<Option<u8>, StateError> {
         if self.u8()? != 0 {
             Ok(Some(self.u8()?))
@@ -261,6 +288,9 @@ mod tests {
         w.opt_u8(None);
         w.opt_usize(Some(7));
         w.opt_usize(None);
+        w.string("DSK1/GAME.dsk");
+        w.opt_string(Some("x"));
+        w.opt_string(None);
         let bytes = w.into_bytes();
 
         let mut r = StateReader::new(&bytes);
@@ -280,6 +310,9 @@ mod tests {
         assert_eq!(r.opt_u8().unwrap(), None);
         assert_eq!(r.opt_usize().unwrap(), Some(7));
         assert_eq!(r.opt_usize().unwrap(), None);
+        assert_eq!(r.string().unwrap(), "DSK1/GAME.dsk");
+        assert_eq!(r.opt_string().unwrap(), Some("x".into()));
+        assert_eq!(r.opt_string().unwrap(), None);
     }
 
     #[test]

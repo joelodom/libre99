@@ -57,6 +57,7 @@ mod audio;
 mod cli;
 mod config;
 mod debug;
+mod disks;
 mod font;
 mod help;
 mod input;
@@ -165,10 +166,15 @@ fn main() {
         .map(|p| load_cli_media(MediaKind::Cartridge, p));
     let mut disk = args.disk.as_deref().map(|p| load_cli_media(MediaKind::Disk, p));
 
-    let mut machine = build_machine(
-        cart.as_ref().map(|m| m.bytes.as_slice()),
-        disk.as_ref().map(|m| m.bytes.as_slice()),
-    );
+    let mut machine = build_machine(cart.as_ref().map(|m| m.bytes.as_slice()));
+    // A command-line disk mounts keyed (by its canonical path), like an F9
+    // mount, so its writes are remembered across ejects and in save states.
+    if let Some(item) = &mut disk {
+        let key = media::disk_key(&item.path);
+        // The image now lives in the machine; the item keeps only the path
+        // (for the window title and the exit bookkeeping).
+        machine.mount_disk_keyed(0, &key, std::mem::take(&mut item.bytes));
+    }
 
     // Resume the previous session: load the save state written on the last exit,
     // unless the user explicitly chose media on the command line (then honor it).
@@ -183,12 +189,23 @@ fn main() {
                     Ok(()) => {
                         log::info!("resumed previous session from {}", path.display());
                         // The snapshot carries the session's media inside it; the
-                        // frontend re-reads the media *files* recorded at exit so
-                        // a later in-app media change can keep the other side
-                        // mounted. A file gone missing only degrades that case —
-                        // the resumed session itself is intact (warn and go on).
+                        // frontend re-reads the cartridge *file* recorded at exit
+                        // so a later in-app media change can keep it mounted. A
+                        // file gone missing only degrades that case — the resumed
+                        // session itself is intact (warn and go on).
                         cart = reload_session_media(MediaKind::Cartridge, &config.last_cartridge);
-                        disk = reload_session_media(MediaKind::Disk, &config.last_disk);
+                        // The disk needs no re-read: its image (and host
+                        // identity) are inside the snapshot. A version-1 save
+                        // predates identities — adopt the path recorded at exit
+                        // so its disk joins the keyed persistence model.
+                        if !config.last_disk.is_empty() {
+                            let key = media::disk_key(Path::new(&config.last_disk));
+                            machine.bus_mut().disk.adopt_drive_key(0, &key);
+                        }
+                        disk = machine.bus().disk.drive_key(0).map(|k| MediaItem {
+                            path: PathBuf::from(k),
+                            bytes: Vec::new(),
+                        });
                     }
                     Err(e) => log::warn!("ignoring unreadable save state ({e:?}); starting fresh"),
                 },
@@ -252,10 +269,12 @@ fn reload_session_media(kind: MediaKind, path: &str) -> Option<MediaItem> {
     }
 }
 
-/// Build the emulated console with the session firmware and the given media
-/// bytes (`None` = bare console / empty drive). Reused by the in-app file
-/// browser for a warm media change.
-pub(crate) fn build_machine(cartridge: Option<&[u8]>, disk: Option<&[u8]>) -> Machine {
+/// Build the emulated console with the session firmware and the given
+/// cartridge bytes (`None` = bare console). Reused for the cold boot a
+/// cartridge change requires — disks are not mounted here: they slot into the
+/// running machine live (`Machine::mount_disk_keyed`), and a rebuild carries
+/// the whole disk subsystem over from the old machine.
+pub(crate) fn build_machine(cartridge: Option<&[u8]>) -> Machine {
     // Firmware: a `--system-rom` / `--system-grom` override, else the clean-room
     // default (`SYSTEM_GROM` always holds the stamped default set up in `main`).
     let rom: &[u8] = SYSTEM_ROM.get().map(Vec::as_slice).unwrap_or(assets::DEFAULT_CONSOLE_ROM);
@@ -266,9 +285,6 @@ pub(crate) fn build_machine(cartridge: Option<&[u8]>, disk: Option<&[u8]>) -> Ma
     // `--disk-dsr` override (e.g. an authentic `Disk.Bin`) replaces it.
     let dsr: &[u8] = DISK_DSR.get().map(Vec::as_slice).unwrap_or(assets::DEFAULT_DISK_DSR);
     machine.load_disk_controller(dsr);
-    if let Some(image) = disk {
-        machine.mount_disk(0, image.to_vec());
-    }
     if let Some(bytes) = cartridge {
         // The browser and the CLI both validated the image with
         // `media::load`, so a parse failure here means the file changed

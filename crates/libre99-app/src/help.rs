@@ -859,7 +859,7 @@ impl Screen<'_> {
         );
         let groups: [(&str, &[(&str, &str)]); 6] = [
             ("OVERLAYS", &[("F1 / Esc", "Keyboard reference"), (cmd_label::INSPECTOR, "CPU inspector")]),
-            ("MEDIA", &[("F9", "Mount media (file dialog)"), ("F2 / F3", "Eject cart / empty DSK1")]),
+            ("MEDIA", &[("F9", "Mount media (file dialog)"), ("F2 / F3", "Eject cart / eject DSK1"), ("F4", "Disk memory (export/unload)")]),
             ("PLAYBACK", &[("F10", "Pause / resume"), ("F12", "Frame advance"), ("Tab", "Fast-forward (hold)")]),
             ("CONSOLE", &[("F5", "Reset console"), ("F7", "Toggle key layout")]),
             ("STATE", &[("F6", "Save state"), ("F8", "Load state"), (cmd_label::QUIT, "Quit (auto-saves)")]),
@@ -909,14 +909,14 @@ impl Screen<'_> {
             x + 18.0,
             top + 38.0,
             cw - 36.0,
-            &[("F9 opens your system's file chooser. Pick any .ctg cartridge or .dsk disk image — the extension decides the port (cartridge slot vs. DSK1). The chooser opens where you last mounted from, and the machine pauses while it is up.", MR, 0xa9b5de)],
+            &[("F9 opens your system's file chooser. Pick any .ctg cartridge or .dsk disk image — the extension decides the port. A disk slots into the running machine live, like a real floppy; a cartridge reboots the console (it scans cartridge ROM at power-up).", MR, 0xa9b5de)],
             12.0,
             1.5,
         );
         let browser = [
-            ("F9", "Mount a media file (warm reset)"),
-            ("F2", "Eject the cartridge"),
-            ("F3", "Empty DSK1"),
+            ("F9", "Mount media (disk: live, cart: reboot)"),
+            ("F2 / F3", "Eject cartridge (reboot) / DSK1 (live)"),
+            ("F4", "Disk memory: export / unload images"),
         ];
         let mut ry = pb + 6.0;
         for (k, a) in browser.iter() {
@@ -935,7 +935,7 @@ impl Screen<'_> {
             rx + 18.0,
             top + 38.0,
             cw - 36.0,
-            &[("The binary carries no cartridge or disk images — the console boots bare until you mount something. F2/F3 take you back to the bare console / empty drive. Every media change warm-boots, and the window title shows what is mounted.", MR, 0xa9b5de)],
+            &[("The binary carries no cartridge or disk images — the console boots bare until you mount something. Your .dsk files are never written: disk writes stay in memory (a * in the title marks unexported changes) until you export them with F4.", MR, 0xa9b5de)],
             12.0,
             1.5,
         );
@@ -962,7 +962,7 @@ impl Screen<'_> {
             CONTENT_W - 40.0,
             &[
                 ("F6", MB, INK),
-                (" snapshots the whole machine — RAM, VRAM, GROM, cartridge ROM and mounted disks (with written sectors) — to one portable file. ", MR, INKDIM),
+                (" snapshots the whole machine — RAM, VRAM, GROM, cartridge ROM and every in-memory disk (written sectors included, ejected ones too) — to one portable file. ", MR, INKDIM),
                 ("F8", MB, INK),
                 (" restores it. The session also auto-saves on quit and resumes on launch. One slot, shared by all four.", MR, INKDIM),
             ],
