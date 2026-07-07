@@ -96,6 +96,10 @@ fn main() {
             std::process::exit(2);
         }
     };
+    if args.version {
+        println!("libre99 {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
     if args.help {
         println!("{}", cli::USAGE);
         return;
@@ -229,6 +233,11 @@ fn main() {
         .or_else(config::home_dir)
         .unwrap_or_else(|| PathBuf::from("."));
 
+    // First-run onboarding: with no resume state on disk (first launch, or after
+    // a fresh start last session) the app shows a PRESS ESC FOR HELP banner
+    // until the user finds the help or saves a state.
+    let show_help_banner = !config::state_path().is_some_and(|p| p.exists());
+
     let options = Options {
         scale: args.scale.unwrap_or(config.window_scale),
         fullscreen: args.fullscreen || config.fullscreen,
@@ -239,6 +248,7 @@ fn main() {
         browser_dir,
         key_layout: input::KeyLayout::from_config(&config.key_layout),
         defeat_screen_blank: config.defeat_screen_blank,
+        show_help_banner,
     };
 
     let event_loop = EventLoop::new().expect("create event loop");

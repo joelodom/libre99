@@ -95,6 +95,8 @@ pub struct Options {
     /// Keep the authentic ~9-minute screen-blank timeout from ever firing
     /// (opt-in; default off preserves faithful hardware behavior).
     pub defeat_screen_blank: bool,
+    /// Show the first-run `PRESS ESC FOR HELP` banner (no resume state on disk).
+    pub show_help_banner: bool,
 }
 
 /// The desktop application: the emulated machine plus its window/surface and
@@ -121,9 +123,14 @@ pub struct App {
     // frames to show it.
     toast: Option<String>,
     toast_frames: u32,
-    // When true, the F1 help overlay is shown (full-screen, native resolution)
-    // and TI key input is suspended.
+    // When true, the Esc/F1 help overlay is shown (full-screen, native
+    // resolution) and TI key input is suspended.
     keyboard_help: bool,
+    // First-run onboarding cue: draw a persistent PRESS ESC FOR HELP banner.
+    // True while there is no resume state (first launch, or right after a
+    // Shift+F5 fresh start); retired for good the moment the user opens the
+    // help or a resume state gets written.
+    help_banner: bool,
     // The F4 disk-memory overlay (list / export / unload of in-memory disks).
     // While open it captures key input; the machine keeps running.
     disk_ui: DiskOverlay,
@@ -189,6 +196,7 @@ impl App {
             toast: None,
             toast_frames: 0,
             keyboard_help: false,
+            help_banner: opts.show_help_banner,
             disk_ui: DiskOverlay::default(),
             title_cache: String::new(),
             fonts: Fonts::new(),
@@ -627,7 +635,7 @@ impl App {
     /// atomically, logging the outcome and returning whether it succeeded.
     /// Shared by Save (F6), the auto-save on exit, and a snapshot load (which
     /// makes the snapshot the resume state).
-    fn write_state(&self) -> bool {
+    fn write_state(&mut self) -> bool {
         let Some(path) = crate::config::state_path() else {
             return false;
         };
@@ -638,6 +646,8 @@ impl App {
         match crate::config::write_atomic(&path, &data) {
             Ok(()) => {
                 log::info!("saved resume state: {} bytes -> {}", data.len(), path.display());
+                // A resume state exists now — the first-run help cue is over.
+                self.help_banner = false;
                 true
             }
             Err(e) => {
@@ -840,6 +850,8 @@ impl App {
         // preference, not session state, and stays.
         crate::config::update_session("", "", &self.browser_dir.display().to_string());
         self.sync_title();
+        // Back to a true first run — the onboarding banner returns with it.
+        self.help_banner = true;
         log::info!("fresh start: session reset to a bare console");
         self.flash("FRESH START - RESUME STATE DELETED");
     }
@@ -850,6 +862,8 @@ impl App {
         self.release_all_keys();
         self.keyboard_help = true;
         self.help_tab = HelpTab::Start;
+        // The banner's one job — pointing at this screen — is done.
+        self.help_banner = false;
     }
 
     /// Route a key to the open help overlay: close it, or switch tabs (`1`–`5`
@@ -892,6 +906,19 @@ impl App {
             let disks = self.machine.bus().disk.in_memory_disks();
             let mut canvas = text::Canvas::new(&mut self.framebuffer, WIDTH, HEIGHT);
             self.disk_ui.render(&mut canvas, &disks);
+        }
+        // First-run onboarding banner (bottom center, persistent): shown while
+        // there is no resume state, yielding to the F4 overlay and to a live
+        // toast (which uses the same bottom band).
+        if self.help_banner && !self.disk_ui.open && self.toast_frames == 0 {
+            let label = "PRESS ESC FOR HELP";
+            let w = text::text_width(label, 1) + 6;
+            let x = WIDTH.saturating_sub(w) / 2;
+            let band = text::GLYPH_H + 4;
+            let y = HEIGHT.saturating_sub(band + 6);
+            let mut canvas = text::Canvas::new(&mut self.framebuffer, WIDTH, HEIGHT);
+            canvas.dim_rect(x, y, w, band, 2);
+            canvas.draw_text(x + 3, y + 2, label, 0x00FF_FFFF, 1);
         }
         if self.toast_frames == 0 {
             return;
@@ -1116,5 +1143,59 @@ impl ApplicationHandler for App {
         let cart = self.cart.as_ref().map(|m| m.path.display().to_string()).unwrap_or_default();
         let disk = self.disk.as_ref().map(|m| m.path.display().to_string()).unwrap_or_default();
         crate::config::update_session(&cart, &disk, &self.browser_dir.display().to_string());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A windowless, audioless app around a bare machine — enough to exercise
+    /// overlay and banner logic without a desktop session.
+    fn headless(show_help_banner: bool) -> App {
+        App::new(
+            crate::build_machine(None),
+            Options {
+                scale: 1,
+                fullscreen: false,
+                audio: false,
+                volume: 1.0,
+                cart: None,
+                disk: None,
+                browser_dir: PathBuf::from("."),
+                key_layout: KeyLayout::Character,
+                defeat_screen_blank: false,
+                show_help_banner,
+            },
+        )
+    }
+
+    #[test]
+    fn the_help_banner_retires_when_the_help_opens() {
+        let mut app = headless(true);
+        assert!(app.help_banner, "no resume state at launch shows the banner");
+        app.open_keyboard_help();
+        assert!(app.keyboard_help);
+        assert!(!app.help_banner, "opening the help retires the banner");
+        assert!(!headless(false).help_banner, "a resumed session shows no banner");
+    }
+
+    #[test]
+    fn the_help_banner_paints_the_bottom_band_only_while_active() {
+        let flat = 0x0012_3456u32;
+        let mut app = headless(true);
+        app.framebuffer.fill(flat);
+        app.draw_overlays();
+        assert!(
+            app.framebuffer.iter().any(|&p| p != flat),
+            "an active banner paints the frame"
+        );
+        let mut app = headless(false);
+        app.framebuffer.fill(flat);
+        app.draw_overlays();
+        assert!(
+            app.framebuffer.iter().all(|&p| p == flat),
+            "without the banner the frame is untouched"
+        );
     }
 }

@@ -43,7 +43,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-//! The `F1` / `Esc` help overlay — a five-tab reference (Start, Keyboard,
+//! The `Esc` / `F1` help overlay — a five-tab reference (Start, Keyboard,
 //! Hotkeys, Media & State, Settings) drawn at the window's **native** pixel
 //! resolution with the embedded smooth fonts ([`crate::font`]).
 //!
@@ -628,17 +628,17 @@ impl Screen<'_> {
     fn header(&mut self) {
         self.text_tracked(PAD_X, 20.0, "TI-99/4A EMULATOR · HELP", SB, 11.0, CYAN, 1.8);
         self.text_tracked(PAD_X, 36.0, "LIBRE99", SR, 26.0, TITLE, 1.0);
-        // right: CLOSE  [F1] / [ESC]
+        // right: CLOSE  [ESC] / [F1] — Esc leads; it is the advertised key.
         let cy = 50.0;
         let right = FRAME_W - PAD_X;
         let esc_w = 44.0;
         let f1_w = 38.0;
-        let esc_x = right - esc_w;
-        self.chip(esc_x, cy, "ESC", esc_w, 28.0, 12.0, true);
-        self.text_right_mid(esc_x - 9.0, cy, "/", MR, 12.0, 0x6c7cab);
-        let f1_x = esc_x - 9.0 - self.text_w(MR, 12.0, "/", 0.0) - 9.0 - f1_w;
+        let f1_x = right - f1_w;
         self.chip(f1_x, cy, "F1", f1_w, 28.0, 12.0, true);
-        self.text_right_mid(f1_x - 9.0, cy, "CLOSE", MR, 11.0, MUTED);
+        self.text_right_mid(f1_x - 9.0, cy, "/", MR, 12.0, 0x6c7cab);
+        let esc_x = f1_x - 9.0 - self.text_w(MR, 12.0, "/", 0.0) - 9.0 - esc_w;
+        self.chip(esc_x, cy, "ESC", esc_w, 28.0, 12.0, true);
+        self.text_right_mid(esc_x - 9.0, cy, "CLOSE", MR, 11.0, MUTED);
     }
 
     fn tab_bar(&mut self, tab: HelpTab) {
@@ -766,7 +766,7 @@ impl Screen<'_> {
             CONTENT_TOP,
             720.0,
             &[(
-                "Launch and you land on the TI title screen. Press any key, choose a cartridge, and play — your host keyboard already speaks TI.",
+                "Launch and you land on the title screen — the console boots Libre99's own firmware, nothing to install. Press any key for the menu, pick a program, and play — your host keyboard already speaks TI.",
                 MR,
                 INKDIM,
             )],
@@ -823,7 +823,7 @@ impl Screen<'_> {
         self.card(x, strip_top, CONTENT_W, strip_h, PANEL_ALT, CARD_BORDER, 13.0);
         self.text_tracked(x + 22.0, strip_top + 20.0, "FIVE KEYS TO START", SB, 11.0, CYAN, 1.4);
         let keys = [
-            ("F1", "Help"),
+            ("ESC", "Help"),
             ("F9", "Files"),
             ("F10", "Pause"),
             ("F5", "Reset"),
@@ -836,6 +836,28 @@ impl Screen<'_> {
             self.big_keycap(col_cx, key_top, k);
             self.text_center(col_cx, key_top + 56.0, a, MM, 11.0, MUTED2);
         }
+
+        // the firmware note: what is built in, and the one thing that is not
+        let fw_top = strip_top + strip_h + 18.0;
+        let fw_h = 104.0;
+        self.card(x, fw_top, CONTENT_W, fw_h, PANEL, CARD_BORDER, 13.0);
+        self.eyebrow(x + 22.0, fw_top + 20.0, "THE BUILT-IN FIRMWARE", CYAN);
+        self.paragraph(
+            x + 22.0,
+            fw_top + 44.0,
+            CONTENT_W - 44.0,
+            &[
+                ("The menu's first slot is ", MR, INKDIM),
+                ("TI PYTHON", MB, INK),
+                (", a small built-in language. A user-supplied Extended BASIC cartridge runs as-is. Only TI BASIC itself needs authentic TI console ROMs — boot them with ", MR, INKDIM),
+                ("--system-rom", MB, INK),
+                (" / ", MR, INKDIM),
+                ("--system-grom", MB, INK),
+                (".", MR, INKDIM),
+            ],
+            13.0,
+            1.55,
+        );
     }
 
     /// A large gradient keycap centered horizontally on `cx`, top at `top`.
@@ -860,7 +882,7 @@ impl Screen<'_> {
             1.5,
         );
         let groups: [(&str, &[(&str, &str)]); 6] = [
-            ("OVERLAYS", &[("F1 / Esc", "Keyboard reference"), (cmd_label::INSPECTOR, "CPU inspector")]),
+            ("OVERLAYS", &[("Esc / F1", "Help (this screen)"), (cmd_label::INSPECTOR, "CPU inspector")]),
             ("MEDIA", &[("F9", "Mount media (file dialog)"), ("F2 / F3", "Eject cart / eject DSK1"), ("F4", "Disk memory (export/unload)")]),
             ("PLAYBACK", &[("F10", "Pause / resume"), ("F12", "Frame advance"), ("Tab", "Fast-forward (hold)")]),
             ("CONSOLE", &[("F5", "Reset console"), ("F7", "Toggle key layout"), (cmd_label::QUIT, "Quit (auto-saves)")]),
@@ -1004,9 +1026,10 @@ impl Screen<'_> {
             ("--scale <n>", "Integer window scale, 1–8"),
             ("--fullscreen", "Start fullscreen"),
             ("--log-level <lvl>", "error / warn / info / debug / trace"),
+            ("--version, -V", "Print the version and exit"),
             ("--help, -h", "Print usage and exit"),
         ];
-        let cli_h = 250.0;
+        let cli_h = 264.0;
         self.card(x, top, CONTENT_W, cli_h, PANEL, CARD_BORDER, 13.0);
         self.eyebrow(x + 18.0, top + 16.0, "COMMAND LINE", CYAN);
         let mut ry = top + 42.0;
@@ -1036,6 +1059,7 @@ impl Screen<'_> {
             ("audio_volume", "0.8", "output volume 0.0–1.0"),
             ("key_layout", "\"character\"", "character or positional"),
             ("log_level", "\"info\"", "verbosity error…trace"),
+            ("defeat_screen_blank", "false", "hold off the ~9-min idle blank"),
         ];
         let mut py = lower_top + 56.0;
         let prow = (lower_h - 70.0) / prefs.len() as f32;

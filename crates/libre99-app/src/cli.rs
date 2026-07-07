@@ -48,9 +48,9 @@
 //! Flags override the preferences file for a single run. Supported:
 //! `--cartridge <path>`, `--disk <path>`, `--system-rom <path>`,
 //! `--system-grom <path>`, `--disk-dsr <path>`, `--scale <n>`,
-//! `--fullscreen`, `--log-level <level>`, `--help`. Nothing is embedded: the
-//! console boots bare unless media is given here or loaded later from the
-//! in-app file browser (`F9`).
+//! `--fullscreen`, `--log-level <level>`, `--version`, `--help`. Nothing is
+//! embedded: the console boots bare unless media is given here or loaded later
+//! from the in-app file browser (`F9`).
 
 /// Parsed command line. Each `Option` is `None` when the flag was not given.
 #[derive(Debug, Default, PartialEq)]
@@ -71,6 +71,7 @@ pub struct Args {
     pub scale: Option<u32>,
     pub fullscreen: bool,
     pub log_level: Option<String>,
+    pub version: bool,
     pub help: bool,
 }
 
@@ -89,6 +90,7 @@ with the file browser (F9).
   --scale <n>          Integer window scale (1-8)
   --fullscreen         Start fullscreen
   --log-level <level>  error | warn | info | debug | trace
+  --version            Print the version and exit
   --help               Show this help and exit";
 
 impl Args {
@@ -114,6 +116,7 @@ impl Args {
                 }
                 "--fullscreen" => out.fullscreen = true,
                 "--log-level" => out.log_level = Some(value(&mut it, "--log-level")?),
+                "--version" | "-V" => out.version = true,
                 "--help" | "-h" => out.help = true,
                 other => return Err(format!("unknown argument: {other}")),
             }
@@ -163,6 +166,13 @@ mod tests {
         assert_eq!(a.system_grom.as_deref(), Some("grom/console-grom.bin"));
         assert_eq!(a.system_rom.as_deref(), Some("third-party/roms/994aROM.Bin"));
         assert!(parse(&["--system-grom"]).is_err());
+    }
+
+    #[test]
+    fn version_is_a_flag_with_a_short_alias() {
+        assert!(parse(&["--version"]).unwrap().version);
+        assert!(parse(&["-V"]).unwrap().version);
+        assert!(!parse(&[]).unwrap().version);
     }
 
     #[test]
