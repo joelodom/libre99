@@ -750,7 +750,7 @@ dependencies = [
 
 [[package]]
 name = "libre99-app"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "ab_glyph",
  "cpal",
@@ -765,18 +765,18 @@ dependencies = [
 
 [[package]]
 name = "libre99-asm"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "libre99-core",
 ]
 
 [[package]]
 name = "libre99-core"
-version = "0.0.1"
+version = "0.1.0"
 
 [[package]]
 name = "libre99-gpl"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "libre99-asm",
  "libre99-core",

@@ -63,6 +63,10 @@ use libre99_core::machine::Machine;
 static CONSOLE_ROM: LazyLock<Option<Vec<u8>>> =
     LazyLock::new(|| libre99_core::third_party::load("roms/994aROM.Bin"));
 
+/// The banner's version row: the GROM build splices the workspace version
+/// (`CARGO_PKG_VERSION` — one number project-wide), so the expectation must too.
+const BANNER_ROW: &str = concat!("TI PYTHON ", env!("CARGO_PKG_VERSION"));
+
 /// Skip this test (pass, with a notice) when the third-party media is absent.
 macro_rules! skip {
     () => {{
@@ -217,7 +221,7 @@ fn launch_ti_python() -> Option<Machine> {
 #[test]
 fn banner_says_what_this_is() {
     let Some(m) = launch_ti_python() else { skip!() };
-    assert_eq!(row(&m, 0), "TI PYTHON 0.0.1", "the spliced version row");
+    assert_eq!(row(&m, 0), BANNER_ROW, "the spliced version row");
     assert_eq!(row(&m, 1), "A SUPER SIMPLE PYTHON-LIKE");
     assert_eq!(row(&m, 2), "INTERPRETER FOR THE TI-99/4A");
     assert_eq!(row(&m, 3), "EXIT() QUITS. 16-BIT INTEGERS.");
@@ -377,7 +381,7 @@ fn the_screen_scrolls_instead_of_clearing() {
     for _ in 0..12 {
         type_line(&mut m, "7"); // two rows per interaction
     }
-    assert_ne!(row(&m, 0), "TI PYTHON 0.0.1", "the banner scrolled off");
+    assert_ne!(row(&m, 0), BANNER_ROW, "the banner scrolled off");
     assert_eq!(row(&m, 23), ">>>", "the prompt rides the bottom row");
     assert_eq!(row(&m, 22), "7", "the last answer is right above it");
     assert_eq!(row(&m, 21), ">>> 7", "and its echo above that");
@@ -501,7 +505,7 @@ fn input_stops_at_the_row_edge() {
 #[test]
 fn deep_nesting_overflows_cleanly_and_the_repl_survives() {
     let Some(mut m) = launch_ti_python() else { skip!() };
-    assert_eq!(row(&m, 0), "TI PYTHON 0.0.1", "versioned banner should be on screen");
+    assert_eq!(row(&m, 0), BANNER_ROW, "versioned banner should be on screen");
 
     // >8370 (VDP top-of-memory) is a stable cell — set at power-up, not a
     // moving stack pointer — so it can be compared before/after exactly. The

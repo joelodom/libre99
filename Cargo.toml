@@ -23,7 +23,7 @@ members = ["crates/libre99-core", "crates/libre99-app", "crates/libre99-asm", "c
 # The single source of truth for the project version. Everything that reports a
 # version — the emulator, the rewritten console ROM/GROM, TI PYTHON's banner —
 # inherits this one number (the system information screen displays them all).
-version = "0.0.1"
+version = "0.1.0"
 edition = "2021"
 # Licensed under the Modified MIT License with Commons Clause — see LICENSE.md.
 license-file = "LICENSE.md"
