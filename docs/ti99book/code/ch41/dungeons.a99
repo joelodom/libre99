@@ -1,0 +1,556 @@
+* DUNGEONS.A99 — Capstone III: the data-driven RPG engine.          (Ch. 41)
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
+*
+* Part IX's third complete title, built on SKELETON99 (Ch. 36) + lib99. This
+* file is the DUNGEONS OF FATE engine, and its thesis is separation: the engine
+* holds no content at all. Monsters, maps, items, prose, and every balance knob
+* live in a versioned binary QUEST FILE (schema: quest.inc); the engine sees
+* only a POINTER to it and reads everything through the header's offsets. Change
+* the file and you have a new game with no reassembly — the Tunnels of Doom
+* inheritance, and the platform's most modern architecture.
+*
+* That separation is also the TEST SEAM. On real hardware the quest is read off
+* a disk into a RAM buffer by filelib (Ch. 31; the load is machine-verified in
+* the Rust harness device_io.rs, GREEN at HEAD) and the engine is pointed at
+* the buffer. Here — where BENCH99 has no card at >4000 — the self-test points
+* the very same engine at an EMBEDDED quest (QUEST1, below) and drives every
+* subsystem through a DETERMINISTIC script, then paints the border-verdict
+* light: GREEN (>02) if every assertion holds, RED (>06) with a failure id in
+* FAILID otherwise. Same engine, same pointer contract, two sources of bytes.
+*
+* Proven on the bench: (a) MOUNT validates the magic/version and REJECTS a
+* malformed blob; (b) the map is RLE-decoded (rlelib, Ch.38) and rendered to
+* the Graphics I name table from data; (c) the party is initialised from the
+* quest's tuning block; (d) a table-driven combat resolver kills a monster and
+* (e) a morale check makes another FLEE — both to hand-checked outcomes; (f) a
+* line of packed prose is unpacked (5-bit, Ch.38) back to ASCII.
+*
+* Verify: load, pc START, x 200000, then  vdp  (VR7 = >02 = all systems pass)
+* and  m 8354 2  (FAILID = 0). See dungeons.bench for the scripted assertions.
+*
+* Build:  libre99asm code/ch41/dungeons.a99 --format bin -o build/DUNGC.bin
+
+       COPY '../ch11/equates.inc'      ports, colours, the fast island
+       COPY '../ch12/vdplib.inc'       VWTR/VWA/VSBW/VMBW/VSBR
+       COPY '../ch38/rlelib.inc'       RLEDEC — the map decompressor
+       COPY 'quest.inc'                the quest-file schema (shared contract)
+
+* ================= the fast island: workspace, stack, hot scalars =========
+WS     EQU  >8300            workspace (>8300-831F)
+STKTOP EQU  >8340            R10 software stack top (grows down, Ch.9)
+QADDR  EQU  >8342            base pointer of the mounted quest (the seam)
+PMAP   EQU  >8344            resolved -> RLE map stream
+PMON   EQU  >8346            resolved -> monster table
+PITM   EQU  >8348            resolved -> item table
+PTXT   EQU  >834A            resolved -> text index table
+PTUN   EQU  >834C            resolved -> tuning block
+SEED   EQU  >834E            LFSR state (Ch.8) — combat entropy
+VICTOR EQU  >8350            fight result: 0 none / 1 party
+OUTCOM EQU  >8352            fight outcome: 0 none / 1 kill / 2 flee / 3 wipe
+FAILID EQU  >8354            self-test failure id (0 = pass)
+
+* ================= warm data: expansion RAM ===============================
+* The quest itself is read-only content (in ROM on the bench, in a disk-loaded
+* buffer on hardware); only the mutable play state lives in RAM.
+MBUF   EQU  >A000            decoded map (MAPSZ bytes)
+PARTY  EQU  >A0C0            NHERO hero records (HSIZE bytes each)
+CMON   EQU  >A0D0            combat monster scratch (mutable copy, MSIZE bytes)
+TBUF   EQU  >A0E0            text-unpack buffer (ASCII, 0-terminated)
+QBUF   EQU  >A100            hardware quest-load buffer (filelib target; §41.6)
+
+* ---- hero record (engine RAM layout; the party is mutable play state) ----
+HHP    EQU  0                byte  current HP
+HATK   EQU  1                byte  attack
+HDEF   EQU  2                byte  defense
+HSPD   EQU  3                byte  speed
+HALV   EQU  4                byte  alive flag (0 = down)
+HSIZE  EQU  6                bytes per hero (even; +5 reserved)
+NHERO  EQU  2                heroes in the party
+
+* ================= tuning constants (engine side) =========================
+GWALL  EQU  >88              wall glyph
+GFLOOR EQU  >2E              floor glyph  '.'
+GPARTY EQU  >40              party marker '@'
+VNONE  EQU  0
+VPARTY EQU  1
+OCNONE EQU  0
+OCKILL EQU  1
+OCFLEE EQU  2
+OCWIPE EQU  3
+RNDCAP EQU  50               round-loop safety cap
+
+* ===========================================================================
+START  LWPI WS
+       LI   R10,STKTOP
+* ---- bring up Graphics I: name >0000, pattern >0800, colour >0380 --------
+       LI   R0,0
+       LI   R1,0
+       BL   @VWTR            VR0 = 0
+       LI   R0,1
+       LI   R1,>E000
+       BL   @VWTR            VR1 = >E0 : display on, 16K
+       LI   R0,2
+       LI   R1,0
+       BL   @VWTR            VR2 = 0  : name table  >0000
+       LI   R0,3
+       LI   R1,>0E00
+       BL   @VWTR            VR3 = >0E: colour table >0380
+       LI   R0,4
+       LI   R1,>0100
+       BL   @VWTR            VR4 = >01: pattern gen  >0800
+       LI   R0,7
+       LI   R1,>0400
+       BL   @VWTR            VR7 = >04: dark-blue backdrop
+* colour table: white on dark blue for every group, so any glyph shows
+       LI   R0,>0380
+       BL   @VWA
+       LI   R1,>F400
+       LI   R2,32
+SCOL   MOVB R1,@VDPWD
+       DEC  R2
+       JNE  SCOL
+* clear the name table
+       LI   R0,0
+       BL   @VWA
+       CLR  R1
+       LI   R2,768
+SNAM   MOVB R1,@VDPWD
+       DEC  R2
+       JNE  SNAM
+
+* ================= (a) mount: validate + REJECT a bad blob ================
+       LI   R0,BADQ         a malformed quest (bad magic)
+       BL   @MOUNT
+       MOV  R0,R0
+       JNE  $+6             good: it was rejected (R0 != 0)
+       B    @FMNT
+       LI   R0,QUEST1       the real quest
+       BL   @MOUNT
+       MOV  R0,R0
+       JEQ  $+6             good: it mounted (R0 == 0)
+       B    @FMNT
+
+* ================= (b) decode + render the map from data =================
+       BL   @DRAWM
+       MOVB @MBUF,R1        MBUF[0] — top-left tile
+       SRL  R1,8
+       CI   R1,GWALL
+       JEQ  $+6
+       B    @FMAP           the border must be WALL
+       LI   R4,MBUF
+       AI   R4,17           tile (1,1) = row1*16 + col1
+       MOVB *R4,R1
+       SRL  R1,8
+       CI   R1,GFLOOR
+       JEQ  $+6
+       B    @FMAP           the interior must be FLOOR
+       LI   R0,33           name cell (1,1) = 1*32 + 1
+       BL   @VSBR
+       SRL  R1,8
+       CI   R1,GFLOOR
+       JEQ  $+6
+       B    @FMAP           and it must have been PAINTED to VRAM
+
+* ================= (c) party init from the quest's tuning block ===========
+       BL   @PINIT
+       MOVB @PARTY,R1       hero 0 HP
+       SRL  R1,8
+       CI   R1,10
+       JEQ  $+6
+       B    @FPTY           hero 0 HP must come from the quest (10)
+
+* ================= (d) combat: monster 0 fought to death =================
+       CLR  R0
+       BL   @FIGHT          fight monster index 0 (morale 0: never flees)
+       MOV  @VICTOR,R0
+       CI   R0,VPARTY
+       JEQ  $+6
+       B    @FCBT
+       MOV  @OUTCOM,R0
+       CI   R0,OCKILL
+       JEQ  $+6
+       B    @FCBT
+       MOVB @CMON,R1        monster HP after the fight
+       SRL  R1,8
+       JEQ  $+6
+       B    @FCBT           the monster must be dead (HP 0)
+       MOVB @PARTY,R1       hero 0 HP after the fight
+       SRL  R1,8
+       CI   R1,8
+       JEQ  $+6
+       B    @FCBT           hero 0 took exactly two hits (10 -> 8)
+
+* ================= (e) combat: morale makes monster 1 FLEE ================
+       BL   @PINIT          fresh party
+       LI   R0,1
+       BL   @FIGHT          fight monster index 1 (morale 5)
+       MOV  @OUTCOM,R0
+       CI   R0,OCFLEE
+       JEQ  $+6
+       B    @FFLE
+       MOVB @CMON,R1
+       SRL  R1,8
+       CI   R1,4
+       JEQ  $+6
+       B    @FFLE           it fled alive at HP 4
+
+* ================= (f) unpack a line of packed prose =====================
+       CLR  R0
+       BL   @SAY            unpack text[0] -> TBUF
+       MOVB @TBUF,R1
+       SRL  R1,8
+       CI   R1,>46          'F'
+       JEQ  $+6
+       B    @FTXT
+       LI   R4,TBUF
+       AI   R4,3
+       MOVB *R4,R1
+       SRL  R1,8
+       CI   R1,>45          'E' — 4th letter of "FATE"
+       JEQ  $+6
+       B    @FTXT
+
+* ---- every system passed ----
+       LI   R0,7
+       LI   R1,GREEN
+       BL   @VWTR
+       JMP  HALT
+
+FMNT   LI   R0,1
+       JMP  REDV
+FMAP   LI   R0,2
+       JMP  REDV
+FPTY   LI   R0,3
+       JMP  REDV
+FCBT   LI   R0,4
+       JMP  REDV
+FFLE   LI   R0,5
+       JMP  REDV
+FTXT   LI   R0,6
+REDV   MOV  R0,@FAILID
+       LI   R0,7
+       LI   R1,RED
+       BL   @VWTR
+HALT   JMP  HALT
+
+* ===========================================================================
+* MOUNT — point the engine at a quest and resolve its sub-table pointers.
+* IN : R0 = quest base address.   OUT: R0 = 0 mounted / 1 rejected. Leaf.
+* Reads the header straight from CPU space (the blob is ROM- or RAM-resident,
+* not VRAM), so plain MOVs suffice. Validation is the whole reason a versioned
+* format earns its keep: a wrong magic or version is refused, not run.
+MOUNT  MOV  R0,R1            R1 = candidate base
+       MOV  @QMAG(R1),R2
+       CI   R2,QMAGIC
+       JNE  MNBAD
+       MOV  @QVERS(R1),R2
+       CI   R2,QVER1
+       JNE  MNBAD
+       MOV  R1,@QADDR
+       MOV  @QOMAP(R1),R0
+       A    R1,R0
+       MOV  R0,@PMAP
+       MOV  @QOMON(R1),R0
+       A    R1,R0
+       MOV  R0,@PMON
+       MOV  @QOITM(R1),R0
+       A    R1,R0
+       MOV  R0,@PITM
+       MOV  @QOTXT(R1),R0
+       A    R1,R0
+       MOV  R0,@PTXT
+       MOV  @QOTUN(R1),R0
+       A    R1,R0
+       MOV  R0,@PTUN
+       CLR  R0              status = mounted
+       RT
+MNBAD  LI   R0,1
+       RT
+
+* ===========================================================================
+* DRAWM — decode the RLE map into MBUF, then paint it to the name table by the
+* header's own width/height, and stamp the party marker at the quest's start
+* tile. The render is data-driven: nothing here knows the map, only the schema.
+* Non-leaf (RLEDEC / VMBW / VSBW).
+DRAWM  DECT R10
+       MOV  R11,*R10
+       MOV  @PMAP,R0        RLE source ...
+       LI   R1,MBUF         ... decoded into MBUF
+       BL   @RLEDEC
+       MOV  @QADDR,R3
+       MOVB @QHGT(R3),R8    height (rows) from the header
+       SRL  R8,8
+       MOVB @QWID(R3),R9    width  (cols) from the header
+       SRL  R9,8
+       LI   R4,MBUF         CPU row walker
+       CLR  R5             row index
+DRWROW MOV  R5,R0
+       SLA  R0,5           row * 32 = name cell of column 0
+       MOV  R4,R1          CPU source = this row of MBUF
+       MOV  R9,R2          width bytes
+       BL   @VMBW
+       A    R9,R4          next MBUF row
+       INC  R5
+       C    R5,R8
+       JNE  DRWROW
+* stamp the party marker at (QPSX,QPSY)
+       MOV  @QADDR,R3
+       MOVB @QPSY(R3),R0
+       SRL  R0,8
+       SLA  R0,5          start row * 32
+       MOVB @QPSX(R3),R1
+       SRL  R1,8
+       A    R1,R0         + start column -> name cell
+       LI   R1,GPARTY
+       SWPB R1            glyph into the high half for VSBW
+       BL   @VSBW
+       MOV  *R10+,R11
+       RT
+
+* ===========================================================================
+* PINIT — build the party from the quest's tuning block: the heroes are DATA,
+* not constants. Leaf.
+PINIT  MOV  @PTUN,R2       tuning base
+       LI   R4,PARTY
+       MOVB @TH0HP(R2),R1
+       MOVB R1,@HHP(R4)
+       MOVB @TH0AT(R2),R1
+       MOVB R1,@HATK(R4)
+       MOVB @TH0DF(R2),R1
+       MOVB R1,@HDEF(R4)
+       MOVB @TH0SP(R2),R1
+       MOVB R1,@HSPD(R4)
+       LI   R1,>0100
+       MOVB R1,@HALV(R4)
+       AI   R4,HSIZE
+       MOVB @TH1HP(R2),R1
+       MOVB R1,@HHP(R4)
+       MOVB @TH1AT(R2),R1
+       MOVB R1,@HATK(R4)
+       MOVB @TH1DF(R2),R1
+       MOVB R1,@HDEF(R4)
+       MOVB @TH1SP(R2),R1
+       MOVB R1,@HSPD(R4)
+       LI   R1,>0100
+       MOVB R1,@HALV(R4)
+       RT
+
+* ===========================================================================
+* FIGHT — the table-driven combat resolver. IN: R0 = monster index. Copies the
+* monster template into mutable scratch (CMON), then runs rounds: every living
+* hero swings, a to-hit roll off the LFSR gates the blow, damage = ATK - DEF
+* (min 1), the monster flees when its HP falls to its morale line, and the
+* monster answers by striking the first hero still standing. Sets VICTOR and
+* OUTCOM. All numbers come from the quest, so re-tuning the game is a data edit.
+* Leaf: no BL, so R11 is untouched and the register discipline stays simple.
+*  R2 = CMON,  R3 = round cap,  R4 = hero walker,  R5 = hero count,
+*  R6/R7 = arithmetic scratch,  R8 = LFSR scratch,  R9 = to-hit threshold.
+FIGHT  MOV  R0,R1
+       SLA  R1,3           index * MSIZE (8)
+       A    @PMON,R1       -> monster template
+       LI   R2,CMON
+       LI   R5,MSIZE
+FGCPY  MOVB *R1+,*R2+      copy the template byte-wise (alignment-free)
+       DEC  R5
+       JNE  FGCPY
+       LI   R2,CMON        R2 -> the mutable monster
+       MOV  @PTUN,R1
+       MOVB @THIT(R1),R9   cache the to-hit threshold
+       SRL  R9,8
+       LI   R0,>1D2C
+       MOV  R0,@SEED       a fixed fight seed keeps the bench deterministic
+       CLR  @OUTCOM
+       CLR  @VICTOR
+       LI   R3,RNDCAP
+* ---- one round ----
+FGRND  LI   R4,PARTY
+       LI   R5,NHERO
+FGHERO MOVB @HALV(R4),R6   hero alive?
+       JEQ  FGHNXT
+* to-hit: step the LFSR, roll = SEED & 7
+       MOV  @SEED,R7
+       MOV  R7,R8
+       SRL  R7,1
+       ANDI R8,1
+       JEQ  FGLF1
+       XOR  @FGTAP,R7
+FGLF1  MOV  R7,@SEED
+       ANDI R7,7
+       C    R7,R9
+       JHE  FGHNXT         roll >= threshold -> miss
+* hit: damage = heroATK - monDEF, floored at 1
+       MOVB @HATK(R4),R6
+       SRL  R6,8
+       MOVB @MDEF(R2),R7
+       SRL  R7,8
+       S    R7,R6
+       CI   R6,1
+       JGT  FGDMOK
+       LI   R6,1
+FGDMOK MOVB @MHP(R2),R7    apply to monster HP
+       SRL  R7,8
+       S    R6,R7
+       JGT  FGALIV
+* monster killed
+       CLR  R7
+       MOVB R7,@MHP(R2)
+       LI   R0,OCKILL
+       MOV  R0,@OUTCOM
+       LI   R0,VPARTY
+       MOV  R0,@VICTOR
+       JMP  FGDONE
+FGALIV MOV  R7,R6          store the reduced HP
+       SWPB R6
+       MOVB R6,@MHP(R2)
+       MOVB @MMOR(R2),R6   morale line
+       SRL  R6,8
+       C    R7,R6
+       JGT  FGHNXT         HP above morale -> fights on
+       LI   R0,OCFLEE      HP at/below morale -> it breaks and flees
+       MOV  R0,@OUTCOM
+       LI   R0,VPARTY
+       MOV  R0,@VICTOR
+       JMP  FGDONE
+FGHNXT AI   R4,HSIZE
+       DEC  R5
+       JNE  FGHERO
+* ---- the monster's turn: strike the first living hero ----
+       LI   R4,PARTY
+       LI   R5,NHERO
+FGFIND MOVB @HALV(R4),R6
+       JNE  FGMATK
+       AI   R4,HSIZE
+       DEC  R5
+       JNE  FGFIND
+* nobody left standing -> party wiped
+       CLR  @VICTOR
+       LI   R0,OCWIPE
+       MOV  R0,@OUTCOM
+       JMP  FGDONE
+FGMATK MOVB @MATK(R2),R6   damage = monATK - heroDEF, floored at 1
+       SRL  R6,8
+       MOVB @HDEF(R4),R7
+       SRL  R7,8
+       S    R7,R6
+       CI   R6,1
+       JGT  FGMOK
+       LI   R6,1
+FGMOK  MOVB @HHP(R4),R7
+       SRL  R7,8
+       S    R6,R7
+       JGT  FGHPOK
+       CLR  R7            the hero falls
+       MOVB R7,@HHP(R4)
+       MOVB R7,@HALV(R4)
+       JMP  FGRNDX
+FGHPOK MOV  R7,R6
+       SWPB R6
+       MOVB R6,@HHP(R4)
+FGRNDX DEC  R3
+       JNE  FGRND
+FGDONE RT
+FGTAP  DATA >B400          the LFSR tap (Ch.8), shared with the shooter
+
+* ===========================================================================
+* SAY — unpack quest text[R0] into TBUF as 0-terminated ASCII, then fall into
+* the bit-walking unpacker. Leaf.
+SAY    MOV  R0,R1
+       SLA  R1,1          index * 2 (word table)
+       A    @PTXT,R1
+       MOV  *R1,R0        the string's offset from the blob base
+       A    @QADDR,R0     -> packed stream
+       LI   R1,TBUF
+* TXUNPK — R0 = packed source, R1 = ASCII dest. Pulls 5-bit symbols MSB-first;
+* symbol 0 ends the string. R2 = bit window, R3 = bits left, R4 = symbol.
+TXUNPK CLR  R3
+TXNSYM CLR  R4
+       LI   R5,5
+TXBIT  MOV  R3,R3         bits left in the window?
+       JNE  TXHAVE
+       MOVB *R0+,R2       refill from the next byte
+       LI   R3,8
+TXHAVE SLA  R2,1          next stream bit -> carry (test it BEFORE shifting R4,
+       JOC  TXONE         which would clobber the carry)
+       SLA  R4,1          shift a 0 into the symbol
+       JMP  TXNOC
+TXONE  SLA  R4,1          shift a 1 into the symbol
+       INC  R4
+TXNOC  DEC  R3
+       DEC  R5
+       JNE  TXBIT
+       MOV  R4,R4
+       JEQ  TXEND         symbol 0 -> done
+       MOVB @TXASC(R4),R6 symbol -> ASCII
+       MOVB R6,*R1+
+       JMP  TXNSYM
+TXEND  CLR  R6
+       MOVB R6,*R1+       terminate
+       RT
+
+* symbol -> ASCII (0=end, 1=space, 2..27=A-Z, 28='.' 29=',' 30='!' 31='?')
+TXASC  BYTE 0,>20,>41,>42,>43,>44,>45,>46,>47,>48
+       BYTE >49,>4A,>4B,>4C,>4D,>4E,>4F,>50,>51,>52
+       BYTE >53,>54,>55,>56,>57,>58,>59,>5A,>2E,>2C
+       BYTE >21,>3F
+
+* ===========================================================================
+* ================= the embedded quest — DUNGEONS OF FATE, "The Sunless Cell"
+* On hardware this is a disk file (filelib reads it into QBUF); here it is the
+* self-test's data source. Every byte the engine acts on lives in this blob and
+* nowhere in the engine — the whole point of the chapter.
+       EVEN
+QUEST1 DATA QMAGIC                magic
+       DATA QVER1                 version
+       BYTE MAPW,MAPH             16 x 12 tiles
+       BYTE 2,2                   2 monsters, 2 items
+       BYTE 1                     1 text string
+       BYTE 8,6                   party start tile (col 8, row 6)
+       BYTE 0                     reserved
+       DATA QMAP1-QUEST1          offsets, measured from the base
+       DATA QMONT-QUEST1
+       DATA QITMT-QUEST1
+       DATA QTXTI-QUEST1
+       DATA QTUNE-QUEST1
+       DATA 0                     reserved -> header is QHLEN bytes
+
+* the map, RLE'd (rlelib): a wall border around a floor room. 44 bytes of
+* stream expand to 192 tiles — the compression the asset pipeline buys.
+QMAP1  BYTE >91,>88               run 17 wall  (row 0 + row 1's left wall)
+       BYTE >8E,>2E               run 14 floor (row 1 interior)
+       BYTE >82,>88,>8E,>2E       rows 2..10: 2 wall, 14 floor
+       BYTE >82,>88,>8E,>2E
+       BYTE >82,>88,>8E,>2E
+       BYTE >82,>88,>8E,>2E
+       BYTE >82,>88,>8E,>2E
+       BYTE >82,>88,>8E,>2E
+       BYTE >82,>88,>8E,>2E
+       BYTE >82,>88,>8E,>2E
+       BYTE >82,>88,>8E,>2E
+       BYTE >91,>88               run 17 wall  (row 10's right wall + row 11)
+       BYTE >00,>00               end of stream (+ a pad byte -> even length)
+
+* monster table: HP ATK DEF SPD MOR GLY XP pad
+QMONT  BYTE 8,3,2,4,0,>90,5,0     0: a cave rat   (morale 0 — fights to death)
+       BYTE 8,3,2,4,5,>91,5,0     1: a goblin     (morale 5 — breaks and flees)
+
+* item table: TYPE POW GLY pad
+QITMT  BYTE 0,2,>2F,0             0: a short sword (weapon, +2 ATK)
+       BYTE 1,1,>5B,0             1: a leather jack (armour, +1 DEF)
+
+* text index: one offset per string
+QTXTI  DATA QTX0-QUEST1
+
+* packed prose (5-bit): "FATE" -> symbols 7,2,21,6,0
+QTX0   BYTE >38,>AA,>60,>00
+
+* tuning: the party and the balance knobs, as data
+QTUNE  BYTE 10,6,1,5             hero 0: HP10 ATK6 DEF1 SPD5
+       BYTE 8,4,1,4             hero 1: HP8  ATK4 DEF1 SPD4
+       BYTE 8,0                 to-hit threshold 8 (always connects), reserved
+
+* a deliberately malformed blob, to prove MOUNT refuses it
+       EVEN
+BADQ   DATA >0000,>0000
+
+       END  START

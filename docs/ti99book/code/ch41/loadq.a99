@@ -1,0 +1,60 @@
+* LOADQ.A99 — §41.6: bring a quest off disk into RAM for the engine.  (Ch. 41)
+* Copyright (c) 2026 Joel Odom. Licensed under the Modified MIT License
+* with Commons Clause — see LICENSE.md at the repository root.
+*
+* The other half of the test seam. dungeons.a99 mounts a quest through a
+* POINTER; on the bench that pointer aims at an embedded blob, and here it aims
+* at bytes read off a disk. A quest ships as a program-image file, so the whole
+* thing loads in ONE operation (opcode OPLOAD) — no per-record loop — into VRAM,
+* whence we copy it down to the CPU-RAM buffer the engine will MOUNT.
+*
+* NOT bench-runnable: BENCH99 has no card at >4000 (R-12). The disk path is
+* machine-verified in the Rust harness (device_io.rs drives a real quest LOAD,
+* GREEN at HEAD); this file proves the load path ASSEMBLES and is the §41.6
+* listing. Requires the filelib COPY chain (Ch. 30-31).
+
+       COPY '../ch11/equates.inc'      ports, the fast island
+       COPY '../ch12/vdplib.inc'       VMBW / VMBR
+       COPY '../ch30/dsrlib.inc'       DSRLNK
+       COPY '../ch31/filelib.inc'      the PAB and the opcode wrappers
+
+WS     EQU  >8300
+STKTOP EQU  >8340
+PABADR EQU  >1000            PAB base in VRAM
+QVLOAD EQU  >1100            VRAM staging address for the loaded blob
+QBUF   EQU  >A100            CPU-RAM destination the engine MOUNTs (dungeons.a99)
+QLEN   EQU  512              bytes to bring down (one small quest)
+QNMLN  EQU  10               length of "DSK1.QUEST"
+
+START  LWPI WS
+       LI   R10,STKTOP
+* stage the PAB in VRAM (a CPU-side image, block-copied up)
+       LI   R0,PABADR
+       LI   R1,PABIMG
+       LI   R2,PABLEN
+       BL   @VMBW
+* LOAD the whole quest file: DSK1.QUEST -> VRAM at QVLOAD, one operation
+       LI   R0,PABADR
+       LI   R1,OPLOAD
+       BL   @FDOP
+* copy the loaded blob down into CPU RAM, where the engine reads it
+       LI   R0,QVLOAD
+       LI   R1,QBUF
+       LI   R2,QLEN
+       BL   @VMBR
+* QBUF now holds the quest; the engine mounts it:  LI R0,QBUF / BL @MOUNT
+HALT   JMP  HALT
+
+* ---- the PAB image (offsets from filelib.inc's PAB field names) ----
+PABIMG BYTE OPLOAD              >0  opcode (FDOP sets it too)
+       BYTE 0                   >1  flags (0 for a program-image LOAD)
+       DATA QVLOAD              >2  VDP load address
+       BYTE 0                   >4  record length (unused by LOAD)
+       BYTE 0                   >5  count
+       DATA 0                   >6  record number
+       BYTE 0                   >8  screen offset
+       BYTE QNMLN               >9  name length
+       BYTE >44,>53,>4B,>31,>2E  the name: D S K 1 .
+       BYTE >51,>55,>45,>53,>54                Q U E S T
+PABLEN EQU  $-PABIMG
+       END  START

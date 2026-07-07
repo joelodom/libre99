@@ -1,0 +1,6 @@
+load C:/ClaudeShared/libre99/docs/ti99book/build/DUNGC.bin
+pc 60BE
+x 200000
+vdp
+m 8342 20
+r

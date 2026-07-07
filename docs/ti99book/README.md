@@ -26,13 +26,14 @@ sh verify.sh      # assemble all companion code + build the bench; must pass
 ```
 
 ## Status
-**39 of 45 chapters drafted.** Complete: Part I, Part II (except Chapter 6, a
+**40 of 45 chapters drafted.** Complete: Part I, Part II (except Chapter 6, a
 stub — narrative final, code work orders still open), and Parts III–VIII in
-full. **Part IX** (the case studies) is underway — **Chapters 39–40** (METEOR
-BELT, the scrolling shooter; GRIDRUNNER 99, the console-only maze chase) are
-drafted; **Chapter 41** (DUNGEONS OF FATE, the data-driven RPG) is next, then
-42–43. Remaining after that: **Part X** (44–45), the fourteen reference
-**appendices** (A–N), and the front matter (preface, how-to-use). See
+full. **Part IX** (the case studies) is underway — **Chapters 39–41** (METEOR
+BELT, the scrolling shooter; GRIDRUNNER 99, the console-only maze chase;
+DUNGEONS OF FATE, the data-driven RPG engine) are drafted; **Chapter 42**
+(AUTHOR99, the productivity program) is next, then 43. Remaining after that:
+**Part X** (44–45), the fourteen reference **appendices** (A–N), and the front
+matter (preface, how-to-use). See
 `manuscript/_summaries.md` for what each finished chapter covers, and
 `manuscript/00-master-outline.md` for the full 45-chapter plan (amendments at
 the end).
