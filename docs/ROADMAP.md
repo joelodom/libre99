@@ -30,7 +30,7 @@ the tree, the binary, or the published history. The machine already boots and ru
 product, not a stub. (Since 2026-07-06 that includes the disk: the clean-room
 disk DSR reads *and writes* by default — formerly a row of this table.)
 
-**Phase 1 is essentially done** — three further rows completed 2026-07-06 and
+**Phase 1 is done** — three further rows completed 2026-07-06 and
 left the table: **media loads on demand** (zero embedded media; the console
 boots bare; `--cartridge`/`--disk` take file paths and `F9` opens the
 **OS-native file chooser** — owner call: system chooser, not a custom
@@ -40,7 +40,11 @@ images at run time from the git-ignored `third-party/` directory via
 included); and **the purge** (`roms/`, `cartridges/`, `disks/` moved out of
 version control into `third-party/`; the gallery generator renders only our
 titles; the two third-party README screenshots stay as static images per the
-owner decision). What remains of Phase 1 is the verification gate below.
+owner decision). The last row — the **verification gate** below — has cleared
+too: this fork builds and tests green from a clean checkout, and its public CI
+(GitHub Actions — `test` + `clippy` on Windows and macOS, on every push) passes with
+**zero proprietary bytes** on the runners' fresh checkouts (owner-confirmed green,
+2026-07-07). Everything left for 0.1.0 is Phase 3 polish.
 
 **Order of battle — the sequence is deliberate.** All blocking IP must leave the working
 tree **first**; *then* the rename to **Libre99**; and *immediately after the rename* the
@@ -70,20 +74,34 @@ never contained a proprietary byte. The old private `ti-99-emulator`
 repository is discontinued and must never be published — its *history* still
 holds the firmware and media its tree shed.
 
-Gate tags below: **[blocker]** must land before 0.1.0 · **[decide]** an owner decision
-gates it.
+Gate tags below: **[blocker]** must land before 0.1.0 · **[target]** a 0.1.0 goal, not
+release-gating · **[decide]** an owner decision gates it.
 
 | # | Phase | Work item | What it involves — and why it sits here | Gate |
 |:--:|---|---|---|:--:|
-| 1 | **1 · Sever IP** | **Verify the tree is clean** | Push this repo and confirm public CI green with zero proprietary bytes on the runners' fresh checkouts; scan the whole tree to confirm no stray TI bytes remain. (Local equivalent verified 2026-07-06 — full suite green with `third-party/` hidden — and re-verified on this repo's snapshot at fork time; the real public-CI run is the remaining check.) *The gate that green-lights the public release.* | [blocker] |
-| 2 | **3 · Polish & ship** | **Save states: atomic + portable** | Replace the plain `fs::write` with temp-file-plus-rename (atomic on both OSes); store a **portable** media re-mount reference (name/relative path, not an absolute `C:\…` vs `/…` path); add a macOS↔Windows round-trip test. Core format already ports (little-endian, self-contained, version-magic-guarded). | [blocker] |
-| 3 | **3 · Polish & ship** | **Docs, in-app help & first-run** | **Revamp the `F1` help (`help.rs`) — explicitly still required before 0.1.0** (the 2026-07-06 media rework and rename made only accuracy edits to it — Joel); first-run onboarding on an empty console; README + USER-GUIDE pass; state plainly that **BASIC/XB need user-supplied authentic ROMs** and note the Video Vegas GROM-2 exception. | [blocker] |
-| 4 | **3 · Polish & ship** | **Legal notices** | "Not affiliated with or endorsed by Texas Instruments" trademark disclaimer (TI marks used nominatively only); a top-level `NOTICE` carrying the OFL font licenses (Silkscreen, IBM Plex Mono) and the Microban level credit. | [blocker] |
+| 1 | **3 · Polish & ship** | **Save states: atomic + portable** | Replace the plain `fs::write` with temp-file-plus-rename (atomic on both OSes); store a **portable** media re-mount reference (name/relative path, not an absolute `C:\…` vs `/…` path); add a macOS↔Windows round-trip test. Core format already ports (little-endian, self-contained, version-magic-guarded). | [blocker] |
+| 2 | **3 · Polish & ship** | **Mount a disk without rebooting the console** | Mounting media on `F9` (and `F2`/`F3` eject) currently calls `rebuild_machine()` → `build_machine()` → a fresh `Machine::new` + `reset()` — a **full cold boot** that wipes RAM and the running session (the `F1` help even mislabels this a "warm reset"). Real hardware needs no reboot to insert a floppy, and `Machine::mount_disk` already inserts into a *live* machine — so a disk mount/eject should slot the image into the running machine **without** rebuilding. Scope to the disk path first: a *cartridge* mount may still warrant a reset (the console scans cartridge ROM at boot). *Bug, Joel 2026-07-07.* | [blocker] |
+| 3 | **3 · Polish & ship** | **Disk persistence — original untouched · tracked delta · export** | Today a Write Sector mutates only the **in-memory** image; the host `.dsk` is never written back, and edits survive only inside a save state (`disk.rs` "Write-back volatility"). Desired model (Joel, 2026-07-07): the mounted `.dsk` stays **byte-for-byte unmodified**; the machine remembers the **delta** — the sectors the program has written — against it; and an **export** writes a *new* `.dsk` with the delta applied, leaving the source intact (`Disk::drive_image` already exposes the delta-applied image, so it is a ready-made export source). Design sub-questions in the owner-decisions list below. | [target] |
+| 4 | **3 · Polish & ship** | **Docs, in-app help & first-run** | **Revamp the `F1` help (`help.rs`) — explicitly still required before 0.1.0** (the 2026-07-06 media rework and rename made only accuracy edits to it — Joel); first-run onboarding on an empty console; README + USER-GUIDE pass; state plainly that **BASIC/XB need user-supplied authentic ROMs** and note the Video Vegas GROM-2 exception. Fold in the two disk rows above once they land — the `F1` mount help still says "warm reset." | [blocker] |
 | 5 | **3 · Polish & ship** | **Package & release** | Set the workspace to **0.1.0**, add a `CHANGELOG`, tag; ship prebuilt Windows + macOS binaries via GitHub Releases (incl. the macOS `.app` bundle); final crash/robustness pass (first run, missing dir, bad input, no media). | [blocker] |
 
+**Landed 2026-07-07 — the Legal-notices blocker (left the table):** a single root
+[`NOTICE.md`](../NOTICE.md) now consolidates all legal notices, kept distinct from
+`LICENSE.md` (the project's own grant): the **"Not affiliated with or endorsed by Texas
+Instruments"** trademark disclaimer (TI marks used nominatively only); the **Silkscreen**
+and **IBM Plex Mono** attributions under the SIL **Open Font License 1.1** (pointing to the
+full texts already shipped beside the fonts, not duplicating them); and the **Microban**
+level credit (David W. Skinner) that the Sokoban cartridge already shows on screen.
+
 **Open decisions (owner)** — each rides on the row noted:
-- **Save-slot split** (row 2): keep the single auto-slot (F6/F8 today), or add multiple
+- **Save-slot split** (row 1): keep the single auto-slot (F6/F8 today), or add multiple
   named/manual slots? Whatever the shape, slot naming must be cross-platform-safe.
+- **Disk delta — persistence & export shape** (row 3): is the written-sector delta kept
+  only for the live session (and its save state), or also written under `~/.libre99/` so a
+  disk's edits survive a plain quit-and-relaunch **without** a save state? Is export
+  **on-demand only** (a key / menu action) or is there an opt-in write-through? And the
+  delta's form — a whole-image copy vs. a sparse dirty-sector map, plus how an exported
+  file is associated back to its source `.dsk`.
 - **system-roms README "no TI bytes" headline wording** — still open from earlier.
 
 > **Decided 2026-07-06 (owner, via "rebrand everything"):** the data directory is
@@ -108,8 +126,9 @@ The fresh **libre99** repository — history clean back to commit 1 — builds f
 checkout a binary named **libre99** that contains **no TI or third-party bytes**, boots
 the clean-room firmware, loads cartridges and disks from user-supplied files (command
 line + the system file chooser; nothing bundled), reads *and writes* disks on the
-clean-room DSR, saves and restores state portably across macOS and Windows, passes a
-public CI with no proprietary inventory, ships refreshed docs and in-app help, and is
+clean-room DSR (mounting a disk **without rebooting** the running console), saves and
+restores state portably across macOS and Windows, passes a public CI with no proprietary
+inventory (green as of 2026-07-07), ships refreshed docs and in-app help, and is
 downloadable as a prebuilt binary for both platforms.
 
 ---
@@ -175,6 +194,15 @@ Each item is tagged: **[done]** implemented and merged to `main` ·
   on-screen browser and F2/F3/F4 cycling) when the media embeds were removed
   with the third-party IP (2026-07-06; owner call: system chooser over a
   custom browser). Nothing is bundled — the console boots bare. **[done]**
+- **Mounting a disk must not reboot the console** *(bug, Joel 2026-07-07)*. `F9`
+  and eject rebuild the whole machine today — a cold boot that wipes the running
+  session — where inserting a floppy should be **live** (`Machine::mount_disk`
+  already supports it). **0.1.0 blocker — Road-to-0.1.0 row 2.** **[next]**
+- **Disk persistence — keep the source `.dsk` untouched, track the write delta,
+  export to a new file.** Writes live only in memory today (lost on quit unless a
+  save state captured them); the goal is a byte-for-byte-intact source image, a
+  remembered written-sector delta, and an on-demand export of the delta-applied
+  image to a *new* `.dsk`. **A 0.1.0 target — Road-to-0.1.0 row 3.** **[next]**
 - **Create / format blank disks**; **import/export** files to and from TI disk
   images (TIFILES / FIAD). **[later]**
 - **Recently-used** media list; per-title default disk. **[later]**
