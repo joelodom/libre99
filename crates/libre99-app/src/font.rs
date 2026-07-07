@@ -48,7 +48,7 @@
 //! The chunky 5×7 bitmap font in [`crate::text`] is right for overlays painted
 //! into the 256×192 framebuffer (toast, CPU inspector, media browser), but the
 //! redesigned `F1` help screen is drawn at the window's *native* resolution and
-//! wants smooth type at 9–26 px. This module embeds the two open-licensed faces
+//! wants smooth type at 8–30 px. This module embeds the two open-licensed faces
 //! the design calls for — **Silkscreen** (the pixel display face) and **IBM Plex
 //! Mono** (body/UI) — and rasterizes their glyphs on demand with `ab_glyph`.
 //!
@@ -66,22 +66,19 @@ use ab_glyph::{Font, FontRef, ScaleFont};
 /// [`Fonts::faces`], so keep the two in the same order.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum FontId {
-    /// Silkscreen 400 — the large header title.
+    /// Silkscreen 400 — the wordmark and the word-keycaps.
     SilkRegular = 0,
-    /// Silkscreen 700 — eyebrows, tab labels, section headers, wide keycap words.
-    SilkBold = 1,
-    /// IBM Plex Mono 400 — body copy, paths, code blocks.
-    MonoRegular = 2,
-    /// IBM Plex Mono 500 — captions and the nav-pill hint text.
-    MonoMedium = 3,
-    /// IBM Plex Mono 600 — key chips, table keys/values, modifier labels.
-    MonoSemiBold = 4,
-    /// IBM Plex Mono 700 — keycap legends and bold emphasis.
-    MonoBold = 5,
+    /// IBM Plex Mono 400 — body copy, labels, footnotes.
+    MonoRegular = 1,
+    /// IBM Plex Mono 500 — the headline styles.
+    MonoMedium = 2,
+    /// IBM Plex Mono 600 — key chips, keycap legends, table keys, emphasis.
+    MonoSemiBold = 3,
+    /// IBM Plex Mono 700 — section eyebrows.
+    MonoBold = 4,
 }
 
 const SILK_REGULAR: &[u8] = include_bytes!("../assets/fonts/Silkscreen-Regular.ttf");
-const SILK_BOLD: &[u8] = include_bytes!("../assets/fonts/Silkscreen-Bold.ttf");
 const MONO_REGULAR: &[u8] = include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf");
 const MONO_MEDIUM: &[u8] = include_bytes!("../assets/fonts/IBMPlexMono-Medium.ttf");
 const MONO_SEMIBOLD: &[u8] = include_bytes!("../assets/fonts/IBMPlexMono-SemiBold.ttf");
@@ -109,9 +106,17 @@ fn quant(px: f32) -> f32 {
     (px * 4.0).round() / 4.0
 }
 
-/// The six embedded faces plus a shared glyph-raster cache.
+/// The five embedded faces plus a shared glyph-raster cache.
+///
+/// Every `px` argument below is an **em size** — the same unit as a CSS
+/// `font-size`, so the design handoff's pixel values can be used verbatim.
+/// `ab_glyph`'s `PxScale` measures the ascent-to-descent *height* instead, so
+/// each face carries a precomputed em→height factor and the conversion happens
+/// at this boundary.
 pub struct Fonts {
-    faces: [FontRef<'static>; 6],
+    faces: [FontRef<'static>; 5],
+    /// Per-face `height/em` ratio (≈1.3 for IBM Plex Mono).
+    em_scale: [f32; 5],
     cache: HashMap<(FontId, u32, char), Raster>,
 }
 
@@ -121,14 +126,17 @@ impl Fonts {
     pub fn new() -> Self {
         let faces = [
             FontRef::try_from_slice(SILK_REGULAR).expect("Silkscreen-Regular.ttf"),
-            FontRef::try_from_slice(SILK_BOLD).expect("Silkscreen-Bold.ttf"),
             FontRef::try_from_slice(MONO_REGULAR).expect("IBMPlexMono-Regular.ttf"),
             FontRef::try_from_slice(MONO_MEDIUM).expect("IBMPlexMono-Medium.ttf"),
             FontRef::try_from_slice(MONO_SEMIBOLD).expect("IBMPlexMono-SemiBold.ttf"),
             FontRef::try_from_slice(MONO_BOLD).expect("IBMPlexMono-Bold.ttf"),
         ];
+        let em_scale = faces
+            .each_ref()
+            .map(|f| f.height_unscaled() / f.units_per_em().unwrap_or(f.height_unscaled()));
         Fonts {
             faces,
+            em_scale,
             cache: HashMap::new(),
         }
     }
@@ -137,21 +145,27 @@ impl Fonts {
         &self.faces[id as usize]
     }
 
-    /// Distance from the baseline up to the top of the face's ascenders, at
-    /// `px`. Used to convert a top-left text position into a baseline.
-    pub fn ascent(&self, id: FontId, px: f32) -> f32 {
-        self.face(id).as_scaled(quant(px)).ascent()
+    /// The em size `px` as an `ab_glyph` height scale, quantized for caching.
+    fn scale(&self, id: FontId, px: f32) -> f32 {
+        quant(px * self.em_scale[id as usize])
     }
 
-    /// Total advance width of `s` at `px`, in device px (no tracking).
+    /// Distance from the baseline up to the top of the face's ascenders, at
+    /// em size `px`. Used to convert a top-left text position into a baseline.
+    pub fn ascent(&self, id: FontId, px: f32) -> f32 {
+        let s = self.scale(id, px);
+        self.face(id).as_scaled(s).ascent()
+    }
+
+    /// Total advance width of `s` at em size `px`, in device px (no tracking).
     pub fn measure(&self, id: FontId, px: f32, s: &str) -> f32 {
-        let sf = self.face(id).as_scaled(quant(px));
+        let sf = self.face(id).as_scaled(self.scale(id, px));
         s.chars().map(|c| sf.h_advance(sf.glyph_id(c))).sum()
     }
 
-    /// Rasterize (or fetch from cache) the glyph for `c` at `px`.
+    /// Rasterize (or fetch from cache) the glyph for `c` at em size `px`.
     pub fn raster(&mut self, id: FontId, px: f32, c: char) -> &Raster {
-        let px = quant(px);
+        let px = self.scale(id, px);
         let key = (id, px.to_bits(), c);
         // Two-step (contains/insert) keeps the borrow checker happy without an
         // entry() closure capturing `self.faces`.

@@ -43,21 +43,25 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-//! The `Esc` / `F1` help overlay — a five-tab reference (Start, Keyboard,
-//! Hotkeys, Media & State, Settings) drawn at the window's **native** pixel
-//! resolution with the embedded smooth fonts ([`crate::font`]).
+//! The `Esc` / `F1` help overlay — a four-tab reference (Start, Keyboard,
+//! Hotkeys, Settings) drawn at the window's **native** pixel resolution with
+//! the embedded smooth fonts ([`crate::font`]).
 //!
 //! Unlike the other overlays (toast, CPU inspector, media browser), which paint
 //! into the 256×192 framebuffer and are then nearest-neighbor upscaled, this one
-//! renders straight into the window-sized surface so 9–26 px type stays crisp.
+//! renders straight into the window-sized surface so 10–30 px type stays crisp.
 //! It fills the largest centered **4:3** rectangle that fits the window — the
 //! same region the emulated image occupies — and letterboxes the rest.
 //!
 //! All layout is written in the design's 1024×768 coordinate space and scaled to
 //! the live region, so it looks identical at every `window_scale` and fullscreen.
-//! The recreated layout, colors, and copy follow `design_handoff_help_screen`;
-//! all key/flag/pref values track `docs/USER-GUIDE.md` (the source of truth —
-//! keep the two in sync when controls or preferences change).
+//! The layout, colors, and copy recreate the "quiet terminal" design of
+//! `design_handoff_help_redesign`: solid black backdrop, hairline rules and
+//! whitespace instead of cards, a single cyan chrome accent (amber and green
+//! appear only as the keyboard map's SHIFT/FCTN semantics), Silkscreen only in
+//! the wordmark and word-keycaps. All key/flag/pref values track
+//! `docs/USER-GUIDE.md` (the source of truth — keep the two in sync when
+//! controls or preferences change).
 //!
 //! This is a software renderer, so the drawing primitives take the usual
 //! `x, y, w, h, …, color` argument lists; `too_many_arguments` is expected here.
@@ -65,108 +69,102 @@
 
 use crate::font::{FontId, Fonts};
 
-/// Platform-correct emulator-shortcut labels for the on-screen help: the command
-/// modifier is `Cmd` on macOS and `Ctrl` elsewhere (see
-/// [`crate::input::HostMods::command`]), and quit is the OS-standard `Cmd Q` on
-/// macOS vs. `Alt F4` (window close, which auto-saves) on Windows. Kept in sync
-/// with `app.rs`'s hotkey match so the labels never lie about the real bindings.
-#[cfg(target_os = "macos")]
-mod cmd_label {
-    pub const INSPECTOR: &str = "Cmd D";
-    pub const QUIT: &str = "Cmd Q";
-    pub const SCREENSHOT: &str = "Cmd S";
-    pub const SCREENSHOT_HYPHEN: &str = "Cmd-S";
-    pub const SCREENSHOT_PNGS: &str = "Cmd-S PNGs";
+/// Version string for the footer of the Start tab.
+const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
+
+/// Compile-time platform switch. Both branches of every `if IS_MAC` are
+/// compiled on every platform, so the macOS drawing paths can't rot silently
+/// on a Windows/Linux checkout (and vice versa).
+const IS_MAC: bool = cfg!(target_os = "macos");
+
+/// An emulator-shortcut key chip: plain text, or the macOS chips whose ⌃ / ⌘
+/// glyphs the embedded fonts lack and which are therefore drawn from strokes.
+/// The per-platform constants below are kept in sync with `app.rs`'s hotkey
+/// match so the labels never lie about the real bindings.
+#[derive(Clone, Copy)]
+enum KeyChip {
+    Text(&'static str),
+    /// `⌃ ⌘ <letter>` (macOS fullscreen).
+    MacCtrlCmd(&'static str),
+    /// `⌘ <letter>` (macOS quit / screenshot / inspector).
+    MacCmd(&'static str),
 }
-#[cfg(not(target_os = "macos"))]
-mod cmd_label {
-    pub const INSPECTOR: &str = "Ctrl D";
-    pub const QUIT: &str = "Alt F4";
-    pub const SCREENSHOT: &str = "Ctrl S";
-    pub const SCREENSHOT_HYPHEN: &str = "Ctrl-S";
-    pub const SCREENSHOT_PNGS: &str = "Ctrl-S PNGs";
-}
+
+const FULLSCREEN_CHIP: KeyChip = if IS_MAC {
+    KeyChip::MacCtrlCmd("F")
+} else {
+    KeyChip::Text("F11")
+};
+const QUIT_CHIP: KeyChip = if IS_MAC {
+    KeyChip::MacCmd("Q")
+} else {
+    KeyChip::Text("ALT F4")
+};
+const SCREENSHOT_CHIP: KeyChip = if IS_MAC {
+    KeyChip::MacCmd("S")
+} else {
+    KeyChip::Text("CTRL S")
+};
+const INSPECTOR_CHIP: KeyChip = if IS_MAC {
+    KeyChip::MacCmd("D")
+} else {
+    KeyChip::Text("CTRL D")
+};
 
 /// A styled text run for [`Screen::paragraph`]: the text, its face, its color.
 type Run<'a> = (&'a str, FontId, u32);
 
-// Short aliases for the six embedded faces (see [`FontId`]).
-const SR: FontId = FontId::SilkRegular;
-const SB: FontId = FontId::SilkBold;
-const MR: FontId = FontId::MonoRegular;
-const MM: FontId = FontId::MonoMedium;
-const MS: FontId = FontId::MonoSemiBold;
-const MB: FontId = FontId::MonoBold;
+// Short aliases for the embedded faces used here (see [`FontId`]).
+const SR: FontId = FontId::SilkRegular; // Silkscreen 400 — wordmark, word-keycaps
+const MR: FontId = FontId::MonoRegular; // IBM Plex Mono 400 — body
+const MM: FontId = FontId::MonoMedium; // 500 — the two headline styles
+const MS: FontId = FontId::MonoSemiBold; // 600 — chips, labels, emphasis
+const MB: FontId = FontId::MonoBold; // 700 — eyebrows
 
 // ---- design canvas ---------------------------------------------------------
 const FRAME_W: f32 = 1024.0;
 const FRAME_H: f32 = 768.0;
-const PAD_X: f32 = 30.0;
+const PAD_X: f32 = 48.0;
 const CONTENT_X: f32 = PAD_X;
-const CONTENT_W: f32 = FRAME_W - 2.0 * PAD_X; // 964
-const CONTENT_TOP: f32 = 151.0;
-const CONTENT_BOTTOM: f32 = FRAME_H - 18.0; // 750
+const CONTENT_W: f32 = FRAME_W - 2.0 * PAD_X; // 928
+const RIGHT_X: f32 = FRAME_W - PAD_X; // 976
+const TOP_RULE_Y: f32 = 58.0; // bottom of the top bar
+const FOOT_RULE_Y: f32 = FRAME_H - 44.0; // top of the footer (724)
+const FOOT_CY: f32 = (FOOT_RULE_Y + FRAME_H) / 2.0; // footer text center (746)
 
-// ---- color tokens (0xRRGGBB) ----------------------------------------------
-const BG0: u32 = 0x16265a; // radial-gradient stops (center → edge)
-const BG1: u32 = 0x0b1336;
-const BG2: u32 = 0x070d24;
-const PANEL: u32 = 0x0f1c46;
-const PANEL_ALT: u32 = 0x0c1838;
-const CODE_BG: u32 = 0x091327;
-const CAP_TOP: u32 = 0x1d2f63; // letter/number keycap gradient
-const CAP_BOT: u32 = 0x16244e;
-const CAP_BIGBOT: u32 = 0x162149; // the larger "five keys" keycaps
-const MOD_TOP: u32 = 0x16244e; // modifier keycap gradient (ENTER/SHIFT/…)
-const MOD_BOT: u32 = 0x101b3c;
-const CAP_BORDER: u32 = 0x34529c;
-const CHIP_BG: u32 = 0x17274f;
-const CHIP_BORDER: u32 = 0x3a5599;
-const CARD_BORDER: u32 = 0x23386b;
-const ACCENT_BORDER: u32 = 0x2a6f8a;
-const DIV: u32 = 0x1a2a55;
-const DIV2: u32 = 0x1c2c57;
-const HAIRLINE: u32 = 0x233663;
-const CYAN: u32 = 0x5cc8e8;
-const GREEN: u32 = 0x74d68a;
-const AMBER: u32 = 0xf1c46b;
-const INK: u32 = 0xe9eefb;
-const TITLE: u32 = 0xf3f7ff;
-const INKDIM: u32 = 0xb9c4ea;
-const INKDIM2: u32 = 0xc3cdee;
-const MUTED: u32 = 0x8a99c8;
-const MUTED2: u32 = 0x9aa8d4;
-const MUTEDF: u32 = 0x7e8cba;
-const CODE_GREEN: u32 = 0x7fdc8a;
-const BADGE_BG: u32 = 0x16264f;
-const BADGE_TXT: u32 = 0x9fb2e6;
-const NAV_BORDER: u32 = 0x2f4a8a;
-const NAV_BG: u32 = 0x0e1c44;
-const NAV_DIV: u32 = 0x2a3a72;
-const TAB_OFF: u32 = 0x8392c0;
-const KEYCAP_INK: u32 = 0xeaf1ff;
-const WORDCAP_INK: u32 = 0xcdd9f5;
-const SHADOW_CHIP: u32 = 0x0a1430;
-const SHADOW_CAP: u32 = 0x0d1838;
-const HOST_SUB: u32 = 0x8a99c8;
-const KEY_CHIP_INK: u32 = 0xe2ecff;
+// ---- color tokens (0xRRGGBB, per the design-handoff token table) -----------
+const INK: u32 = 0xe9eefb; // headlines, key main legends
+const CHIP_INK: u32 = 0xdbe4fa; // chip text, emphasized inline values
+const BRIGHT: u32 = 0xaab6dd; // emphasized footer words, word-keycaps
+const MUTED: u32 = 0x8a99c8; // body copy, labels
+const FAINT: u32 = 0x5a6aa0; // footnotes, "HELP"
+const TAB_NUM: u32 = 0x3f4f8c; // the small digits in the tab bar
+const CYAN: u32 = 0x5cc8e8; // the one chrome accent
+const AMBER: u32 = 0xf1c46b; // SHIFT legends + legend swatch only
+const GREEN: u32 = 0x74d68a; // FCTN legends + legend swatch only
+const RULE_STRONG: u32 = 0x26336a; // rules under eyebrows, table header rules
+const RULE: u32 = 0x212d5c; // top-bar/footer rules, big section rules
+const RULE_ROW: u32 = 0x1a2550; // table/list row separators
+const CHIP_BG: u32 = 0x151f47; // key chip fill
+const CHIP_BORDER: u32 = 0x2c3a74; // key chip border; START column top rules
+const CAP_TOP: u32 = 0x1b2652; // keycap vertical gradient, top
+const CAP_BOT: u32 = 0x141d42; // keycap vertical gradient, bottom
+const CAP_BORDER: u32 = 0x2b3870; // keycap 1px border
 
-/// Which help tab is showing. The order matches the on-screen 1–5 numbering.
+/// Which help tab is showing. The order matches the on-screen 1–4 numbering.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum HelpTab {
     Start,
     Keyboard,
     Hotkeys,
-    Media,
     Settings,
 }
 
 impl HelpTab {
-    pub const ALL: [HelpTab; 5] = [
+    pub const ALL: [HelpTab; 4] = [
         HelpTab::Start,
         HelpTab::Keyboard,
         HelpTab::Hotkeys,
-        HelpTab::Media,
         HelpTab::Settings,
     ];
 
@@ -186,7 +184,6 @@ impl HelpTab {
             HelpTab::Start => "START",
             HelpTab::Keyboard => "KEYBOARD",
             HelpTab::Hotkeys => "HOTKEYS",
-            HelpTab::Media => "MEDIA & STATE",
             HelpTab::Settings => "SETTINGS",
         }
     }
@@ -263,36 +260,6 @@ impl<'a> Screen<'a> {
         self.buf[i] = (ch(16) << 16) | (ch(8) << 8) | ch(0);
     }
 
-    // -- background ----------------------------------------------------------
-    /// Radial gradient backdrop, lightest at top-center, filling the 4:3 region.
-    fn fill_bg(&mut self) {
-        // radial-gradient(130% 115% at 50% -12%, BG0, BG1 @55%, BG2)
-        let cx = 0.5 * FRAME_W;
-        let cy = -0.12 * FRAME_H;
-        let rx = 1.30 * FRAME_W;
-        let ry = 1.15 * FRAME_H;
-        let x0 = self.mx(0.0).floor() as i32;
-        let y0 = self.my(0.0).floor() as i32;
-        let x1 = self.mx(FRAME_W).ceil() as i32;
-        let y1 = self.my(FRAME_H).ceil() as i32;
-        for yy in y0..y1 {
-            for xx in x0..x1 {
-                // back to design space for the gradient math
-                let dx = (xx as f32 - self.ox) / self.scale - cx;
-                let dy = (yy as f32 - self.oy) / self.scale - cy;
-                let d = ((dx / rx).powi(2) + (dy / ry).powi(2)).sqrt();
-                let c = if d < 0.55 {
-                    lerp_rgb(BG0, BG1, d / 0.55)
-                } else {
-                    lerp_rgb(BG1, BG2, (d - 0.55) / 0.45)
-                };
-                if xx >= 0 && yy >= 0 && (xx as usize) < self.win_w && (yy as usize) < self.win_h {
-                    self.buf[yy as usize * self.win_w + xx as usize] = c;
-                }
-            }
-        }
-    }
-
     // -- rectangles ----------------------------------------------------------
     /// Coverage of a point `(lx,ly)` inside a `w×h` rounded rect, radius `r`,
     /// with ~1px anti-aliasing on every edge.
@@ -357,12 +324,6 @@ impl<'a> Screen<'a> {
         }
     }
 
-    /// A card: filled panel + 1px border, radius `r`.
-    fn card(&mut self, x: f32, y: f32, w: f32, h: f32, bg: u32, border: u32, r: f32) {
-        self.round_rect(x, y, w, h, r, bg);
-        self.round_border(x, y, w, h, r, 1.0, border);
-    }
-
     /// A 1-design-px horizontal rule from `x` to `x+w` at `y`.
     fn rule(&mut self, x: f32, y: f32, w: f32, rgb: u32) {
         let x0 = self.mx(x);
@@ -375,7 +336,7 @@ impl<'a> Screen<'a> {
         }
     }
 
-    /// Fill a small solid design-space rect (swatches, dividers, stems).
+    /// Fill a small solid design-space rect (swatches, underlines, stems).
     fn box_fill(&mut self, x: f32, y: f32, w: f32, h: f32, rgb: u32) {
         let x0 = self.mx(x);
         let y0 = self.my(y);
@@ -456,7 +417,7 @@ impl<'a> Screen<'a> {
         self.draw_dev(self.mx(x), baseline, s, id, dpx, rgb, track * self.scale);
     }
 
-    /// Tracked text centered on `(cx, cy)` (for Silkscreen labels).
+    /// Tracked text centered on `(cx, cy)` (for Silkscreen word-keycaps).
     fn text_center_tracked(&mut self, cx: f32, cy: f32, s: &str, id: FontId, px: f32, rgb: u32, track: f32) {
         let w = self.text_w(id, px, s, track);
         self.text_mid_tracked(cx - w / 2.0, cy, s, id, px, rgb, track);
@@ -468,45 +429,18 @@ impl<'a> Screen<'a> {
         self.text_mid(right - w, cy, s, id, px, rgb);
     }
 
-    // -- composite widgets ---------------------------------------------------
-    /// An inline key chip centered vertically on `cy`. Returns its width.
-    fn chip(&mut self, x: f32, cy: f32, label: &str, min_w: f32, h: f32, px: f32, shadow: bool) -> f32 {
-        let tw = self.text_w(MS, px, label, 0.0);
-        let w = (tw + 16.0).max(min_w);
-        let y = cy - h / 2.0;
-        if shadow {
-            self.round_rect(x, y + 2.0, w, h, 7.0, SHADOW_CHIP);
+    /// One line of mixed-style runs, first line top at design `top`.
+    fn run_line(&mut self, x: f32, top: f32, runs: &[Run], px: f32) {
+        let dpx = self.dpx(px);
+        let baseline = self.my(top) + self.fonts.ascent(MR, dpx);
+        let mut pen = self.mx(x);
+        for &(t, id, rgb) in runs {
+            pen = self.draw_dev(pen, baseline, t, id, dpx, rgb, 0.0);
         }
-        self.round_rect(x, y, w, h, 7.0, CHIP_BG);
-        self.round_border(x, y, w, h, 7.0, 1.0, CHIP_BORDER);
-        self.text_center(x + w / 2.0, cy, label, MS, px, KEY_CHIP_INK);
-        w
     }
 
-    /// The macOS fullscreen chip `⌃⌘F`, drawn with vector mac glyphs (the font
-    /// has none) followed by a real `F`. Returns its width.
-    fn mac_chip(&mut self, x: f32, cy: f32) -> f32 {
-        let px = 11.0;
-        let icon = 11.0;
-        let gap = 3.0;
-        let f_w = self.text_w(MS, px, "F", 0.0);
-        let content = icon + gap + icon + gap + f_w;
-        let h = 26.0;
-        let w = (content + 16.0).max(36.0);
-        let y = cy - h / 2.0;
-        self.round_rect(x, y + 2.0, w, h, 7.0, SHADOW_CHIP);
-        self.round_rect(x, y, w, h, 7.0, CHIP_BG);
-        self.round_border(x, y, w, h, 7.0, 1.0, CHIP_BORDER);
-        let mut cx = x + (w - content) / 2.0;
-        self.icon_ctrl(cx + icon / 2.0, cy, icon, KEY_CHIP_INK);
-        cx += icon + gap;
-        self.icon_cmd(cx + icon / 2.0, cy, icon, KEY_CHIP_INK);
-        cx += icon + gap;
-        self.text_mid(cx, cy, "F", MS, px, KEY_CHIP_INK);
-        w
-    }
-
-    /// A small filled arrow (cursor-diamond glyph) centered on `(cx,cy)`.
+    // -- vector glyphs (chars the embedded fonts lack) -------------------------
+    /// A small filled arrow centered on `(cx,cy)` — cursor marks, ← → hints.
     fn arrow(&mut self, cx: f32, cy: f32, dir: Dir, size: f32, rgb: u32) {
         let h = size / 2.0; // half extent
         // Arrow head triangle + a short stem, in design space.
@@ -589,7 +523,7 @@ impl<'a> Screen<'a> {
     }
 
     /// The macOS control glyph `⌃` (an up chevron), centered on `(cx,cy)`. IBM
-    /// Plex Mono has no glyph for it, so the mac shortcut is drawn from strokes.
+    /// Plex Mono has no glyph for it, so the mac shortcuts are drawn from strokes.
     fn icon_ctrl(&mut self, cx: f32, cy: f32, s: f32, rgb: u32) {
         let (w, h) = (s * 0.40, s * 0.26);
         let t = (s * 0.12).max(0.8);
@@ -610,9 +544,19 @@ impl<'a> Screen<'a> {
             self.round_border(lx - r, ly - r, 2.0 * r, 2.0 * r, r, t, rgb);
         }
     }
+
+    /// The macOS option glyph `⌥` — a slash between two horizontal ticks.
+    fn icon_opt(&mut self, cx: f32, cy: f32, s: f32, rgb: u32) {
+        let (w, h) = (s * 0.42, s * 0.26);
+        let t = (s * 0.11).max(0.8);
+        self.seg((cx - w, cy - h), (cx - s * 0.14, cy - h), t, rgb);
+        self.seg((cx - s * 0.14, cy - h), (cx + s * 0.14, cy + h), t, rgb);
+        self.seg((cx + s * 0.14, cy + h), (cx + w, cy + h), t, rgb);
+        self.seg((cx + s * 0.16, cy - h), (cx + w, cy - h), t, rgb);
+    }
 }
 
-/// Cursor-diamond arrow direction.
+/// Cursor/hint arrow direction.
 #[derive(Clone, Copy)]
 enum Dir {
     Up,
@@ -621,88 +565,113 @@ enum Dir {
     Right,
 }
 
+/// One piece of an inline legend/footer line: styled text, a drawn arrow, or a
+/// drawn macOS modifier glyph.
+enum Seg<'a> {
+    T(&'a str, FontId, u32),
+    A(Dir, u32),
+    MacOpt(u32),
+    MacCtl(u32),
+}
+
 // ===========================================================================
-// Chrome: header, tab bar
+// Composite widgets
 // ===========================================================================
 impl Screen<'_> {
-    fn header(&mut self) {
-        self.text_tracked(PAD_X, 20.0, "TI-99/4A EMULATOR · HELP", SB, 11.0, CYAN, 1.8);
-        self.text_tracked(PAD_X, 36.0, "LIBRE99", SR, 26.0, TITLE, 1.0);
-        // right: CLOSE  [ESC] / [F1] — Esc leads; it is the advertised key.
-        let cy = 50.0;
-        let right = FRAME_W - PAD_X;
-        let esc_w = 44.0;
-        let f1_w = 38.0;
-        let f1_x = right - f1_w;
-        self.chip(f1_x, cy, "F1", f1_w, 28.0, 12.0, true);
-        self.text_right_mid(f1_x - 9.0, cy, "/", MR, 12.0, 0x6c7cab);
-        let esc_x = f1_x - 9.0 - self.text_w(MR, 12.0, "/", 0.0) - 9.0 - esc_w;
-        self.chip(esc_x, cy, "ESC", esc_w, 28.0, 12.0, true);
-        self.text_right_mid(esc_x - 9.0, cy, "CLOSE", MR, 11.0, MUTED);
+    /// A section eyebrow: Plex 700, 10px, tracking 2.6, cyan, uppercase copy.
+    fn eyebrow(&mut self, x: f32, top: f32, s: &str) {
+        self.text_tracked(x, top, s, MB, 10.0, CYAN, 2.6);
     }
 
-    fn tab_bar(&mut self, tab: HelpTab) {
-        let cy = 112.0;
-        let mut x = PAD_X;
-        for &t in &HelpTab::ALL {
-            let active = t == tab;
-            let badge = (t.index() + 1).to_string();
-            // number badge
-            let by = cy - 9.0;
-            self.round_rect(x, by, 18.0, 18.0, 5.0, BADGE_BG);
-            self.round_border(x, by, 18.0, 18.0, 5.0, 1.0, CAP_BORDER);
-            self.text_center(x + 9.0, cy, &badge, MB, 10.0, BADGE_TXT);
-            let label_x = x + 18.0 + 7.0;
-            let color = if active { CYAN } else { TAB_OFF };
-            let label_w = self.text_w(SB, 12.0, t.label(), 1.0);
-            self.text_mid_tracked(label_x, cy, t.label(), SB, 12.0, color, 1.0);
-            let tab_w = 18.0 + 7.0 + label_w;
-            if active {
-                self.box_fill(x - 2.0, 132.0, tab_w + 16.0, 2.0, CYAN);
-            }
-            x += tab_w + 28.0;
-        }
-        // bottom hairline under the whole bar
-        self.rule(0.0, 133.0, FRAME_W, HAIRLINE);
-        self.nav_pill();
-    }
-
-    /// The pinned "TAB cycles · 1–5 jump" navigation hint on the right.
-    fn nav_pill(&mut self) {
-        let cy = 112.0;
-        let h = 34.0;
-        let right = FRAME_W - PAD_X;
-        // measure contents to size the pill
-        let pad = 11.0;
-        let gap = 8.0;
-        let tab_w = (self.text_w(MS, 11.0, "TAB", 0.0) + 18.0).max(0.0);
-        let jump_w = (self.text_w(MS, 11.0, "1–5", 0.0) + 18.0).max(0.0);
-        let cycles_w = self.text_w(MM, 11.0, "cycles", 0.0);
-        let jumpl_w = self.text_w(MM, 11.0, "jump", 0.0);
-        let inner = tab_w + gap + cycles_w + gap + 1.0 + gap + jump_w + gap + jumpl_w;
-        let w = inner + 2.0 * pad;
-        let x = right - w;
+    /// Chip frame: flat fill + 1px border (no gradients, no shadows).
+    fn chip_frame(&mut self, x: f32, cy: f32, w: f32, h: f32, r: f32) {
         let y = cy - h / 2.0;
-        self.round_rect(x, y, w, h, 9.0, NAV_BG);
-        self.round_border(x, y, w, h, 9.0, 1.0, NAV_BORDER);
-        let mut cx = x + pad;
-        cx += self.chip(cx, cy, "TAB", tab_w, 22.0, 11.0, false) + gap;
-        self.text_mid(cx, cy, "cycles", MM, 11.0, BADGE_TXT);
-        cx += cycles_w + gap;
-        self.box_fill(cx, cy - 7.5, 1.0, 15.0, NAV_DIV);
-        cx += 1.0 + gap;
-        cx += self.chip(cx, cy, "1–5", jump_w, 22.0, 11.0, false) + gap;
-        self.text_mid(cx, cy, "jump", MM, 11.0, BADGE_TXT);
+        self.round_rect(x, y, w, h, r, CHIP_BG);
+        self.round_border(x, y, w, h, r, 1.0, CHIP_BORDER);
     }
 
-    // -- shared content helpers ---------------------------------------------
-    /// A Silkscreen section eyebrow/header.
-    fn eyebrow(&mut self, x: f32, top: f32, s: &str, rgb: u32) {
-        self.text_tracked(x, top, s, SB, 11.0, rgb, 1.2);
+    /// A flat text key chip centered vertically on `cy`. Returns its width.
+    fn flat_chip(&mut self, x: f32, cy: f32, label: &str, h: f32, px: f32, r: f32, pad: f32) -> f32 {
+        let w = self.text_w(MS, px, label, 0.0) + 2.0 * pad;
+        self.chip_frame(x, cy, w, h, r);
+        self.text_center(x + w / 2.0, cy, label, MS, px, CHIP_INK);
+        w
+    }
+
+    /// Any [`KeyChip`] — text, `⌘ <letter>`, or `⌃ ⌘ <letter>`. Returns width.
+    fn key_chip(&mut self, x: f32, cy: f32, chip: KeyChip, h: f32, px: f32, r: f32, pad: f32) -> f32 {
+        match chip {
+            KeyChip::Text(s) => self.flat_chip(x, cy, s, h, px, r, pad),
+            KeyChip::MacCtrlCmd(s) => {
+                let icon = px * 0.9;
+                let gap = px * 0.36;
+                let content = icon + gap + icon + gap + self.text_w(MS, px, s, 0.0);
+                let w = content + 2.0 * pad;
+                self.chip_frame(x, cy, w, h, r);
+                let mut cx = x + pad;
+                self.icon_ctrl(cx + icon / 2.0, cy, icon, CHIP_INK);
+                cx += icon + gap;
+                self.icon_cmd(cx + icon / 2.0, cy, icon, CHIP_INK);
+                cx += icon + gap;
+                self.text_mid(cx, cy, s, MS, px, CHIP_INK);
+                w
+            }
+            KeyChip::MacCmd(s) => {
+                let icon = px * 0.9;
+                let gap = px * 0.36;
+                let content = icon + gap + self.text_w(MS, px, s, 0.0);
+                let w = content + 2.0 * pad;
+                self.chip_frame(x, cy, w, h, r);
+                self.icon_cmd(x + pad + icon / 2.0, cy, icon, CHIP_INK);
+                self.text_mid(x + pad + icon + gap, cy, s, MS, px, CHIP_INK);
+                w
+            }
+        }
+    }
+
+    /// A single line of mixed segments centered on `cy`; returns the end x.
+    fn seg_line(&mut self, x: f32, cy: f32, px: f32, segs: &[Seg]) -> f32 {
+        let mut pen = x;
+        for s in segs {
+            match *s {
+                Seg::T(t, id, rgb) => {
+                    self.text_mid(pen, cy, t, id, px, rgb);
+                    pen += self.text_w(id, px, t, 0.0);
+                }
+                Seg::A(dir, rgb) => {
+                    self.arrow(pen + 4.5, cy, dir, 9.0, rgb);
+                    pen += 9.0;
+                }
+                Seg::MacOpt(rgb) => {
+                    self.icon_opt(pen + px * 0.45, cy, px * 0.9, rgb);
+                    pen += px * 0.9;
+                }
+                Seg::MacCtl(rgb) => {
+                    self.icon_ctrl(pen + px * 0.45, cy, px * 0.9, rgb);
+                    pen += px * 0.9;
+                }
+            }
+        }
+        pen
     }
 
     /// A wrapped rich paragraph of colored runs. Returns the bottom y (design).
     fn paragraph(&mut self, x: f32, top: f32, width: f32, runs: &[Run], px: f32, lh: f32) -> f32 {
+        self.paragraph_indent(x, top, width, 0.0, runs, px, lh)
+    }
+
+    /// [`Self::paragraph`] whose first line starts `first_indent` in (for an
+    /// inline chip preceding the copy).
+    fn paragraph_indent(
+        &mut self,
+        x: f32,
+        top: f32,
+        width: f32,
+        first_indent: f32,
+        runs: &[Run],
+        px: f32,
+        lh: f32,
+    ) -> f32 {
         let dpx = self.dpx(px);
         let ascent = self.fonts.ascent(MR, dpx);
         let space_w = self.fonts.measure(MR, dpx, " ");
@@ -717,7 +686,8 @@ impl Screen<'_> {
             }
         }
         let mut line = top;
-        let mut penx = 0.0f32; // device, from line start
+        let mut penx = first_indent * self.scale; // device, from line start
+        let mut first_word = true;
         let mut pending_space = false;
         let mut i = 0;
         while i < chars.len() {
@@ -734,14 +704,15 @@ impl Screen<'_> {
                 word_w += self.fonts.measure(id, dpx, &c.to_string());
                 j += 1;
             }
-            let space = if pending_space && penx > 0.0 { space_w } else { 0.0 };
-            if penx > 0.0 && penx + space + word_w > width_dev {
+            let space = if pending_space && !first_word { space_w } else { 0.0 };
+            if !first_word && penx + space + word_w > width_dev {
                 line += line_h;
                 penx = 0.0;
             } else {
                 penx += space;
             }
             pending_space = false;
+            first_word = false;
             let baseline = self.my(line) + ascent;
             let mut gx = start_dev + penx;
             for &(c, id, rgb) in &chars[i..j] {
@@ -755,360 +726,187 @@ impl Screen<'_> {
 }
 
 // ===========================================================================
-// Tab content
+// Chrome: top bar and footer (shared by every tab)
 // ===========================================================================
 impl Screen<'_> {
-    fn tab_start(&mut self) {
-        let x = CONTENT_X;
-        // lead paragraph
-        let bottom = self.paragraph(
-            x,
-            CONTENT_TOP,
-            720.0,
-            &[(
-                "Launch and you land on the title screen — the console boots Libre99's own firmware, nothing to install. Press any key for the menu, pick a program, and play — your host keyboard already speaks TI.",
-                MR,
-                INKDIM,
-            )],
-            17.0,
-            1.5,
-        );
-        // three concept cards
-        let cards_top = bottom + 18.0;
-        let gap = 14.0;
-        let cw = (CONTENT_W - 2.0 * gap) / 3.0;
-        let ch = 152.0;
-        let bodies: [(&str, u32, &[Run]); 3] = [
-            (
-                "01  JUST TYPE",
-                GREEN,
-                &[("Character mode maps every keystroke to the TI key that makes the same character — QWERTY, Dvorak or AZERTY alike. SHIFT and FCTN combos are pressed for you.", MR, INKDIM)],
-            ),
-            (
-                "02  LOAD ANYTHING",
-                CYAN,
-                &[
-                    ("Nothing is built in — the console boots bare. Press ", MR, INKDIM),
-                    ("F9", MB, INK),
-                    (" and pick any ", MR, INKDIM),
-                    (".ctg", MB, INK),
-                    (" cartridge or ", MR, INKDIM),
-                    (".dsk", MB, INK),
-                    (" disk image with your system's file chooser.", MR, INKDIM),
-                ],
-            ),
-            (
-                "03  KEEP YOUR PLACE",
-                AMBER,
-                &[
-                    ("The resume state auto-saves on quit and reloads on launch. ", MR, INKDIM),
-                    ("F6", MB, INK),
-                    (" saves, ", MR, INKDIM),
-                    ("F8", MB, INK),
-                    (" loads; add ", MR, INKDIM),
-                    ("Shift", MB, INK),
-                    (" for snapshot files.", MR, INKDIM),
-                ],
-            ),
-        ];
-        for (i, (eyebrow, color, body)) in bodies.iter().enumerate() {
-            let cx = x + i as f32 * (cw + gap);
-            self.card(cx, cards_top, cw, ch, PANEL, CARD_BORDER, 13.0);
-            self.eyebrow(cx + 20.0, cards_top + 20.0, eyebrow, *color);
-            self.paragraph(cx + 20.0, cards_top + 44.0, cw - 40.0, body, 13.0, 1.55);
-        }
-        // "five keys to start" strip
-        let strip_top = cards_top + ch + 18.0;
-        let strip_h = 150.0;
-        self.card(x, strip_top, CONTENT_W, strip_h, PANEL_ALT, CARD_BORDER, 13.0);
-        self.text_tracked(x + 22.0, strip_top + 20.0, "FIVE KEYS TO START", SB, 11.0, CYAN, 1.4);
-        let keys = [
-            ("ESC", "Help"),
-            ("F9", "Files"),
-            ("F10", "Pause"),
-            ("F5", "Reset"),
-            ("F11", "Fullscreen"),
-        ];
-        let key_top = strip_top + 56.0;
-        let col_w = (CONTENT_W - 44.0) / keys.len() as f32;
-        for (i, (k, a)) in keys.iter().enumerate() {
-            let col_cx = x + 22.0 + col_w * (i as f32 + 0.5);
-            self.big_keycap(col_cx, key_top, k);
-            self.text_center(col_cx, key_top + 56.0, a, MM, 11.0, MUTED2);
-        }
+    fn top_bar(&mut self, tab: HelpTab) {
+        // wordmark + HELP, baseline-aligned, vertically centered in the bar
+        let bar_cy = TOP_RULE_Y / 2.0;
+        let mark_dpx = self.dpx(15.0);
+        let baseline = self.my(bar_cy) + 0.35 * mark_dpx;
+        let end = self.draw_dev(self.mx(PAD_X), baseline, "LIBRE99", SR, mark_dpx, INK, 0.0);
+        self.draw_dev(end + 11.0 * self.scale, baseline, "HELP", MS, self.dpx(10.0), FAINT, 2.5 * self.scale);
 
-        // the firmware note: what is built in, and the one thing that is not
-        let fw_top = strip_top + strip_h + 18.0;
-        let fw_h = 104.0;
-        self.card(x, fw_top, CONTENT_W, fw_h, PANEL, CARD_BORDER, 13.0);
-        self.eyebrow(x + 22.0, fw_top + 20.0, "THE BUILT-IN FIRMWARE", CYAN);
-        self.paragraph(
-            x + 22.0,
-            fw_top + 44.0,
-            CONTENT_W - 44.0,
-            &[
-                ("The menu's first slot is ", MR, INKDIM),
-                ("TI PYTHON", MB, INK),
-                (", a small built-in language. A user-supplied Extended BASIC cartridge runs as-is. Only TI BASIC itself needs authentic TI console ROMs — boot them with ", MR, INKDIM),
-                ("--system-rom", MB, INK),
-                (" / ", MR, INKDIM),
-                ("--system-grom", MB, INK),
-                (".", MR, INKDIM),
-            ],
-            13.0,
-            1.55,
-        );
-    }
-
-    /// A large gradient keycap centered horizontally on `cx`, top at `top`.
-    fn big_keycap(&mut self, cx: f32, top: f32, label: &str) {
-        let w = 52.0_f32.max(self.text_w(MB, 16.0, label, 0.0) + 26.0);
-        let h = 40.0;
-        let x = cx - w / 2.0;
-        self.round_rect(x, top + 3.0, w, h, 9.0, SHADOW_CHIP);
-        self.round_vgrad(x, top, w, h, 9.0, CAP_TOP, CAP_BIGBOT);
-        self.round_border(x, top, w, h, 9.0, 1.0, CHIP_BORDER);
-        self.text_center(cx, top + h / 2.0, label, MB, 16.0, KEYCAP_INK);
-    }
-
-    fn tab_hotkeys(&mut self) {
-        let x = CONTENT_X;
-        let bottom = self.paragraph(
-            x,
-            CONTENT_TOP,
-            720.0,
-            &[("These drive the emulator itself, not the TI. They are ignored while an overlay is open — except the keys that close it.", MR, 0xa9b5de)],
-            14.0,
-            1.5,
-        );
-        let groups: [(&str, &[(&str, &str)]); 6] = [
-            ("OVERLAYS", &[("Esc / F1", "Help (this screen)"), (cmd_label::INSPECTOR, "CPU inspector")]),
-            ("MEDIA", &[("F9", "Mount media (file dialog)"), ("F2 / F3", "Eject cart / eject DSK1"), ("F4", "Disk memory (export/unload)")]),
-            ("PLAYBACK", &[("F10", "Pause / resume"), ("F12", "Frame advance"), ("Tab", "Fast-forward (hold)")]),
-            ("CONSOLE", &[("F5", "Reset console"), ("F7", "Toggle key layout"), (cmd_label::QUIT, "Quit (auto-saves)")]),
-            ("STATE", &[("F6 / F8", "Save / load the resume state"), ("Shift+F6/F8", "Save / load a snapshot file"), ("Shift+F5", "Fresh start (deletes resume state)")]),
-            ("DISPLAY & TOOLS", &[("F11", "Fullscreen"), ("⌃⌘F", "Fullscreen (macOS)"), (cmd_label::SCREENSHOT, "Screenshot PNG")]),
-        ];
-        let top = bottom + 16.0;
-        let gap = 13.0;
-        let cw = (CONTENT_W - 2.0 * gap) / 3.0;
-        let ch = 156.0; // header + up to three rows, sized to content
-        for (i, (title, items)) in groups.iter().enumerate() {
-            let col = i % 3;
-            let row = i / 3;
-            let cx = x + col as f32 * (cw + gap);
-            let cy = top + row as f32 * (ch + gap);
-            self.card(cx, cy, cw, ch, PANEL, CARD_BORDER, 13.0);
-            self.eyebrow(cx + 18.0, cy + 16.0, title, CYAN);
-            let mut ry = cy + 44.0;
-            for (k, a) in items.iter() {
-                // The macOS fullscreen combo needs vector ⌃⌘ glyphs (no font glyph).
-                let chip_w = if *k == "⌃⌘F" {
-                    self.mac_chip(cx + 18.0, ry + 13.0)
-                } else {
-                    self.chip(cx + 18.0, ry + 13.0, k, 36.0, 26.0, 11.0, true)
-                };
-                self.text_mid(cx + 18.0 + chip_w + 11.0, ry + 13.0, a, MR, 12.0, INKDIM2);
-                self.rule(cx + 18.0, ry + 30.0, cw - 36.0, DIV);
-                ry += 38.0;
+        // tab list, right-aligned: `number + label`, 24px between tabs
+        let widths: Vec<(f32, f32)> = HelpTab::ALL
+            .iter()
+            .map(|t| {
+                let nw = self.text_w(MR, 10.0, "0", 0.0);
+                let lw = self.text_w(MS, 11.0, t.label(), 1.5);
+                (nw, nw + 6.0 + lw)
+            })
+            .collect();
+        let total: f32 = widths.iter().map(|(_, w)| *w).sum::<f32>() + 24.0 * (HelpTab::ALL.len() - 1) as f32;
+        let mut x = RIGHT_X - total;
+        for (i, t) in HelpTab::ALL.iter().enumerate() {
+            let (nw, tw) = widths[i];
+            let active = *t == tab;
+            let num = (i + 1).to_string();
+            self.text_mid(x, bar_cy, &num, MR, 10.0, TAB_NUM);
+            let color = if active { CYAN } else { MUTED };
+            self.text_mid_tracked(x + nw + 6.0, bar_cy, t.label(), MS, 11.0, color, 1.5);
+            if active {
+                // the 2px accent underline sits on the bar's bottom rule
+                self.box_fill(x, TOP_RULE_Y - 2.0, tw, 2.0, CYAN);
             }
+            x += tw + 24.0;
         }
+        self.rule(0.0, TOP_RULE_Y, FRAME_W, RULE);
     }
 
-    fn tab_media(&mut self) {
-        let x = CONTENT_X;
-        let gap = 14.0;
-        let cw = (CONTENT_W - gap) / 2.0;
-        let top = CONTENT_TOP;
-        // Upper two-column area sized to content, then the full-width save-state
-        // bar; both top-aligned (the design doesn't stretch cards to fill).
-        let upper_h = 290.0;
-        let bar_top = top + upper_h + 16.0;
-        let bar_h = 140.0;
-
-        // left: mounting media
-        self.card(x, top, cw, upper_h, PANEL, CARD_BORDER, 13.0);
-        self.eyebrow(x + 18.0, top + 16.0, "MOUNTING MEDIA — F9", CYAN);
-        let pb = self.paragraph(
-            x + 18.0,
-            top + 38.0,
-            cw - 36.0,
-            &[("F9 opens your system's file chooser. Pick any .ctg cartridge or .dsk disk image — the extension decides the port. A disk slots into the running machine live, like a real floppy; a cartridge reboots the console (it scans cartridge ROM at power-up).", MR, 0xa9b5de)],
-            12.0,
-            1.5,
-        );
-        let browser = [
-            ("F9", "Mount media (disk: live, cart: reboot)"),
-            ("F2 / F3", "Eject cartridge (reboot) / DSK1 (live)"),
-            ("F4", "Disk memory: export / unload images"),
-        ];
-        let mut ry = pb + 6.0;
-        for (k, a) in browser.iter() {
-            self.chip(x + 18.0, ry + 13.0, k, 88.0, 26.0, 11.0, false);
-            self.text_mid(x + 18.0 + 88.0 + 11.0, ry + 13.0, a, MR, 12.0, INKDIM2);
-            self.rule(x + 18.0, ry + 30.0, cw - 36.0, DIV);
-            ry += 38.0;
-        }
-
-        // right column: bare console + screenshots
-        let rx = x + cw + gap;
-        let qh = upper_h * 0.5 - 7.0;
-        self.card(rx, top, cw, qh, PANEL, CARD_BORDER, 13.0);
-        self.eyebrow(rx + 18.0, top + 16.0, "NOTHING EMBEDDED", CYAN);
-        self.paragraph(
-            rx + 18.0,
-            top + 38.0,
-            cw - 36.0,
-            &[("The binary carries no cartridge or disk images — the console boots bare until you mount something. Your .dsk files are never written: disk writes stay in memory (a * in the title marks unexported changes) until you export them with F4.", MR, 0xa9b5de)],
-            12.0,
-            1.5,
-        );
-        let sh_top = top + qh + 14.0;
-        let sh_h = upper_h - qh - 14.0;
-        self.card(rx, sh_top, cw, sh_h, PANEL_ALT, ACCENT_BORDER, 13.0);
-        self.eyebrow(rx + 18.0, sh_top + 16.0, "SCREENSHOTS", GREEN);
-        self.paragraph(
-            rx + 18.0,
-            sh_top + 38.0,
-            cw - 36.0,
-            &[(cmd_label::SCREENSHOT_HYPHEN, MB, INK), (" saves a clean 256×192 PNG (no HUD) to your data folder.", MR, INKDIM)],
-            12.0,
-            1.5,
-        );
-        self.code_line(rx + 18.0, sh_top + sh_h - 34.0, cw - 36.0, "~/.libre99/screenshots/");
-
-        // bottom: save states — resume state & snapshots (accent, full width)
-        self.card(x, bar_top, CONTENT_W, bar_h, PANEL_ALT, ACCENT_BORDER, 13.0);
-        self.eyebrow(x + 20.0, bar_top + 16.0, "SAVE STATES — RESUME & SNAPSHOTS", GREEN);
-        self.paragraph(
-            x + 20.0,
-            bar_top + 38.0,
-            CONTENT_W - 40.0,
+    /// The footer: navigation hints left, a per-tab note right.
+    fn footer(&mut self, right_note: &str) {
+        self.rule(0.0, FOOT_RULE_Y, FRAME_W, RULE);
+        self.seg_line(
+            PAD_X,
+            FOOT_CY,
+            11.0,
             &[
-                ("A save state is the whole machine — RAM, VRAM, GROM, cartridge ROM and every in-memory disk (written sectors and ejected disks included) — in one portable .ti99 file. The ", MR, INKDIM),
-                ("resume state", MB, INK),
-                (" auto-saves on quit and reloads on launch; ", MR, INKDIM),
-                ("F6", MB, INK),
-                (" / ", MR, INKDIM),
-                ("F8", MB, INK),
-                (" save / load it any time. ", MR, INKDIM),
-                ("Shift+F6", MB, INK),
-                (" / ", MR, INKDIM),
-                ("Shift+F8", MB, INK),
-                (" save / load named snapshot files — loading one replaces the resume state. ", MR, INKDIM),
-                ("Shift+F5", MB, INK),
-                (" deletes the resume state for a fresh start (with a warning).", MR, INKDIM),
+                Seg::T("ESC", MS, BRIGHT),
+                Seg::T(" close  ·  ", MR, FAINT),
+                Seg::T("TAB", MS, BRIGHT),
+                Seg::T(" or ", MR, FAINT),
+                Seg::A(Dir::Left, BRIGHT),
+                Seg::T(" ", MR, FAINT),
+                Seg::A(Dir::Right, BRIGHT),
+                Seg::T(" cycle  ·  ", MR, FAINT),
+                Seg::T("1–4", MS, BRIGHT),
+                Seg::T(" jump", MR, FAINT),
             ],
-            12.0,
-            1.55,
         );
-        self.code_line(x + 20.0, bar_top + bar_h - 32.0, 320.0, "~/.libre99/resume.ti99");
-    }
-
-    /// A monospaced code/path chip on a dark background.
-    fn code_line(&mut self, x: f32, y: f32, w: f32, s: &str) {
-        let h = 24.0;
-        self.round_rect(x, y, w, h, 7.0, CODE_BG);
-        self.round_border(x, y, w, h, 7.0, 1.0, DIV2);
-        self.text_mid(x + 10.0, y + h / 2.0, s, MM, 11.0, CODE_GREEN);
-    }
-
-    fn tab_settings(&mut self) {
-        let x = CONTENT_X;
-        let top = CONTENT_TOP;
-        // command line card (full width)
-        let cli = [
-            ("--cartridge <path>", "Mount a .ctg cartridge image (e.g. libre99asm output)"),
-            ("--disk <path>", "Insert a .dsk disk image into DSK1"),
-            ("--system-rom <path>", "Boot a console ROM in place of the clean-room default"),
-            ("--system-grom <path>", "Boot a system GROM in place of the clean-room default"),
-            ("--disk-dsr <path>", "Install a disk DSR ROM in place of the clean-room default"),
-            ("--scale <n>", "Integer window scale, 1–8"),
-            ("--fullscreen", "Start fullscreen"),
-            ("--log-level <lvl>", "error / warn / info / debug / trace"),
-            ("--version, -V", "Print the version and exit"),
-            ("--help, -h", "Print usage and exit"),
-        ];
-        let cli_h = 264.0;
-        self.card(x, top, CONTENT_W, cli_h, PANEL, CARD_BORDER, 13.0);
-        self.eyebrow(x + 18.0, top + 16.0, "COMMAND LINE", CYAN);
-        let mut ry = top + 42.0;
-        let row_h = (cli_h - 56.0) / cli.len() as f32;
-        for (f, e) in cli.iter() {
-            self.text_mid(x + 18.0, ry + row_h / 2.0, f, MS, 12.0, AMBER);
-            self.text_mid(x + 218.0, ry + row_h / 2.0, e, MR, 12.0, INKDIM2);
-            self.rule(x + 18.0, ry + row_h, CONTENT_W - 36.0, DIV);
-            ry += row_h;
-        }
-        // preferences (1.5fr) + where files live (1fr)
-        let lower_top = top + cli_h + 14.0;
-        let lower_h = CONTENT_BOTTOM - lower_top;
-        let gap = 14.0;
-        let pw = (CONTENT_W - gap) / 2.5 * 1.5;
-        let fw = CONTENT_W - gap - pw;
-        self.card(x, lower_top, pw, lower_h, PANEL, CARD_BORDER, 13.0);
-        self.eyebrow(x + 18.0, lower_top + 16.0, "PREFERENCES — TOML", CYAN);
-        self.text(x + 18.0, lower_top + 36.0, "~/.libre99/libre99.toml", MR, 11.0, MUTEDF);
-        let prefs = [
-            ("last_cartridge", "\"…\"", "auto-written: resumed cartridge path"),
-            ("last_disk", "\"…\"", "auto-written: resumed DSK1 path"),
-            ("browser_dir", "\"…\"", "auto-written: where the F9 chooser opens"),
-            ("window_scale", "3", "upscale of 256×192 (1–8)"),
-            ("fullscreen", "false", "start fullscreen"),
-            ("audio_enabled", "true", "enable audio output"),
-            ("audio_volume", "0.8", "output volume 0.0–1.0"),
-            ("key_layout", "\"character\"", "character or positional"),
-            ("log_level", "\"info\"", "verbosity error…trace"),
-            ("defeat_screen_blank", "false", "hold off the ~9-min idle blank"),
-        ];
-        let mut py = lower_top + 56.0;
-        let prow = (lower_h - 70.0) / prefs.len() as f32;
-        for (k, v, d) in prefs.iter() {
-            self.text_mid(x + 18.0, py + prow / 2.0, k, MS, 12.0, INK);
-            self.text_mid(x + 156.0, py + prow / 2.0, v, MS, 12.0, CODE_GREEN);
-            self.text_mid(x + 240.0, py + prow / 2.0, d, MR, 11.0, MUTED2);
-            self.rule(x + 18.0, py + prow, pw - 36.0, DIV);
-            py += prow;
-        }
-        // where files live
-        let fx = x + pw + gap;
-        self.card(fx, lower_top, fw, lower_h, PANEL_ALT, CARD_BORDER, 13.0);
-        self.eyebrow(fx + 18.0, lower_top + 16.0, "WHERE FILES LIVE", CYAN);
-        self.text(fx + 18.0, lower_top + 38.0, "~/.libre99/", MS, 12.0, CODE_GREEN);
-        let files = [
-            ("libre99.toml", "preferences (commented)"),
-            ("libre99.log", "run log (appended)"),
-            ("resume.ti99", "the resume state (auto-save)"),
-            ("screenshots/", cmd_label::SCREENSHOT_PNGS),
-        ];
-        let mut fy = lower_top + 60.0;
-        let frow = (lower_h - 74.0) / files.len() as f32;
-        for (p, d) in files.iter() {
-            self.box_fill(fx + 22.0, fy + 2.0, 1.0, frow - 4.0, NAV_DIV);
-            self.text(fx + 36.0, fy + 4.0, p, MS, 12.0, 0xdfeaff);
-            self.text(fx + 36.0, fy + 20.0, d, MR, 11.0, MUTED);
-            fy += frow;
+        if !right_note.is_empty() {
+            self.text_right_mid(RIGHT_X, FOOT_CY, right_note, MR, 11.0, FAINT);
         }
     }
 }
 
-// ---- keyboard tab ----------------------------------------------------------
-/// A keycap's central legend / corner marks.
+// ===========================================================================
+// 1 · START
+// ===========================================================================
+impl Screen<'_> {
+    fn tab_start(&mut self) {
+        let x = CONTENT_X;
+        // H1, two lines, 30px/1.3
+        self.text_tracked(x, 104.0, "Libre99 emulates the TI-99/4A", MM, 30.0, INK, -0.5);
+        self.text_tracked(x, 143.0, "and boots its own firmware.", MM, 30.0, INK, -0.5);
+        self.paragraph(
+            x,
+            196.0,
+            660.0,
+            &[(
+                "No ROMs to find, nothing to install. Press any key at the title screen to begin.",
+                MR,
+                MUTED,
+            )],
+            14.0,
+            1.6,
+        );
+
+        // three ruled columns
+        let col_w = (CONTENT_W - 2.0 * 38.0) / 3.0; // 284
+        let cols_top = 285.0;
+        let titles = ["Open source", "Load anything", "Keep your place"];
+        for (i, title) in titles.iter().enumerate() {
+            let cx = x + i as f32 * (col_w + 38.0);
+            self.rule(cx, cols_top, col_w, CHIP_BORDER);
+            self.text(cx, cols_top + 16.0, title, MS, 14.0, INK);
+        }
+        let body_top = cols_top + 37.0;
+        self.paragraph(
+            x,
+            body_top,
+            col_w,
+            &[(
+                "The emulator and its built-in firmware ROMs are all open source. Nothing proprietary is required.",
+                MR,
+                MUTED,
+            )],
+            12.5,
+            1.6,
+        );
+        let c2 = x + col_w + 38.0;
+        let chip_w = self.flat_chip(c2, body_top + 9.0, "F9", 19.0, 10.5, 4.0, 6.0);
+        self.paragraph_indent(
+            c2,
+            body_top,
+            col_w,
+            chip_w + 5.0,
+            &[(
+                "opens the file chooser. Mount .ctg cartridges and .dsk floppies from anywhere on disk.",
+                MR,
+                MUTED,
+            )],
+            12.5,
+            1.6,
+        );
+        self.paragraph(
+            c2 + col_w + 38.0,
+            body_top,
+            col_w,
+            &[(
+                "Quit any time — a resume state saves automatically and next launch picks up exactly where you left off.",
+                MR,
+                MUTED,
+            )],
+            12.5,
+            1.6,
+        );
+
+        // five keys to start, anchored toward the bottom
+        self.eyebrow(x, 554.0, "FIVE KEYS TO START");
+        let keys: [(KeyChip, &str); 5] = [
+            (KeyChip::Text("ESC"), "this help"),
+            (KeyChip::Text("F9"), "mount media"),
+            (KeyChip::Text("F4"), "export disk"),
+            (FULLSCREEN_CHIP, "fullscreen"),
+            (QUIT_CHIP, "quit — state saved"),
+        ];
+        let mut kx = x;
+        for (chip, label) in keys {
+            let cw = self.key_chip(kx, 596.0, chip, 32.0, 14.0, 6.0, 13.0);
+            self.text(kx, 620.0, label, MR, 11.0, MUTED);
+            kx += cw.max(self.text_w(MR, 11.0, label, 0.0)) + 30.0;
+        }
+        self.paragraph(
+            x,
+            668.0,
+            740.0,
+            &[(
+                "The firmware is Libre99's own clean-room implementation. No original TI software is embedded.",
+                MR,
+                FAINT,
+            )],
+            12.0,
+            1.65,
+        );
+    }
+}
+
+// ===========================================================================
+// 2 · KEYBOARD
+// ===========================================================================
+
+/// A keycap's legends.
 enum Cap {
-    /// A character key: big glyph, optional amber SHIFT mark above, optional
-    /// green FCTN mark below.
+    /// A character key: main legend top-left, optional amber SHIFT legend
+    /// top-right, optional green FCTN legend bottom-left.
     Glyph {
         main: &'static str,
         shift: Option<&'static str>,
         fctn: Option<Mark>,
     },
-    /// A wide modifier/word key (ENTER, SHIFT, SPACE BAR, …) drawn in Silkscreen,
-    /// with an optional small sub-label (e.g. `=L-CTRL`).
-    Word {
-        text: &'static str,
-        sub: Option<&'static str>,
-        px: f32,
-    },
+    /// A word key (ENTER, SHIFT, SPACE, …) — centered Silkscreen.
+    Word(&'static str),
 }
 
 enum Mark {
@@ -1116,198 +914,337 @@ enum Mark {
     Arrow(Dir),
 }
 
-fn g(main: &'static str, shift: Option<&'static str>, fctn: Option<Mark>) -> (f32, Cap) {
-    (1.0, Cap::Glyph { main, shift, fctn })
+/// One key in a row: design width and legends (all keycaps are 56 tall).
+struct Key {
+    w: f32,
+    cap: Cap,
+}
+
+fn g(main: &'static str, shift: Option<&'static str>, fctn: Option<Mark>) -> Key {
+    Key { w: 72.0, cap: Cap::Glyph { main, shift, fctn } }
+}
+
+fn word(text: &'static str, w: f32) -> Key {
+    Key { w, cap: Cap::Word(text) }
 }
 
 impl Screen<'_> {
     fn tab_keyboard(&mut self) {
         let x = CONTENT_X;
-        let card_top = CONTENT_TOP;
-        let card_h = 332.0;
-        self.card(x, card_top, CONTENT_W, card_h, PANEL_ALT, CARD_BORDER, 14.0);
+        // title row, right note baseline-aligned with the H2
+        self.text_tracked(x, 92.0, "The TI-99/4A keyboard", MM, 22.0, INK, -0.3);
+        let note = "your host keyboard already speaks TI";
+        let h2_baseline = self.my(92.0) + self.fonts.ascent(MM, self.dpx(22.0));
+        let note_w = self.text_w(MR, 12.0, note, 0.0);
+        self.draw_dev(self.mx(RIGHT_X - note_w), h2_baseline, note, MR, self.dpx(12.0), MUTED, 0.0);
 
-        let inner_x = x + 16.0;
-        let inner_w = CONTENT_W - 32.0;
-        // legend row
-        self.text_tracked(inner_x, card_top + 14.0, "TI-99/4A KEYBOARD MAP", SB, 11.0, CYAN, 1.3);
-        // right legend swatches
-        let lg_cy = card_top + 20.0;
-        let amber_lbl = "SHIFT symbol";
-        let aw = self.text_w(MM, 11.0, amber_lbl, 0.0);
-        let ax = x + CONTENT_W - 16.0 - aw;
-        self.round_rect(ax - 16.0, lg_cy - 5.0, 10.0, 10.0, 3.0, AMBER);
-        self.text_mid(ax, lg_cy, amber_lbl, MM, 11.0, MUTED2);
-        let green_lbl = "FCTN function";
-        let gw = self.text_w(MM, 11.0, green_lbl, 0.0);
-        let gx2 = ax - 16.0 - 15.0 - gw;
-        self.round_rect(gx2 - 16.0, lg_cy - 5.0, 10.0, 10.0, 3.0, GREEN);
-        self.text_mid(gx2, lg_cy, green_lbl, MM, 11.0, MUTED2);
-
-        // FCTN edit-function strip aligned to the 11 number-key columns
-        let keys_top = card_top + 51.0;
-        let strip = ["DEL", "INS", "ERASE", "CLEAR", "BEGIN", "PROC'D", "AID", "REDO", "BACK", "", "QUIT"];
-        let gap = 6.0;
-        let unit = (inner_w - 10.0 * gap) / 11.0;
-        for (i, label) in strip.iter().enumerate() {
-            if label.is_empty() {
-                continue;
-            }
-            let cxx = inner_x + i as f32 * (unit + gap) + unit / 2.0;
-            self.text_center(cxx, card_top + 42.0, label, MB, 9.0, GREEN);
-        }
-
-        // rows
+        // the map: keycaps 72×56, 8px gaps, 8px row gaps
+        // Every SHIFT/FCTN legend below is the authoritative set from
+        // docs/USER-GUIDE.md — verify against the guide when it changes.
         let up = || Some(Mark::Arrow(Dir::Up));
         let dn = || Some(Mark::Arrow(Dir::Down));
         let lf = || Some(Mark::Arrow(Dir::Left));
         let rt = || Some(Mark::Arrow(Dir::Right));
-        let num: Vec<(f32, Cap)> = vec![
-            g("1", Some("!"), None), g("2", Some("@"), None), g("3", Some("#"), None),
-            g("4", Some("$"), None), g("5", Some("%"), None), g("6", Some("^"), None),
-            g("7", Some("&"), None), g("8", Some("*"), None), g("9", Some("("), None),
-            g("0", Some(")"), None), g("=", Some("+"), None),
+        let t = |s: &'static str| Some(Mark::Txt(s));
+        let rows: [(f32, Vec<Key>); 5] = [
+            (0.0, vec![
+                g("1", Some("!"), t("DEL")), g("2", Some("@"), t("INS")), g("3", Some("#"), t("ERASE")),
+                g("4", Some("$"), t("CLEAR")), g("5", Some("%"), t("BEGIN")), g("6", Some("^"), t("PROC'D")),
+                g("7", Some("&"), t("AID")), g("8", Some("*"), t("REDO")), g("9", Some("("), t("BACK")),
+                g("0", Some(")"), None), g("=", Some("+"), t("QUIT")),
+            ]),
+            (30.0, vec![
+                g("Q", None, None), g("W", None, t("~")), g("E", None, up()),
+                g("R", None, t("[")), g("T", None, t("]")), g("Y", None, None),
+                g("U", None, t("_")), g("I", None, t("?")), g("O", None, t("'")),
+                g("P", None, t("\"")), g("/", Some("-"), None),
+            ]),
+            (44.0, vec![
+                g("A", None, t("|")), g("S", None, lf()), g("D", None, rt()),
+                g("F", None, t("{")), g("G", None, t("}")), g("H", None, None),
+                g("J", None, None), g("K", None, None), g("L", None, None),
+                g(";", Some(":"), None), word("ENTER", 72.0),
+            ]),
+            (14.0, vec![
+                word("SHIFT", 72.0), g("Z", None, t("\\")), g("X", None, dn()),
+                g("C", None, t("`")), g("V", None, None), g("B", None, None),
+                g("N", None, None), g("M", None, None), g(",", Some("<"), None),
+                g(".", Some(">"), None), word("SHIFT", 72.0),
+            ]),
+            (75.0, vec![
+                word("ALPHA LOCK", 126.0), word("CTRL", 94.0), word("SPACE", 428.0), word("FCTN", 94.0),
+            ]),
         ];
-        let qwer: Vec<(f32, Cap)> = vec![
-            g("Q", None, None), g("W", None, Some(Mark::Txt("~"))), g("E", None, up()),
-            g("R", None, Some(Mark::Txt("["))), g("T", None, Some(Mark::Txt("]"))), g("Y", None, None),
-            g("U", None, Some(Mark::Txt("_"))), g("I", None, Some(Mark::Txt("?"))), g("O", None, Some(Mark::Txt("'"))),
-            g("P", None, Some(Mark::Txt("\""))), g("/", Some("-"), None),
-        ];
-        let asdf: Vec<(f32, Cap)> = vec![
-            g("A", None, Some(Mark::Txt("|"))), g("S", None, lf()), g("D", None, rt()),
-            g("F", None, Some(Mark::Txt("{"))), g("G", None, Some(Mark::Txt("}"))), g("H", None, None),
-            g("J", None, None), g("K", None, None), g("L", None, None), g(";", Some(":"), None),
-            (1.9, Cap::Word { text: "ENTER", sub: None, px: 12.0 }),
-        ];
-        let zxcv: Vec<(f32, Cap)> = vec![
-            (1.9, Cap::Word { text: "SHIFT", sub: None, px: 12.0 }),
-            g("Z", None, Some(Mark::Txt("\\"))), g("X", None, dn()), g("C", None, Some(Mark::Txt("`"))),
-            g("V", None, None), g("B", None, None), g("N", None, None), g("M", None, None),
-            g(",", Some("<"), None), g(".", Some(">"), None),
-            (1.9, Cap::Word { text: "SHIFT", sub: None, px: 12.0 }),
-        ];
-        let modr: Vec<(f32, Cap)> = vec![
-            (1.7, Cap::Word { text: "ALPHA LOCK", sub: None, px: 11.0 }),
-            (1.3, Cap::Word { text: "CTRL", sub: Some("=L-CTRL"), px: 13.0 }),
-            (1.3, Cap::Word { text: "FCTN", sub: Some("=L-ALT"), px: 13.0 }),
-            (6.0, Cap::Word { text: "SPACE BAR", sub: None, px: 12.0 }),
-        ];
-
-        let row_h = 50.0;
-        self.key_row(inner_x, inner_w, keys_top, row_h, 0.0, &num);
-        self.key_row(inner_x, inner_w, keys_top + 56.0, row_h, 0.5, &qwer);
-        self.key_row(inner_x, inner_w, keys_top + 112.0, row_h, 0.9, &asdf);
-        self.key_row(inner_x, inner_w, keys_top + 168.0, row_h, 0.0, &zxcv);
-        self.key_row(inner_x, inner_w, keys_top + 224.0, 42.0, 0.0, &modr);
-
-        // three support cards
-        let sup_top = card_top + card_h + 14.0;
-        let sup_h = CONTENT_BOTTOM - sup_top;
-        let sgap = 14.0;
-        let scw = (CONTENT_W - 2.0 * sgap) / 3.0;
-
-        // typing modes
-        self.card(x, sup_top, scw, sup_h, PANEL, CARD_BORDER, 13.0);
-        self.eyebrow(x + 16.0, sup_top + 16.0, "TYPING MODES", CYAN);
-        self.text(x + 16.0, sup_top + 40.0, "Character", MS, 12.0, INK);
-        let chw = self.text_w(MS, 12.0, "Character ", 0.0);
-        self.text(x + 16.0 + chw, sup_top + 40.0, "(default)", MS, 12.0, GREEN);
-        self.text(x + 16.0, sup_top + 56.0, "Type normally; combos synthesized for you.", MR, 12.0, 0xa9b5de);
-        self.text(x + 16.0, sup_top + 80.0, "Positional", MS, 12.0, INK);
-        self.text(x + 16.0, sup_top + 96.0, "Maps by physical key position. Best for games.", MR, 12.0, 0xa9b5de);
-        self.rule(x + 16.0, sup_top + sup_h - 36.0, scw - 32.0, DIV2);
-        let chip_w = self.chip(x + 16.0, sup_top + sup_h - 18.0, "F7", 32.0, 26.0, 12.0, false);
-        self.text_mid(x + 16.0 + chip_w + 9.0, sup_top + sup_h - 18.0, "toggle modes", MR, 12.0, 0xa9b5de);
-
-        // modifier keys
-        let mx2 = x + scw + sgap;
-        self.card(mx2, sup_top, scw, sup_h, PANEL, CARD_BORDER, 13.0);
-        self.eyebrow(mx2 + 16.0, sup_top + 16.0, "MODIFIER KEYS", CYAN);
-        let mods = [("SHIFT", "Left Shift"), ("CTRL", "Left Ctrl"), ("FCTN", "Left Alt / Option")];
-        let mut my2 = sup_top + 40.0;
-        for (k, a) in mods {
-            self.text_mid(mx2 + 16.0, my2 + 11.0, k, MS, 12.0, INK);
-            self.text_right_mid(mx2 + scw - 16.0, my2 + 11.0, a, MR, 12.0, 0xa9b5de);
-            self.rule(mx2 + 16.0, my2 + 26.0, scw - 32.0, DIV2);
-            my2 += 33.0;
+        let mut y = 146.0;
+        for (indent, keys) in &rows {
+            let mut kx = x + indent;
+            for key in keys {
+                self.keycap(kx, y, key.w, &key.cap);
+                kx += key.w + 8.0;
+            }
+            y += 64.0;
         }
 
-        // cursor & joystick
-        let cx3 = x + 2.0 * (scw + sgap);
-        self.card(cx3, sup_top, scw, sup_h, PANEL, CARD_BORDER, 13.0);
-        self.eyebrow(cx3 + 16.0, sup_top + 16.0, "CURSOR & JOYSTICK", GREEN);
-        let cj = [
-            ("FCTN E/S/D/X", "TI cursor diamond"),
-            ("Arrows", "Joystick 1 move"),
-            ("R-Alt", "Joystick 1 fire"),
-        ];
-        let mut cy3 = sup_top + 40.0;
-        for (k, a) in cj {
-            self.text_mid(cx3 + 16.0, cy3 + 11.0, k, MS, 12.0, INK);
-            self.text_right_mid(cx3 + scw - 16.0, cy3 + 11.0, a, MR, 12.0, 0xa9b5de);
-            self.rule(cx3 + 16.0, cy3 + 26.0, scw - 32.0, DIV2);
-            cy3 += 31.0;
-        }
-        self.text(cx3 + 16.0, cy3 + 6.0, "Arrows drive the joystick — not", MR, 11.0, MUTEDF);
-        self.text(cx3 + 16.0, cy3 + 20.0, "the TI cursor.", MR, 11.0, MUTEDF);
+        // legend strip anchored above the footer
+        self.rule(x, 657.0, CONTENT_W, RULE);
+        let cy = 683.0;
+        let mut lx = x;
+        self.round_rect(lx, cy - 4.5, 9.0, 9.0, 2.0, AMBER);
+        lx = self.seg_line(lx + 17.0, cy, 12.0, &[Seg::T("SHIFT symbol", MR, MUTED)]) + 34.0;
+        self.round_rect(lx, cy - 4.5, 9.0, 9.0, 2.0, GREEN);
+        lx = self.seg_line(lx + 17.0, cy, 12.0, &[Seg::T("FCTN function", MR, MUTED)]) + 34.0;
+        // host-modifier mapping (per docs/USER-GUIDE.md: Left Alt/Option, Left Ctrl)
+        lx = if IS_MAC {
+            self.seg_line(
+                lx,
+                cy,
+                12.0,
+                &[
+                    Seg::T("FCTN", MS, BRIGHT),
+                    Seg::T(" ", MR, MUTED),
+                    Seg::A(Dir::Right, MUTED),
+                    Seg::T(" ", MR, MUTED),
+                    Seg::MacOpt(MUTED),
+                    Seg::T(" Option · ", MR, MUTED),
+                    Seg::T("CTRL", MS, BRIGHT),
+                    Seg::T(" ", MR, MUTED),
+                    Seg::A(Dir::Right, MUTED),
+                    Seg::T(" ", MR, MUTED),
+                    Seg::MacCtl(MUTED),
+                    Seg::T(" Control", MR, MUTED),
+                ],
+            )
+        } else {
+            self.seg_line(
+                lx,
+                cy,
+                12.0,
+                &[
+                    Seg::T("FCTN", MS, BRIGHT),
+                    Seg::T(" ", MR, MUTED),
+                    Seg::A(Dir::Right, MUTED),
+                    Seg::T(" Left Alt · ", MR, MUTED),
+                    Seg::T("CTRL", MS, BRIGHT),
+                    Seg::T(" ", MR, MUTED),
+                    Seg::A(Dir::Right, MUTED),
+                    Seg::T(" Left Ctrl", MR, MUTED),
+                ],
+            )
+        } + 34.0;
+        self.seg_line(
+            lx,
+            cy,
+            12.0,
+            &[
+                Seg::T("FCTN", MS, BRIGHT),
+                Seg::T(" + E S D X ", MR, MUTED),
+                Seg::A(Dir::Right, MUTED),
+                Seg::T(" TI cursor · arrows ", MR, MUTED),
+                Seg::A(Dir::Right, MUTED),
+                Seg::T(" joystick 1", MR, MUTED),
+            ],
+        );
     }
 
-    /// Lay out one keyboard row with an optional leading spacer (in key units).
-    fn key_row(&mut self, x: f32, w: f32, y: f32, h: f32, lead: f32, caps: &[(f32, Cap)]) {
-        let total_units: f32 = lead + caps.iter().map(|(u, _)| *u).sum::<f32>();
-        let gaps = caps.len() as f32 - 1.0 + if lead > 0.0 { 1.0 } else { 0.0 };
-        let gap = 6.0;
-        let unit = (w - gaps * gap) / total_units;
-        let mut cx = x;
-        if lead > 0.0 {
-            cx += lead * unit + gap;
-        }
-        for (units, cap) in caps {
-            let cw = units * unit;
-            self.keycap(cx, y, cw, h, cap);
-            cx += cw + gap;
-        }
-    }
-
-    fn keycap(&mut self, x: f32, y: f32, w: f32, h: f32, cap: &Cap) {
+    /// One keycap: vertical gradient face, 1px border, corner legends.
+    fn keycap(&mut self, x: f32, y: f32, w: f32, cap: &Cap) {
+        let h = 56.0;
+        self.round_vgrad(x, y, w, h, 7.0, CAP_TOP, CAP_BOT);
+        self.round_border(x, y, w, h, 7.0, 1.0, CAP_BORDER);
         match cap {
             Cap::Glyph { main, shift, fctn } => {
-                self.round_rect(x, y + 2.0, w, h, 7.0, SHADOW_CAP);
-                self.round_vgrad(x, y, w, h, 7.0, CAP_TOP, CAP_BOT);
-                self.round_border(x, y, w, h, 7.0, 1.0, CAP_BORDER);
-                self.text_center(x + w / 2.0, y + h / 2.0, main, MB, 18.0, KEYCAP_INK);
+                self.text(x + 9.0, y + 6.0, main, MS, 16.0, INK);
                 if let Some(s) = shift {
-                    self.text_center(x + w / 2.0, y + 11.0, s, MB, 12.0, AMBER);
+                    let sw = self.text_w(MS, 10.0, s, 0.0);
+                    self.text(x + w - 8.0 - sw, y + 6.0, s, MS, 10.0, AMBER);
                 }
                 match fctn {
-                    Some(Mark::Txt(t)) => self.text_center(x + w / 2.0, y + h - 11.0, t, MB, 12.0, GREEN),
-                    Some(Mark::Arrow(d)) => self.arrow(x + w / 2.0, y + h - 11.0, *d, 9.0, GREEN),
+                    Some(Mark::Txt(m)) => self.text_tracked(x + 9.0, y + 40.0, m, MS, 11.0, GREEN, 0.2),
+                    Some(Mark::Arrow(d)) => self.arrow(x + 13.5, y + 47.0, *d, 9.0, GREEN),
                     None => {}
                 }
             }
-            Cap::Word { text, sub, px } => {
-                self.round_rect(x, y + 2.0, w, h, 7.0, SHADOW_CAP);
-                self.round_vgrad(x, y, w, h, 7.0, MOD_TOP, MOD_BOT);
-                self.round_border(x, y, w, h, 7.0, 1.0, CAP_BORDER);
-                let id = if (*text == "CTRL" || *text == "FCTN") && sub.is_some() { MB } else { SB };
-                let cy = if sub.is_some() { y + h / 2.0 - 4.0 } else { y + h / 2.0 };
-                if id == SB {
-                    self.text_center_tracked(x + w / 2.0, cy, text, SB, *px, WORDCAP_INK, 1.0);
-                } else {
-                    self.text_center(x + w / 2.0, cy, text, id, *px, WORDCAP_INK);
-                }
-                if let Some(s) = sub {
-                    self.text_center(x + w / 2.0, y + h - 8.0, s, SB, 7.0, HOST_SUB);
-                }
+            Cap::Word(text) => {
+                self.text_center_tracked(x + w / 2.0, y + h / 2.0, text, SR, 8.0, BRIGHT, 0.5);
             }
         }
+    }
+}
+
+// ===========================================================================
+// 3 · HOTKEYS
+// ===========================================================================
+
+/// One hotkey row: its key chip(s) and what they do.
+struct HotRow {
+    chips: &'static [KeyChip],
+    label: &'static str,
+}
+
+const fn hr(chips: &'static [KeyChip], label: &'static str) -> HotRow {
+    HotRow { chips, label }
+}
+
+impl Screen<'_> {
+    fn tab_hotkeys(&mut self) {
+        // Six ruled lists in a 3×2 grid. Bindings per docs/USER-GUIDE.md.
+        let groups: [(&str, &[HotRow]); 6] = [
+            ("OVERLAYS", &[
+                hr(&[KeyChip::Text("ESC"), KeyChip::Text("F1")], "this help"),
+                hr(&[KeyChip::Text("F9")], "file chooser"),
+            ]),
+            ("MEDIA", &[
+                hr(&[KeyChip::Text("F9")], "mount .ctg / .dsk"),
+                hr(&[KeyChip::Text("F4")], "export disk writes"),
+                hr(&[KeyChip::Text("F2"), KeyChip::Text("F3")], "eject cart / disk"),
+            ]),
+            ("PLAYBACK", &[
+                hr(&[KeyChip::Text("F10")], "pause / resume"),
+                hr(&[KeyChip::Text("TAB")], "fast-forward (hold)"),
+                hr(&[KeyChip::Text("F12")], "frame advance"),
+            ]),
+            ("CONSOLE", &[
+                hr(&[KeyChip::Text("F5")], "reset console"),
+                hr(&[QUIT_CHIP], "quit — state saved"),
+            ]),
+            ("STATE", &[
+                hr(&[KeyChip::Text("F6"), KeyChip::Text("F8")], "resume save / load"),
+                hr(&[KeyChip::Text("SHIFT F6")], "save snapshot"),
+                hr(&[KeyChip::Text("SHIFT F8")], "load snapshot"),
+                hr(&[KeyChip::Text("SHIFT F5")], "fresh start"),
+            ]),
+            ("DISPLAY & TOOLS", &[
+                hr(&[FULLSCREEN_CHIP], "fullscreen"),
+                hr(&[SCREENSHOT_CHIP], "screenshot"),
+                hr(&[INSPECTOR_CHIP], "CPU inspector"),
+                hr(&[KeyChip::Text("F7")], "keyboard layout"),
+            ]),
+        ];
+        let col_w = (CONTENT_W - 2.0 * 44.0) / 3.0; // 280
+        let row1_top = 98.0;
+        // each grid row is as tall as its longest list (rows are 45px each)
+        let row1_h = 25.0 + 3.0 * 45.0; // MEDIA/PLAYBACK have 3 rows
+        let row2_top = row1_top + row1_h + 40.0;
+        for (i, (title, rows)) in groups.iter().enumerate() {
+            let gx = CONTENT_X + (i % 3) as f32 * (col_w + 44.0);
+            let gy = if i < 3 { row1_top } else { row2_top };
+            self.eyebrow(gx, gy, title);
+            self.rule(gx, gy + 24.0, col_w, RULE_STRONG);
+            for (r, row) in rows.iter().enumerate() {
+                let top = gy + 25.0 + r as f32 * 45.0;
+                let mut cx = gx;
+                for &chip in row.chips {
+                    cx += self.key_chip(cx, top + 22.0, chip, 22.0, 11.5, 5.0, 8.0) + 5.0;
+                }
+                self.text_mid(gx + 110.0, top + 22.0, row.label, MR, 12.5, MUTED);
+                self.rule(gx, top + 44.0, col_w, RULE_ROW);
+            }
+        }
+
+        // loading & saving — the facts that were the Media & State tab
+        self.rule(CONTENT_X, 547.0, CONTENT_W, RULE);
+        self.eyebrow(CONTENT_X, 567.0, "LOADING & SAVING");
+        let lines: [&[Run]; 4] = [
+            &[
+                ("F9", MS, CHIP_INK),
+                (" mounts .ctg cartridge and .dsk floppy images. Nothing is embedded.", MR, MUTED),
+            ],
+            &[
+                ("Disk writes stay in memory until ", MR, MUTED),
+                ("F4", MS, CHIP_INK),
+                (" exports them to the image file.", MR, MUTED),
+            ],
+            &[(
+                "The resume state saves on quit and restores on launch. Snapshots are separate, on demand.",
+                MR,
+                MUTED,
+            )],
+            &[
+                ("Everything Libre99 writes lives under ", MR, MUTED),
+                ("~/.libre99/", MS, CHIP_INK),
+                (".", MR, MUTED),
+            ],
+        ];
+        for (i, runs) in lines.iter().enumerate() {
+            self.run_line(CONTENT_X, 589.0 + i as f32 * 25.0, runs, 12.5);
+        }
+    }
+}
+
+// ===========================================================================
+// 4 · SETTINGS
+// ===========================================================================
+impl Screen<'_> {
+    fn tab_settings(&mut self) {
+        // All flags and preference keys per docs/USER-GUIDE.md, all rows shown.
+        let cli: [(&str, &str); 10] = [
+            ("--cartridge <path>", "mount a .ctg cartridge image (e.g. libre99asm output)"),
+            ("--disk <path>", "insert a .dsk disk image into DSK1"),
+            ("--system-rom <path>", "boot a console ROM in place of the clean-room default"),
+            ("--system-grom <path>", "boot a console GROM in place of the clean-room default"),
+            ("--disk-dsr <path>", "install a disk DSR ROM in place of the clean-room default"),
+            ("--scale <n>", "integer window scale, 1–8"),
+            ("--fullscreen", "start fullscreen"),
+            ("--log-level <level>", "error / warn / info / debug / trace"),
+            ("--version, -V", "print the version and exit"),
+            ("--help, -h", "print usage and exit"),
+        ];
+        let prefs: [(&str, &str, &str); 10] = [
+            ("log_level", "\"info\"", "logging verbosity: error / warn / info / debug / trace"),
+            ("last_cartridge", "auto", "cartridge mounted at exit — managed by the app"),
+            ("last_disk", "auto", "disk mounted at exit — managed by the app"),
+            ("browser_dir", "auto", "where the F9 chooser opens — follows your last mount"),
+            ("window_scale", "3", "integer upscale of the 256×192 image (1–8)"),
+            ("fullscreen", "false", "start fullscreen"),
+            ("audio_enabled", "true", "enable audio output"),
+            ("audio_volume", "0.8", "output volume, 0.0–1.0"),
+            ("key_layout", "\"character\"", "startup keyboard mapping: character or positional"),
+            ("defeat_screen_blank", "false", "suppress the authentic ~9-minute idle screen blank"),
+        ];
+        // 20 rows + two headers must fit the 666px content area, so rows run a
+        // 23px pitch (the handoff's ~28px rhythm doesn't fit with all rows real).
+        const ROW: f32 = 23.0;
+        let x = CONTENT_X;
+
+        self.eyebrow(x, 94.0, "COMMAND LINE");
+        let rows_top = self.table_header(117.0, &[(x, "FLAG"), (x + 230.0, "WHAT IT DOES")]);
+        for (i, (flag, what)) in cli.iter().enumerate() {
+            let cy = rows_top + i as f32 * ROW + 11.0;
+            self.text_mid(x, cy, flag, MS, 13.0, CHIP_INK);
+            self.text_mid(x + 230.0, cy, what, MR, 13.0, MUTED);
+            self.rule(x, rows_top + (i + 1) as f32 * ROW - 1.0, CONTENT_W, RULE_ROW);
+        }
+        let t1_bottom = rows_top + 10.0 * ROW;
+
+        self.eyebrow(x, t1_bottom + 38.0, "PREFERENCES — libre99.toml");
+        let rows_top = self.table_header(
+            t1_bottom + 61.0,
+            &[(x, "KEY"), (x + 210.0, "DEFAULT"), (x + 360.0, "WHAT IT DOES")],
+        );
+        for (i, (key, default, what)) in prefs.iter().enumerate() {
+            let cy = rows_top + i as f32 * ROW + 11.0;
+            self.text_mid(x, cy, key, MS, 13.0, CHIP_INK);
+            self.text_mid(x + 210.0, cy, default, MR, 13.0, MUTED);
+            self.text_mid(x + 360.0, cy, what, MR, 13.0, MUTED);
+            self.rule(x, rows_top + (i + 1) as f32 * ROW - 1.0, CONTENT_W, RULE_ROW);
+        }
+    }
+
+    /// A table header row (uppercase column labels + strong rule); returns the
+    /// y where the data rows start.
+    fn table_header(&mut self, top: f32, cols: &[(f32, &str)]) -> f32 {
+        for &(cx, label) in cols {
+            self.text_tracked(cx, top + 9.0, label, MS, 10.0, FAINT, 2.0);
+        }
+        self.rule(CONTENT_X, top + 28.0, CONTENT_W, RULE_STRONG);
+        top + 29.0
     }
 }
 
 /// Render the help overlay for `tab` into the window buffer (`win_w × win_h`),
 /// at native resolution, filling the centered 4:3 region.
 pub fn render(fonts: &mut Fonts, buf: &mut [u32], win_w: usize, win_h: usize, tab: HelpTab) {
+    // solid black backdrop — the letterbox and the page are one surface
     for p in buf.iter_mut() {
         *p = 0x0000_0000;
     }
@@ -1318,14 +1255,12 @@ pub fn render(fonts: &mut Fonts, buf: &mut [u32], win_w: usize, win_h: usize, ta
     if s.scale <= 0.0 {
         return;
     }
-    s.fill_bg();
-    s.header();
-    s.tab_bar(tab);
+    s.top_bar(tab);
+    s.footer(if tab == HelpTab::Start { VERSION } else { "" });
     match tab {
         HelpTab::Start => s.tab_start(),
         HelpTab::Keyboard => s.tab_keyboard(),
         HelpTab::Hotkeys => s.tab_hotkeys(),
-        HelpTab::Media => s.tab_media(),
         HelpTab::Settings => s.tab_settings(),
     }
 }

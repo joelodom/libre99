@@ -8,7 +8,9 @@ _Last updated: 2026-07-07 — **0.1.0 is ready to tag**: the workspace is at
 version **0.1.0** (one number for the emulator, the firmware markers, and TI
 PYTHON's banner; [CHANGELOG](../CHANGELOG.md)), the `Esc`/`F1` help was
 revamped with a first-run **`PRESS ESC FOR HELP`** banner and a `--version`
-flag, and the docs swept for release. Earlier the same day: **Extended BASIC
+flag, and the docs swept for release. After the sweep the help was
+**redesigned** to the approved four-tab "quiet terminal" design
+([CHANGELOG](../CHANGELOG.md) Unreleased). Earlier the same day: **Extended BASIC
 runs on the clean-room firmware** (the XB substrate: five census-pinned ROM
 helpers; [XB-CENSUS](../original-content/system-roms/XB-CENSUS.md)), **TI
 PYTHON grew to v1** ([spec](TI-PYTHON.md)), the 137-cart health panel reached

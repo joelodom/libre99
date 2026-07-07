@@ -866,7 +866,7 @@ impl App {
         self.help_banner = false;
     }
 
-    /// Route a key to the open help overlay: close it, or switch tabs (`1`–`5`
+    /// Route a key to the open help overlay: close it, or switch tabs (`1`–`4`
     /// jump, `Tab`/`Shift`+`Tab` and `←`/`→` cycle).
     fn help_key(&mut self, code: KeyCode) {
         use KeyCode::*;
@@ -878,8 +878,7 @@ impl App {
             Digit1 => self.help_tab = HelpTab::Start,
             Digit2 => self.help_tab = HelpTab::Keyboard,
             Digit3 => self.help_tab = HelpTab::Hotkeys,
-            Digit4 => self.help_tab = HelpTab::Media,
-            Digit5 => self.help_tab = HelpTab::Settings,
+            Digit4 => self.help_tab = HelpTab::Settings,
             _ => {}
         }
     }

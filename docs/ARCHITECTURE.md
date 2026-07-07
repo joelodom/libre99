@@ -114,7 +114,7 @@ its tests run against.)
 | `input` | Host key events → TI matrix, in character or positional (`KeyLayout`) mapping; platform command-modifier policy. |
 | `text` | A tiny bitmap-font `Canvas` (text/rects/dim) painting every overlay — no GUI toolkit. |
 | `font` | Rasterizes the embedded Silkscreen / IBM Plex Mono faces for the native-resolution help overlay. |
-| `help` | The five-tab `Esc`/`F1` help overlay, including the pictured TI keyboard. |
+| `help` | The four-tab `Esc`/`F1` help overlay, including the pictured TI keyboard. |
 | `speed` | Pause / frame-advance / fast-forward state. |
 | `screenshot` | The built-in PNG encoder for `Cmd/Ctrl`+`S`. |
 | `debug` | The live CPU-inspector overlay. |

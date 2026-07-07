@@ -203,7 +203,7 @@ those overlays.
 
 | Key | Action |
 |---|---|
-| `Esc` or `F1` | **Help overlay** — five tabs (Start, Keyboard, Hotkeys, Media & State, Settings); switch with `1`–`5`, `Tab`, `←`/`→`. |
+| `Esc` or `F1` | **Help overlay** — four tabs (Start, Keyboard, Hotkeys, Settings); switch with `1`–`4`, `Tab`, `←`/`→`. |
 | `F2` | **Eject** the cartridge (reboots — back to the bare console). |
 | `F3` | **Eject DSK1** (live — no reboot; the image stays in memory, see `F4`). |
 | `F4` | **Disk memory** overlay — list the in-memory disk images, **export** one to a `.dsk` file, or **unload** one from memory. |

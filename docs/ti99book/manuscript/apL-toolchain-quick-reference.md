@@ -159,7 +159,7 @@ save-state details, is `docs/USER-GUIDE.md`):
 
 | Key | Action | | Key | Action |
 |---|---|---|---|---|
-| `F1` / `Esc` | Help overlay (five tabs) | | `F7` | Keyboard: positional ⇄ character |
+| `F1` / `Esc` | Help overlay (four tabs) | | `F7` | Keyboard: positional ⇄ character |
 | `F2` | Eject cartridge (reboots) | | `F8` | Load the resume state |
 | `F3` | Eject DSK1 (live) | | `Shift`+`F8` | Load a `.ti99` snapshot |
 | `F4` | Disk-memory overlay (export/unload) | | `F9` | Mount media (file chooser) |
