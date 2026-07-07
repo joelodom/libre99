@@ -80,7 +80,7 @@ release-gating · **[decide]** an owner decision gates it.
 
 | # | Phase | Work item | What it involves — and why it sits here | Gate |
 |:--:|---|---|---|:--:|
-| 1 | **3 · Polish & ship** | **TI PYTHON — decide what "complete" means for 0.1.0** | The clean-room firmware ships **TI PYTHON**, an original **integer-expression REPL**, in console GROM 1's old TI-BASIC menu slot (GROM-rewrite milestone **M4**: operator precedence, parentheses, truncating `/` and `mod`, 16-bit wrap, variables, three error messages). Joel's call (2026-07-07): as it stands it's too thin — *"right now it just sucks."* **Decide the 0.1.0 target for it**, then scope the work the decision implies: *polish* the current integer calculator (nicer prompt/UX, more operators/built-ins), *grow* it toward a fuller mini-language (strings, `print`, control flow), or *reframe/rename* it so the "PYTHON" name doesn't over-promise. Occupies the same slot as the deferred M6 BASIC (callout below). | [decide] |
+| 1 | **3 · Polish & ship** | **TI PYTHON — implement the v1 spec** | **Decided 2026-07-07 (owner): grow it.** The spec of record is now **[docs/TI-PYTHON.md](TI-PYTHON.md)** — a user's guide + language specification for **TI PYTHON v1**, *a language very loosely based on Python 3* (full-size variable names, `print(…)` with string literals, comments, `exit()`, Python floor `/`·`%`, and a startup banner that says plainly it's a super-simple Python-like interpreter), plus the **input-bug fixes** (fast typing drops keys; backspace is ignored — both root-caused in the spec's §4 to the v0 read loop, fixed by the KSCAN new-key protocol) and a milestone implementation plan (**§5, P1–P6**) a working session can execute directly. The same document's **§6 feasibility study** maps how TI PYTHON's primitives grow toward running **TI Extended BASIC** (the M6/L9 gap) — census-first, explicitly post-0.1.0. Occupies the same slot as the deferred M6 BASIC (callout below). | [target] |
 | 2 | **3 · Polish & ship** | **Docs, in-app help & first-run** | **Revamp the `F1` help (`help.rs`) — explicitly still required before 0.1.0** (the 2026-07-06 media rework and rename made only accuracy edits to it — Joel; the 2026-07-07 disk-persistence and save-state work likewise touched only its media/hotkey/state facts); first-run onboarding on an empty console; README + USER-GUIDE pass; state plainly that **BASIC/XB need user-supplied authentic ROMs** and note the Video Vegas GROM-2 exception. | [blocker] |
 | 3 | **3 · Polish & ship** | **Package & release** | Set the workspace to **0.1.0**, add a `CHANGELOG`, tag; ship prebuilt Windows + macOS binaries via GitHub Releases (incl. the macOS `.app` bundle); final crash/robustness pass (first run, missing dir, bad input, no media). | [blocker] |
 
@@ -134,10 +134,17 @@ full texts already shipped beside the fonts, not duplicating them); and the **Mi
 level credit (David W. Skinner) that the Sokoban cartridge already shows on screen.
 
 **Open decisions (owner)** — each rides on the row noted:
-- **TI PYTHON — what "complete" means for 0.1.0** (row 1): the shipped integer REPL is too
-  thin as-is; decide whether to polish the calculator, grow it toward a mini-language, or
-  reframe/rename it — then scope the implied work. Full framing in the table row.
 - **system-roms README "no TI bytes" headline wording** — still open from earlier.
+
+> **Decided 2026-07-07 (owner):** TI PYTHON's 0.1.0 target — **grow it** into the small
+> Python-like language specified in **[docs/TI-PYTHON.md](TI-PYTHON.md)** (v1: full-size
+> variable names, `print(…)` with string literals, comments, `exit()`, Python floor
+> division/modulo, a proper multi-row banner), fixing the fast-typing dropped-keys and
+> backspace input bugs on the way; the TI PYTHON name stays. The spec doubles as the
+> implementation plan (its §5) and carries the **TI Extended BASIC feasibility study**
+> (its §6): grow the console primitives behind TI PYTHON's own milestones, census-first,
+> as the long road to closing the M6/L9 BASIC gap — post-0.1.0 by construction. This
+> retired the former "TI PYTHON — what does complete mean" [decide] row.
 
 > **Decided 2026-07-07 (owner, via the save-state requirements):** the save-slot
 > shape. **One automatic slot — the resume state** (auto-save on exit /
@@ -232,7 +239,11 @@ Each item is tagged: **[done]** implemented and merged to `main` ·
 > authentic ROMs** (now selected via `--system-rom` / `--system-grom` — this is a
 > firmware-rewrite limitation, not an emulator one). Detail:
 > [`original-content/system-roms/LIMITATIONS.md`](../original-content/system-roms/LIMITATIONS.md)
-> L9; user-facing note in [`KNOWN-ISSUES.md`](KNOWN-ISSUES.md). **[later — large]**
+> L9; user-facing note in [`KNOWN-ISSUES.md`](KNOWN-ISSUES.md). A **feasibility study**
+> for closing this gap *incrementally* — building the missing console primitives behind
+> TI PYTHON's own growth, census-first (phases F0–F5, sized, with the address-space
+> conflict and the ROM-M6 policy gate called out) — is **[TI-PYTHON.md §6](TI-PYTHON.md)**
+> (2026-07-07). **[later — large]**
 
 ### 1. Input & control
 - **Host keyboard layout translation (QWERTY / Dvorak / …).** Toggle between
