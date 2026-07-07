@@ -259,6 +259,69 @@ fn a_mounted_disk_identity_survives_save_and_reload() {
     assert_eq!(restored.bus().disk.drive_key(0), Some("K"));
 }
 
+/// The cartridge's host identity (format v3) survives save/reload, so a
+/// loaded state names the cartridge it is running — and a bare console never
+/// claims one, even if a stray identity was recorded.
+#[test]
+fn a_cartridge_identity_survives_save_and_reload() {
+    let mut m = Machine::new(&[], &[]);
+    m.bus_mut().load_cartridge_rom(vec![0u8; 0x2000], 1);
+    m.set_cart_key(Some(r"C:\carts\parsec.ctg"));
+
+    let snapshot = m.save_state();
+    let mut restored = Machine::new(&[], &[]);
+    restored.load_state(&snapshot).expect("load the cartridge session");
+    assert!(restored.has_cartridge());
+    assert_eq!(restored.cart_key(), Some(r"C:\carts\parsec.ctg"));
+    assert_eq!(restored.save_state(), snapshot, "reload is not byte-identical");
+
+    // The sanitizer: an identity without a cartridge does not survive a load.
+    let mut bare = Machine::new(&[], &[]);
+    bare.set_cart_key(Some("stray.ctg"));
+    let mut restored = Machine::new(&[], &[]);
+    restored.load_state(&bare.save_state()).expect("load the bare console");
+    assert_eq!(restored.cart_key(), None, "a bare console claimed an identity");
+}
+
+/// `adopt_cart_key` (the pre-v3 migration path) only fills a *missing*
+/// identity, and only when a cartridge is actually mounted — mirroring
+/// `Disk::adopt_drive_key`.
+#[test]
+fn adopt_cart_key_only_fills_a_missing_identity() {
+    let mut m = Machine::new(&[], &[]);
+    m.adopt_cart_key("no-cart.ctg");
+    assert_eq!(m.cart_key(), None, "adopted an identity with no cartridge");
+
+    m.bus_mut().load_cartridge_rom(vec![0u8; 0x2000], 1);
+    m.adopt_cart_key("first.ctg");
+    assert_eq!(m.cart_key(), Some("first.ctg"));
+    m.adopt_cart_key("second.ctg");
+    assert_eq!(m.cart_key(), Some("first.ctg"), "adoption overwrote an existing identity");
+}
+
+/// Host identities are opaque labels, never re-opened as paths — a state
+/// written on one OS (Windows-style and POSIX-style identities alike) loads
+/// intact on any other. Together with the little-endian, self-contained
+/// encoding this is the save-state portability guarantee.
+#[test]
+fn foreign_host_identities_load_on_any_platform() {
+    let mut m = Machine::new(&[], &[]);
+    m.bus_mut().load_cartridge_rom(vec![0u8; 0x2000], 1);
+    m.set_cart_key(Some(r"C:\Users\joel\carts\game.ctg"));
+    m.mount_disk_keyed(0, r"C:\Users\joel\disks\save.dsk", vec![0u8; 4 * 256]);
+    m.mount_disk_keyed(1, "/Users/joel/disks/unix.dsk", vec![0u8; 4 * 256]);
+    m.eject_disk(1); // shelve the POSIX-keyed image
+
+    let snapshot = m.save_state();
+    let mut restored = Machine::new(&[], &[]);
+    restored.load_state(&snapshot).expect("foreign identities load anywhere");
+    assert_eq!(restored.cart_key(), Some(r"C:\Users\joel\carts\game.ctg"));
+    assert_eq!(restored.bus().disk.drive_key(0), Some(r"C:\Users\joel\disks\save.dsk"));
+    let shelf: Vec<_> = restored.bus().disk.in_memory_disks();
+    assert!(shelf.iter().any(|d| d.key == "/Users/joel/disks/unix.dsk" && d.drive.is_none()));
+    assert_eq!(restored.save_state(), snapshot, "reload is not byte-identical");
+}
+
 #[test]
 fn rejects_a_file_that_is_not_a_save_state() {
     let (Some(rom), Some(grom)) = (CONSOLE_ROM.as_deref(), CONSOLE_GROM.as_deref()) else {

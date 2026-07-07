@@ -121,12 +121,13 @@ impl Config {
         cfg
     }
 
-    /// Write the preferences back as a clean, commented file (best effort).
+    /// Write the preferences back as a clean, commented file (best effort,
+    /// atomically — a crash mid-write must not eat the preferences).
     pub fn save(&self, path: &std::path::Path) {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let _ = std::fs::write(path, self.to_toml_string());
+        let _ = write_atomic(path, self.to_toml_string().as_bytes());
     }
 
     /// Parse preferences from TOML text, using defaults for missing/invalid keys.
@@ -260,19 +261,49 @@ pub fn data_dir() -> Option<PathBuf> {
 /// Create the user data directory if it doesn't exist (best effort). Called once
 /// at startup so the preferences and log have somewhere to land. Adopts the
 /// pre-rebrand `~/.ti-99-emulator` directory first, so existing preferences,
-/// save state, and screenshots survive the rename to Libre99.
+/// save state, and screenshots survive the rename to Libre99 — and then the
+/// resume state's pre-2026-07-07 file name.
 pub fn ensure_data_dir() {
     if let (Some(home), Some(dir)) = (home_dir(), data_dir()) {
         migrate_legacy_data_dir(&home.join(".ti-99-emulator"), &dir);
-        let _ = std::fs::create_dir_all(dir);
+        let _ = std::fs::create_dir_all(&dir);
+        adopt_legacy_state_file(&dir);
     }
+}
+
+/// One-time rename of the resume state's old file name (`savestate.ti99`,
+/// pre-2026-07-07) to `resume.ti99`, so an existing session keeps resuming
+/// across the rename. Never clobbers: an existing `resume.ti99` wins and the
+/// old file is then left where it is.
+fn adopt_legacy_state_file(dir: &Path) {
+    let old = dir.join("savestate.ti99");
+    let new = dir.join("resume.ti99");
+    if old.is_file() && !new.exists() {
+        let _ = std::fs::rename(&old, &new);
+    }
+}
+
+/// Write `bytes` to `path` **atomically**: write a sibling `<name>.tmp` file
+/// first, then rename it over the target — `rename` replaces the destination
+/// as one operation on both Windows (`MOVEFILE_REPLACE_EXISTING`) and POSIX,
+/// so a crash or full disk mid-write leaves the previous file intact instead
+/// of a truncated one. Used for everything worth protecting: the resume
+/// state, snapshots, and the preferences.
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut tmp_name = path.file_name().unwrap_or_default().to_os_string();
+    tmp_name.push(".tmp");
+    let tmp = path.with_file_name(tmp_name);
+    std::fs::write(&tmp, bytes)?;
+    std::fs::rename(&tmp, path).inspect_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+    })
 }
 
 /// One-time migration from the pre-rebrand data directory: if `new` doesn't
 /// exist yet and `old` does, rename the directory, then the project-named
 /// files inside (`ti-99-emulator.toml` → `libre99.toml`, `.log` likewise —
-/// `savestate.ti99` is named for the machine and keeps its name). Best
-/// effort: any failure just leaves a fresh directory to be created.
+/// `savestate.ti99` is picked up afterwards by [`adopt_legacy_state_file`]).
+/// Best effort: any failure just leaves a fresh directory to be created.
 fn migrate_legacy_data_dir(old: &Path, new: &Path) {
     if new.exists() || !old.is_dir() || std::fs::rename(old, new).is_err() {
         return;
@@ -295,10 +326,13 @@ pub fn log_path() -> Option<PathBuf> {
     Some(data_dir()?.join("libre99.log"))
 }
 
-/// `~/.libre99/savestate.ti99` — the single save state, written by Save
-/// State (F6) and on exit, read by Load State (F8) and at startup.
+/// `~/.libre99/resume.ti99` — the **resume state**: the one automatic save
+/// state, written on exit and by Save (`F6`), loaded at startup and by Load
+/// (`F8`). (Named `savestate.ti99` before 2026-07-07; `ensure_data_dir`
+/// adopts the old name once.) User-named snapshots (`Shift`+`F6`/`F8`) are
+/// separate `.ti99` files wherever the user puts them.
 pub fn state_path() -> Option<PathBuf> {
-    Some(data_dir()?.join("savestate.ti99"))
+    Some(data_dir()?.join("resume.ti99"))
 }
 
 /// `~/.libre99/screenshots` — where `encode_png` screenshots are written.
@@ -363,7 +397,7 @@ mod tests {
         assert!(base.ends_with(".libre99"));
         assert_eq!(config_path().unwrap(), base.join("libre99.toml"));
         assert_eq!(log_path().unwrap(), base.join("libre99.log"));
-        assert_eq!(state_path().unwrap(), base.join("savestate.ti99"));
+        assert_eq!(state_path().unwrap(), base.join("resume.ti99"));
         assert_eq!(screenshot_dir().unwrap(), base.join("screenshots"));
     }
 
@@ -376,7 +410,8 @@ mod tests {
         let new = scratch.join(".libre99");
 
         // A pre-rebrand directory: prefs + log under the old names, plus the
-        // machine-named savestate and a screenshot that keep their names.
+        // old-named savestate (renamed later by `adopt_legacy_state_file`,
+        // not by the directory move tested here) and a screenshot.
         std::fs::create_dir_all(old.join("screenshots")).unwrap();
         std::fs::write(old.join("ti-99-emulator.toml"), "fullscreen = true\n").unwrap();
         std::fs::write(old.join("ti-99-emulator.log"), "log line\n").unwrap();
@@ -401,6 +436,48 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(new.join("libre99.toml")).unwrap(),
             "fullscreen = true\n"
+        );
+
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    #[test]
+    fn the_legacy_resume_state_name_is_adopted_once_and_never_clobbers() {
+        let scratch =
+            std::env::temp_dir().join(format!("libre99-state-adopt-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(&scratch).unwrap();
+
+        // The old name is renamed to resume.ti99.
+        std::fs::write(scratch.join("savestate.ti99"), b"old state").unwrap();
+        adopt_legacy_state_file(&scratch);
+        assert!(!scratch.join("savestate.ti99").exists());
+        assert_eq!(std::fs::read(scratch.join("resume.ti99")).unwrap(), b"old state");
+
+        // An existing resume.ti99 wins; a reappearing old file is left alone.
+        std::fs::write(scratch.join("savestate.ti99"), b"stale").unwrap();
+        adopt_legacy_state_file(&scratch);
+        assert_eq!(std::fs::read(scratch.join("resume.ti99")).unwrap(), b"old state");
+        assert!(scratch.join("savestate.ti99").exists(), "the stale file was not consumed");
+
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    #[test]
+    fn write_atomic_replaces_the_target_and_leaves_no_temp_file() {
+        let scratch =
+            std::env::temp_dir().join(format!("libre99-atomic-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(&scratch).unwrap();
+        let target = scratch.join("resume.ti99");
+
+        write_atomic(&target, b"first").unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"first");
+        write_atomic(&target, b"second").unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"second", "existing file is replaced");
+        assert!(
+            !scratch.join("resume.ti99.tmp").exists(),
+            "the temp file must not outlive the write"
         );
 
         let _ = std::fs::remove_dir_all(&scratch);

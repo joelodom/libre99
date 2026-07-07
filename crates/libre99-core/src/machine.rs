@@ -104,10 +104,13 @@ const SAVE_MAGIC: [u8; 8] = *b"TI99SAVE";
 /// Save-state format version. Bump this when the layout changes incompatibly.
 /// Version 2 (2026-07-07) appended the disk card's host identities, dirty
 /// flags, and in-memory shelf of ejected disks to the version-1 layout.
-const SAVE_VERSION: u32 = 2;
+/// Version 3 (2026-07-07) added the mounted cartridge's host identity right
+/// after the cartridge banks, mirroring the disks' identities.
+const SAVE_VERSION: u32 = 3;
 /// Oldest save-state version this build still loads. Version-1 files predate
 /// the disk-persistence tail; they load with anonymous, clean drives and an
-/// empty shelf.
+/// empty shelf. Version-1 and -2 files carry no cartridge identity; theirs
+/// loads as `None` (the frontend may adopt one it recorded separately).
 const MIN_SAVE_VERSION: u32 = 1;
 
 /// The console memory map and CRU routing — the [`Bus`] the CPU talks to.
@@ -128,6 +131,12 @@ pub struct Tms9900Bus {
     cart_bank: usize,
     /// Number of 8 KiB banks in `cart_rom` (1 if not bank-switched, 0 if none).
     cart_banks: usize,
+    /// Host identity of the mounted cartridge — the file it was mounted from,
+    /// recorded by the frontend ([`Machine::set_cart_key`]) and carried in
+    /// save states (format v3+), so a restored machine can name the cartridge
+    /// it is running. `None` = bare console, or an identity never recorded
+    /// (tests, pre-v3 save states).
+    cart_key: Option<String>,
     /// The video chip (owns its own 16 KiB VRAM).
     pub vdp: Vdp,
     /// The GROM array (console GROMs at `>0000`, cartridge GROMs at `>6000`+).
@@ -160,6 +169,7 @@ impl Tms9900Bus {
             cart_rom: Vec::new(),
             cart_bank: 0,
             cart_banks: 0,
+            cart_key: None,
             vdp: Vdp::new(),
             grom,
             keyboard: Keyboard::new(),
@@ -524,6 +534,38 @@ impl Machine {
         for (addr, page) in &cart.grom {
             self.bus.grom.load(*addr, page);
         }
+        // The old cartridge's host identity dies with it; the caller records
+        // the new one (if it has one) with `set_cart_key` after mounting.
+        self.bus.cart_key = None;
+    }
+
+    /// Host identity of the mounted cartridge — the file it was mounted from
+    /// — if one was recorded. Carried in save states (format v3+), so a
+    /// loaded state names the cartridge it is running.
+    pub fn cart_key(&self) -> Option<&str> {
+        self.bus.cart_key.as_deref()
+    }
+
+    /// Record (or clear) the mounted cartridge's host identity. The frontend
+    /// calls this right after [`mount_cartridge`](Self::mount_cartridge).
+    pub fn set_cart_key(&mut self, key: Option<&str>) {
+        self.bus.cart_key = key.map(str::to_string);
+    }
+
+    /// Adopt `key` as the mounted cartridge's host identity if it has none —
+    /// used when resuming a pre-v3 save state, whose cartridge carried no
+    /// identity, with the path the frontend recorded separately at exit
+    /// (mirrors [`Disk::adopt_drive_key`](crate::disk::Disk::adopt_drive_key)).
+    pub fn adopt_cart_key(&mut self, key: &str) {
+        if !self.bus.cart_rom.is_empty() && self.bus.cart_key.is_none() {
+            self.bus.cart_key = Some(key.to_string());
+        }
+    }
+
+    /// Is a cartridge ROM mounted? (A restored pre-v3 state can have one
+    /// without a [`cart_key`](Self::cart_key).)
+    pub fn has_cartridge(&self) -> bool {
+        !self.bus.cart_rom.is_empty()
     }
 
     /// Re-run the CPU reset sequence (vectors through `>0000` to `WP=>83E0,
@@ -602,10 +644,13 @@ impl Machine {
     }
 
     /// Serialize the entire machine — CPU, all RAM, VRAM, the GROM image, the
-    /// cartridge ROM, every in-memory disk image (mounted drives *and* the
-    /// shelf of ejected disks, written sectors and host identities included),
-    /// and every chip latch — into a self-contained save-state blob. Restore it
-    /// with [`load_state`](Self::load_state).
+    /// cartridge ROM (host identity included), every in-memory disk image
+    /// (mounted drives *and* the shelf of ejected disks, written sectors and
+    /// host identities included), and every chip latch — into a
+    /// self-contained save-state blob. Restore it with
+    /// [`load_state`](Self::load_state). The blob is portable: little-endian
+    /// on every host, no pointers, nothing read back from the host filesystem
+    /// (the identities are opaque labels, never re-opened as paths).
     ///
     /// Beam state is deliberately not part of the format:
     /// [`run_frame`](Self::run_frame) always completes whole frames, so every
@@ -717,6 +762,7 @@ impl Tms9900Bus {
         w.blob(&self.cart_rom);
         w.usize(self.cart_bank);
         w.usize(self.cart_banks);
+        w.opt_string(self.cart_key.as_deref());
         self.vdp.save_state(w);
         self.grom.save_state(w);
         self.keyboard.save_state(w);
@@ -739,6 +785,12 @@ impl Tms9900Bus {
         self.cart_rom = r.blob()?;
         self.cart_bank = r.usize()?;
         self.cart_banks = r.usize()?;
+        // The cartridge identity joined the format in version 3; earlier
+        // saves load with none. A bare console never claims an identity.
+        self.cart_key = if version >= 3 { r.opt_string()? } else { None };
+        if self.cart_rom.is_empty() {
+            self.cart_key = None;
+        }
         self.vdp.load_state(r)?;
         self.grom.load_state(r)?;
         self.keyboard.load_state(r)?;

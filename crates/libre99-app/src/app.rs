@@ -53,6 +53,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use libre99_core::machine::Machine;
+use libre99_core::state::StateError;
 use libre99_core::vdp::{HEIGHT, WIDTH};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -241,7 +242,7 @@ impl App {
     /// coming through here.)
     fn rebuild_machine(&mut self) {
         let disk = std::mem::take(&mut self.machine.bus_mut().disk);
-        self.machine = crate::build_machine(self.cart.as_ref().map(|m| m.bytes.as_slice()));
+        self.machine = crate::build_machine(self.cart.as_ref());
         self.machine.bus_mut().disk = disk;
         if let Some(audio) = &self.audio {
             self.machine.set_audio_sample_rate(audio.sample_rate());
@@ -464,7 +465,7 @@ impl App {
                     // written to) earlier this session, the in-memory copy
                     // reattaches instead of the host bytes.
                     MediaKind::Disk => {
-                        let key = media::disk_key(&item.path);
+                        let key = media::file_key(&item.path);
                         let bytes = std::mem::take(&mut item.bytes);
                         let resumed = self.machine.mount_disk_keyed(0, &key, bytes);
                         self.disk = Some(item);
@@ -622,9 +623,10 @@ impl App {
         self.flash("DISK UNLOADED FROM MEMORY");
     }
 
-    /// Write a snapshot of the machine to the single save-state file, logging the
-    /// outcome and returning whether it succeeded. Shared by Save State (F6) and
-    /// the auto-save on exit.
+    /// Write the machine to the **resume state** (`~/.libre99/resume.ti99`)
+    /// atomically, logging the outcome and returning whether it succeeded.
+    /// Shared by Save (F6), the auto-save on exit, and a snapshot load (which
+    /// makes the snapshot the resume state).
     fn write_state(&self) -> bool {
         let Some(path) = crate::config::state_path() else {
             return false;
@@ -633,26 +635,64 @@ impl App {
             let _ = std::fs::create_dir_all(parent);
         }
         let data = self.machine.save_state();
-        match std::fs::write(&path, &data) {
+        match crate::config::write_atomic(&path, &data) {
             Ok(()) => {
-                log::info!("saved state: {} bytes -> {}", data.len(), path.display());
+                log::info!("saved resume state: {} bytes -> {}", data.len(), path.display());
                 true
             }
             Err(e) => {
-                log::error!("save state failed: {e}");
+                log::error!("resume-state save failed: {e}");
                 false
             }
         }
     }
 
-    /// Save State (`F6`): snapshot the whole machine and confirm on screen.
-    fn save_state(&mut self) {
-        let ok = self.write_state();
-        self.flash(if ok { "STATE SAVED" } else { "SAVE FAILED" });
+    /// How many in-memory disk images carry unexported changes — what a state
+    /// load silently rolls back, so the warnings count them first.
+    fn dirty_disk_count(&self) -> usize {
+        self.machine.bus().disk.in_memory_disks().iter().filter(|d| d.dirty).count()
     }
 
-    /// Load State (`F8`): restore the machine from the save-state file, replacing
-    /// the running session.
+    /// Swap the running machine for the state in `bytes` (the resume state or
+    /// a snapshot file) and resync everything that hangs off it: the audio
+    /// rate, the media bookkeeping, and the window title. The state names its
+    /// own media (host identities, save format v3); the machine — not
+    /// whatever was mounted a moment ago — drives the title and the exit
+    /// bookkeeping. Bytes stay empty in the items: the images live in the
+    /// machine, and a later cartridge change replaces the item, bytes and
+    /// all, before any rebuild reads it.
+    fn apply_state(&mut self, bytes: &[u8]) -> Result<(), StateError> {
+        self.machine.load_state(bytes)?;
+        // The restored PSG carries the sample rate from the save file;
+        // re-point it at the live audio device.
+        if let Some(audio) = &self.audio {
+            self.machine.set_audio_sample_rate(audio.sample_rate());
+        }
+        self.cart = match (self.machine.cart_key(), self.machine.has_cartridge()) {
+            (Some(k), _) => Some(MediaItem { path: PathBuf::from(k), bytes: Vec::new() }),
+            (None, false) => None,
+            // A pre-v3 state carries a cartridge but no identity — keep the
+            // current bookkeeping rather than claim the console is bare.
+            (None, true) => self.cart.take(),
+        };
+        self.disk = self.machine.bus().disk.drive_key(0).map(|k| MediaItem {
+            path: PathBuf::from(k),
+            bytes: Vec::new(),
+        });
+        self.sync_title();
+        Ok(())
+    }
+
+    /// Save (`F6`): write the whole machine to the resume state and confirm on
+    /// screen.
+    fn save_state(&mut self) {
+        let ok = self.write_state();
+        self.flash(if ok { "RESUME STATE SAVED" } else { "SAVE FAILED" });
+    }
+
+    /// Load (`F8`): restore the machine from the resume state, replacing the
+    /// running session. If the session holds unexported disk changes the load
+    /// would roll back, a **native warning** asks first.
     fn load_state(&mut self) {
         let Some(path) = crate::config::state_path() else {
             self.flash("LOAD FAILED");
@@ -661,35 +701,147 @@ impl App {
         let bytes = match std::fs::read(&path) {
             Ok(bytes) => bytes,
             Err(e) => {
-                log::warn!("no save state at {}: {e}", path.display());
-                self.flash("NO SAVE STATE");
+                log::warn!("no resume state at {}: {e}", path.display());
+                self.flash("NO RESUME STATE");
                 return;
             }
         };
-        match self.machine.load_state(&bytes) {
+        let dirty = self.dirty_disk_count();
+        if dirty > 0 {
+            // Modal dialog: same input caveats as the F9 chooser.
+            self.release_all_keys();
+            self.speed.set_turbo(false);
+            if !media::confirm_resume_load(dirty) {
+                return;
+            }
+        }
+        match self.apply_state(&bytes) {
             Ok(()) => {
-                // The restored PSG carries the sample rate from the save file;
-                // re-point it at the live audio device.
-                if let Some(audio) = &self.audio {
-                    self.machine.set_audio_sample_rate(audio.sample_rate());
-                }
-                // The snapshot names the disk it carries (its host identity);
-                // let the machine, not whatever was mounted a moment ago, drive
-                // the title and the exit bookkeeping. (Bytes stay empty — disk
-                // images live in the machine, the item is path bookkeeping.)
-                self.disk = self.machine.bus().disk.drive_key(0).map(|k| MediaItem {
-                    path: PathBuf::from(k),
-                    bytes: Vec::new(),
-                });
-                self.sync_title();
-                log::info!("loaded state from {}", path.display());
-                self.flash("STATE LOADED");
+                log::info!("loaded resume state from {}", path.display());
+                self.flash("RESUME STATE LOADED");
             }
             Err(e) => {
-                log::error!("load state failed: {e}");
+                log::error!("resume-state load failed: {e}");
                 self.flash("LOAD FAILED");
             }
         }
+    }
+
+    /// Default file name offered for a new snapshot: the mounted cartridge's
+    /// stem (`parsec.ti99`), else `console.ti99`.
+    fn snapshot_suggested_name(&self) -> String {
+        let stem = self
+            .cart
+            .as_ref()
+            .and_then(|m| m.path.file_stem())
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "console".into());
+        format!("{stem}.ti99")
+    }
+
+    /// `Shift`+`F6`: save a **snapshot** — the whole machine, exactly like the
+    /// resume state — to a user-named `.ti99` file via the native save dialog
+    /// (whose replace-prompt guards overwrites). The resume state itself is
+    /// untouched.
+    fn save_snapshot(&mut self) {
+        // Modal dialog: same input caveats as the F9 chooser.
+        self.release_all_keys();
+        self.speed.set_turbo(false);
+        let suggested = self.snapshot_suggested_name();
+        let Some(path) = media::save_snapshot_file(&self.browser_dir, &suggested) else {
+            return; // canceled
+        };
+        let data = self.machine.save_state();
+        match crate::config::write_atomic(&path, &data) {
+            Ok(()) => {
+                if let Some(dir) = path.parent() {
+                    self.browser_dir = dir.to_path_buf();
+                }
+                log::info!("saved snapshot: {} bytes -> {}", data.len(), path.display());
+                self.flash("SNAPSHOT SAVED");
+            }
+            Err(e) => {
+                log::error!("snapshot save to {} failed: {e}", path.display());
+                self.flash("SNAPSHOT FAILED (SEE LOG)");
+            }
+        }
+    }
+
+    /// `Shift`+`F8`: load a snapshot file picked with the native open dialog.
+    /// A **native warning** first: the snapshot replaces the running machine
+    /// and becomes the resume state — which is rewritten immediately after a
+    /// successful load, so the warning is true the moment it happens, not
+    /// only at exit.
+    fn load_snapshot(&mut self) {
+        self.release_all_keys();
+        self.speed.set_turbo(false);
+        let Some(path) = media::pick_snapshot_file(&self.browser_dir) else {
+            return; // canceled
+        };
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                log::warn!("cannot read snapshot {}: {e}", path.display());
+                self.flash("CANNOT READ SNAPSHOT (SEE LOG)");
+                return;
+            }
+        };
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.display().to_string());
+        if !media::confirm_snapshot_load(&name, self.dirty_disk_count()) {
+            return;
+        }
+        match self.apply_state(&bytes) {
+            Ok(()) => {
+                if let Some(dir) = path.parent() {
+                    self.browser_dir = dir.to_path_buf();
+                }
+                self.write_state(); // the snapshot is the resume state now
+                log::info!("loaded snapshot {}", path.display());
+                self.flash("SNAPSHOT LOADED");
+            }
+            Err(e) => {
+                log::error!("snapshot load of {} failed: {e}", path.display());
+                self.flash("NOT A USABLE SAVE STATE");
+            }
+        }
+    }
+
+    /// `Shift`+`F5`: **fresh start** — delete the resume state and restart as
+    /// a first run, after a **native warning** that spells out what goes: the
+    /// resume state permanently, and every in-memory disk image (the machine
+    /// restarts bare; files on the host are never touched).
+    fn fresh_start(&mut self) {
+        self.release_all_keys();
+        self.speed.set_turbo(false);
+        let disks = self.machine.bus().disk.in_memory_disks();
+        let dirty = disks.iter().filter(|d| d.dirty).count();
+        if !media::confirm_fresh_start(disks.len(), dirty) {
+            return;
+        }
+        if let Some(path) = crate::config::state_path() {
+            match std::fs::remove_file(&path) {
+                Ok(()) => log::info!("deleted the resume state at {}", path.display()),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => log::warn!("could not delete the resume state at {}: {e}", path.display()),
+            }
+        }
+        self.cart = None;
+        self.disk = None;
+        // A genuinely fresh machine: no cartridge, no disk, empty disk memory —
+        // deliberately *not* the disk-preserving rebuild a cartridge change uses.
+        self.machine = crate::build_machine(None);
+        if let Some(audio) = &self.audio {
+            self.machine.set_audio_sample_rate(audio.sample_rate());
+        }
+        // Session bookkeeping starts over too; the browser directory is a
+        // preference, not session state, and stays.
+        crate::config::update_session("", "", &self.browser_dir.display().to_string());
+        self.sync_title();
+        log::info!("fresh start: session reset to a bare console");
+        self.flash("FRESH START - RESUME STATE DELETED");
     }
 
     /// Open the help overlay (on the Start tab), releasing any held keys first so
@@ -835,6 +987,8 @@ impl ApplicationHandler for App {
                             KeyCode::F2 if down => self.eject(MediaKind::Cartridge),
                             KeyCode::F3 if down => self.eject(MediaKind::Disk),
                             KeyCode::F4 if down => self.toggle_disk_ui(),
+                            // Shift-guarded arms must precede their bare keys.
+                            KeyCode::F5 if down && self.host_mods.shift => self.fresh_start(),
                             KeyCode::F5 if down => self.machine.reset(),
                             KeyCode::F7 if down => self.toggle_layout(),
                             // Fullscreen: F11 (cross-platform) or the macOS-standard
@@ -845,7 +999,9 @@ impl ApplicationHandler for App {
                             KeyCode::KeyF if down && self.host_mods.cmd && self.host_mods.ctrl => {
                                 self.toggle_fullscreen()
                             }
+                            KeyCode::F6 if down && self.host_mods.shift => self.save_snapshot(),
                             KeyCode::F6 if down => self.save_state(),
+                            KeyCode::F8 if down && self.host_mods.shift => self.load_snapshot(),
                             KeyCode::F8 if down => self.load_state(),
                             KeyCode::F10 if down => self.toggle_pause(),
                             KeyCode::F12 if down => self.speed.frame_advance(),
@@ -949,13 +1105,14 @@ impl ApplicationHandler for App {
     }
 
     /// The event loop is shutting down (window close, `Cmd`+`Q` on macOS / `Alt`+`F4`
-    /// on Windows, any exit) — persist the session so the next launch resumes here.
+    /// on Windows, any exit) — write the resume state so the next launch
+    /// resumes here.
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
         self.write_state();
-        // Record the mounted media's file paths and the browser directory so
-        // the resume-from-snapshot on the next launch can re-read the same
-        // files (an empty path = bare console / empty drive) and the browser
-        // reopens where the user was working.
+        // Record the mounted media's file paths and the browser directory.
+        // The resume state itself names its media since format v3; these
+        // preferences remain the fallback identities for pre-v3 states, and
+        // the browser reopens where the user was working.
         let cart = self.cart.as_ref().map(|m| m.path.display().to_string()).unwrap_or_default();
         let disk = self.disk.as_ref().map(|m| m.path.display().to_string()).unwrap_or_default();
         crate::config::update_session(&cart, &disk, &self.browser_dir.display().to_string());

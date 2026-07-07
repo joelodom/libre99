@@ -63,8 +63,9 @@ achieve. So the work falls into three phases:
 everywhere — the crates (`libre99-core`/`-app`/`-asm`/`-gpl`), the binaries
 (`libre99`, `libre99asm`, `libre99gpl`), the license's `Software:` line, the
 data directory (`~/.libre99/`, adopted from `~/.ti-99-emulator/` by a one-time
-automatic migration; the savestate keeps its machine-named `savestate.ti99`
-file and `TI99SAVE` magic, so old saves still load), all docs, and the book's
+automatic migration; the savestate kept its machine-named `savestate.ti99`
+file and `TI99SAVE` magic, so old saves still load — the file was later renamed
+`resume.ti99` on 2026-07-07, adopted the same way), all docs, and the book's
 toolchain references — while the machine is still called the **TI-99/4A**
 wherever the hardware is meant. The fork followed the same day: **this
 repository** was created fresh and seeded with a snapshot of the predecessor's
@@ -79,10 +80,31 @@ release-gating · **[decide]** an owner decision gates it.
 
 | # | Phase | Work item | What it involves — and why it sits here | Gate |
 |:--:|---|---|---|:--:|
-| 1 | **3 · Polish & ship** | **Save states: atomic + portable** | Replace the plain `fs::write` with temp-file-plus-rename (atomic on both OSes); store a **portable** media re-mount reference (name/relative path, not an absolute `C:\…` vs `/…` path) — since 2026-07-07 that includes the disk images' **host identity keys** (canonical absolute paths) the format-v2 disk persistence serializes; add a macOS↔Windows round-trip test. Core format already ports (little-endian, self-contained, version-magic-guarded). | [blocker] |
-| 2 | **3 · Polish & ship** | **TI PYTHON — decide what "complete" means for 0.1.0** | The clean-room firmware ships **TI PYTHON**, an original **integer-expression REPL**, in console GROM 1's old TI-BASIC menu slot (GROM-rewrite milestone **M4**: operator precedence, parentheses, truncating `/` and `mod`, 16-bit wrap, variables, three error messages). Joel's call (2026-07-07): as it stands it's too thin — *"right now it just sucks."* **Decide the 0.1.0 target for it**, then scope the work the decision implies: *polish* the current integer calculator (nicer prompt/UX, more operators/built-ins), *grow* it toward a fuller mini-language (strings, `print`, control flow), or *reframe/rename* it so the "PYTHON" name doesn't over-promise. Occupies the same slot as the deferred M6 BASIC (callout below). | [decide] |
-| 3 | **3 · Polish & ship** | **Docs, in-app help & first-run** | **Revamp the `F1` help (`help.rs`) — explicitly still required before 0.1.0** (the 2026-07-06 media rework and rename made only accuracy edits to it — Joel; the 2026-07-07 disk-persistence work likewise touched only its media/hotkey facts); first-run onboarding on an empty console; README + USER-GUIDE pass; state plainly that **BASIC/XB need user-supplied authentic ROMs** and note the Video Vegas GROM-2 exception. | [blocker] |
-| 4 | **3 · Polish & ship** | **Package & release** | Set the workspace to **0.1.0**, add a `CHANGELOG`, tag; ship prebuilt Windows + macOS binaries via GitHub Releases (incl. the macOS `.app` bundle); final crash/robustness pass (first run, missing dir, bad input, no media). | [blocker] |
+| 1 | **3 · Polish & ship** | **TI PYTHON — decide what "complete" means for 0.1.0** | The clean-room firmware ships **TI PYTHON**, an original **integer-expression REPL**, in console GROM 1's old TI-BASIC menu slot (GROM-rewrite milestone **M4**: operator precedence, parentheses, truncating `/` and `mod`, 16-bit wrap, variables, three error messages). Joel's call (2026-07-07): as it stands it's too thin — *"right now it just sucks."* **Decide the 0.1.0 target for it**, then scope the work the decision implies: *polish* the current integer calculator (nicer prompt/UX, more operators/built-ins), *grow* it toward a fuller mini-language (strings, `print`, control flow), or *reframe/rename* it so the "PYTHON" name doesn't over-promise. Occupies the same slot as the deferred M6 BASIC (callout below). | [decide] |
+| 2 | **3 · Polish & ship** | **Docs, in-app help & first-run** | **Revamp the `F1` help (`help.rs`) — explicitly still required before 0.1.0** (the 2026-07-06 media rework and rename made only accuracy edits to it — Joel; the 2026-07-07 disk-persistence and save-state work likewise touched only its media/hotkey/state facts); first-run onboarding on an empty console; README + USER-GUIDE pass; state plainly that **BASIC/XB need user-supplied authentic ROMs** and note the Video Vegas GROM-2 exception. | [blocker] |
+| 3 | **3 · Polish & ship** | **Package & release** | Set the workspace to **0.1.0**, add a `CHANGELOG`, tag; ship prebuilt Windows + macOS binaries via GitHub Releases (incl. the macOS `.app` bundle); final crash/robustness pass (first run, missing dir, bad input, no media). | [blocker] |
+
+**Landed 2026-07-07 — save states: atomic, portable, snapshots (the former row 1
+[blocker] left the table).** Every state file is now written **atomically**
+(temp file + rename, `config::write_atomic` — the preferences use it too), so a
+crash or full disk mid-save can never destroy the previous save. The
+**portability** half: the state file was already self-contained and
+little-endian; format **v3** adds the *cartridge's* host identity alongside the
+disks' (v2), so a loaded state names its own media — the frontend no longer
+re-reads the cartridge file on resume, and `last_cartridge`/`last_disk` in the
+preferences are just the fallback identities for pre-v3 files. Identities are
+opaque labels, never re-opened as paths; a regression test loads Windows- and
+POSIX-keyed states regardless of host. The UX (Joel's spec, 2026-07-07): the
+automatic save is named the **resume state** (`~/.libre99/resume.ti99`, adopted
+once from the old `savestate.ti99` name) — auto-saved on exit, auto-loaded at
+launch, saved/loaded live with `F6`/`F8`; **snapshots** are user-named `.ti99`
+files through the OS-native dialogs (`Shift`+`F6` save, `Shift`+`F8` load, with
+a native warning that loading replaces the resume state — which is rewritten
+immediately after a successful load); and **`Shift`+`F5` is the fresh start** —
+it deletes the resume state after a native warning that counts the in-memory
+disk images (and unexported changes) it unloads, then restarts bare like a
+first run. `F8` also warns first when loading would roll back unexported disk
+changes.
 
 **Landed 2026-07-07 — live disk mounting + disk persistence (two rows left the
 table).** The former **"mount a disk without rebooting"** blocker (*bug, Joel
@@ -112,12 +134,20 @@ full texts already shipped beside the fonts, not duplicating them); and the **Mi
 level credit (David W. Skinner) that the Sokoban cartridge already shows on screen.
 
 **Open decisions (owner)** — each rides on the row noted:
-- **Save-slot split** (row 1): keep the single auto-slot (F6/F8 today), or add multiple
-  named/manual slots? Whatever the shape, slot naming must be cross-platform-safe.
-- **TI PYTHON — what "complete" means for 0.1.0** (row 2): the shipped integer REPL is too
+- **TI PYTHON — what "complete" means for 0.1.0** (row 1): the shipped integer REPL is too
   thin as-is; decide whether to polish the calculator, grow it toward a mini-language, or
   reframe/rename it — then scope the implied work. Full framing in the table row.
 - **system-roms README "no TI bytes" headline wording** — still open from earlier.
+
+> **Decided 2026-07-07 (owner, via the save-state requirements):** the save-slot
+> shape. **One automatic slot — the resume state** (auto-save on exit /
+> auto-load at startup, `F6`/`F8` live) — plus **user-named snapshot files**
+> through the OS-native save/open dialogs, rather than multiple internal slots:
+> the file name *is* the slot name, which makes naming cross-platform-safe by
+> construction. Loading a snapshot replaces the resume state (native warning
+> first), and `Shift`+`F5` deletes the resume state for a first-run fresh start
+> (warning spells out what is lost). This retired the former "save-slot split"
+> open decision.
 
 > **Decided 2026-07-07 (owner, via the disk-persistence requirements):** the disk
 > delta's shape. The machine keeps a **whole mutated copy** of each disk image in
@@ -133,8 +163,9 @@ level credit (David W. Skinner) that the Sokoban cartridge already shows on scre
 > **Decided 2026-07-06 (owner, via "rebrand everything"):** the data directory is
 > `~/.libre99/` with the `libre99.toml` / `libre99.log` names; startup adopts an
 > existing `~/.ti-99-emulator/` automatically (one-time rename), and the
-> savestate keeps its machine-named `savestate.ti99` file, so nothing is lost in
-> the move. This retired the former "data-dir rename & migration" open decision.
+> savestate kept its machine-named `savestate.ti99` file, so nothing was lost in
+> the move (renamed once more to `resume.ti99` on 2026-07-07, adopted the same
+> way). This retired the former "data-dir rename & migration" open decision.
 
 > **Decided 2026-07-06 (owner):** *no* content is bundled with the application —
 > not even our own cartridges. Media enters only via the command line or the
@@ -228,7 +259,7 @@ Each item is tagged: **[done]** implemented and merged to `main` ·
 - **Disk persistence — the source `.dsk` is never written; in-memory images +
   on-demand export.** Writes mutate the machine's in-memory copy, keyed by the
   file's canonical path; ejected images shelve in memory and reattach on
-  remount; save states carry all of it (format v2). The **`F4` disk-memory
+  remount; save states carry all of it (format v2+). The **`F4` disk-memory
   overlay** exports an image via the OS-native save dialog (its replace-prompt
   means no host `.dsk` is ever overwritten unprompted) or unloads one (with a
   native save-first prompt when changed). **[done]** (2026-07-07)
@@ -251,8 +282,10 @@ Each item is tagged: **[done]** implemented and merged to `main` ·
 ### 3. Emulation control
 - **Variable speed**: fast-forward / turbo, slow motion, **pause**, and
   **single-frame advance**, with an on-screen state indicator. **[done]**
-- **Save state** (one self-contained snapshot; auto-saved on exit and resumed at
-  launch) and **screenshots** (PNG). **[done]**
+- **Save states**: the automatic **resume state** (auto-saved on exit, resumed
+  at launch, `F6`/`F8` live, `Shift`+`F5` fresh-start delete) plus user-named
+  **snapshot** files via the OS-native dialogs (`Shift`+`F6`/`F8`); atomic
+  writes, portable format (v3), and **screenshots** (PNG). **[done]** (2026-07-07)
 - **Rewind**: a ring buffer of recent save states scrubbed with a key. **[later]**
 - **Run-ahead** for lower input latency. **[stretch]**
 

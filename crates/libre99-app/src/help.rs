@@ -801,11 +801,13 @@ impl Screen<'_> {
                 "03  KEEP YOUR PLACE",
                 AMBER,
                 &[
-                    ("Your session auto-saves on quit and resumes on launch. ", MR, INKDIM),
+                    ("The resume state auto-saves on quit and reloads on launch. ", MR, INKDIM),
                     ("F6", MB, INK),
                     (" saves, ", MR, INKDIM),
                     ("F8", MB, INK),
-                    (" loads — one slot, always there.", MR, INKDIM),
+                    (" loads; add ", MR, INKDIM),
+                    ("Shift", MB, INK),
+                    (" for snapshot files.", MR, INKDIM),
                 ],
             ),
         ];
@@ -861,8 +863,8 @@ impl Screen<'_> {
             ("OVERLAYS", &[("F1 / Esc", "Keyboard reference"), (cmd_label::INSPECTOR, "CPU inspector")]),
             ("MEDIA", &[("F9", "Mount media (file dialog)"), ("F2 / F3", "Eject cart / eject DSK1"), ("F4", "Disk memory (export/unload)")]),
             ("PLAYBACK", &[("F10", "Pause / resume"), ("F12", "Frame advance"), ("Tab", "Fast-forward (hold)")]),
-            ("CONSOLE", &[("F5", "Reset console"), ("F7", "Toggle key layout")]),
-            ("STATE", &[("F6", "Save state"), ("F8", "Load state"), (cmd_label::QUIT, "Quit (auto-saves)")]),
+            ("CONSOLE", &[("F5", "Reset console"), ("F7", "Toggle key layout"), (cmd_label::QUIT, "Quit (auto-saves)")]),
+            ("STATE", &[("F6 / F8", "Save / load the resume state"), ("Shift+F6/F8", "Save / load a snapshot file"), ("Shift+F5", "Fresh start (deletes resume state)")]),
             ("DISPLAY & TOOLS", &[("F11", "Fullscreen"), ("⌃⌘F", "Fullscreen (macOS)"), (cmd_label::SCREENSHOT, "Screenshot PNG")]),
         ];
         let top = bottom + 16.0;
@@ -900,7 +902,7 @@ impl Screen<'_> {
         // bar; both top-aligned (the design doesn't stretch cards to fill).
         let upper_h = 290.0;
         let bar_top = top + upper_h + 16.0;
-        let bar_h = 118.0;
+        let bar_h = 140.0;
 
         // left: mounting media
         self.card(x, top, cw, upper_h, PANEL, CARD_BORDER, 13.0);
@@ -953,23 +955,32 @@ impl Screen<'_> {
         );
         self.code_line(rx + 18.0, sh_top + sh_h - 34.0, cw - 36.0, "~/.libre99/screenshots/");
 
-        // bottom: save state & auto-resume (accent, full width)
+        // bottom: save states — resume state & snapshots (accent, full width)
         self.card(x, bar_top, CONTENT_W, bar_h, PANEL_ALT, ACCENT_BORDER, 13.0);
-        self.eyebrow(x + 20.0, bar_top + 16.0, "SAVE STATE & AUTO-RESUME", GREEN);
+        self.eyebrow(x + 20.0, bar_top + 16.0, "SAVE STATES — RESUME & SNAPSHOTS", GREEN);
         self.paragraph(
             x + 20.0,
             bar_top + 38.0,
             CONTENT_W - 40.0,
             &[
+                ("A save state is the whole machine — RAM, VRAM, GROM, cartridge ROM and every in-memory disk (written sectors and ejected disks included) — in one portable .ti99 file. The ", MR, INKDIM),
+                ("resume state", MB, INK),
+                (" auto-saves on quit and reloads on launch; ", MR, INKDIM),
                 ("F6", MB, INK),
-                (" snapshots the whole machine — RAM, VRAM, GROM, cartridge ROM and every in-memory disk (written sectors included, ejected ones too) — to one portable file. ", MR, INKDIM),
+                (" / ", MR, INKDIM),
                 ("F8", MB, INK),
-                (" restores it. The session also auto-saves on quit and resumes on launch. One slot, shared by all four.", MR, INKDIM),
+                (" save / load it any time. ", MR, INKDIM),
+                ("Shift+F6", MB, INK),
+                (" / ", MR, INKDIM),
+                ("Shift+F8", MB, INK),
+                (" save / load named snapshot files — loading one replaces the resume state. ", MR, INKDIM),
+                ("Shift+F5", MB, INK),
+                (" deletes the resume state for a fresh start (with a warning).", MR, INKDIM),
             ],
             12.0,
             1.55,
         );
-        self.code_line(x + 20.0, bar_top + bar_h - 32.0, 320.0, "~/.libre99/savestate.ti99");
+        self.code_line(x + 20.0, bar_top + bar_h - 32.0, 320.0, "~/.libre99/resume.ti99");
     }
 
     /// A monospaced code/path chip on a dark background.
@@ -1043,7 +1054,7 @@ impl Screen<'_> {
         let files = [
             ("libre99.toml", "preferences (commented)"),
             ("libre99.log", "run log (appended)"),
-            ("savestate.ti99", "the single save state"),
+            ("resume.ti99", "the resume state (auto-save)"),
             ("screenshots/", cmd_label::SCREENSHOT_PNGS),
         ];
         let mut fy = lower_top + 60.0;

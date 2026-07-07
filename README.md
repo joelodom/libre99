@@ -44,9 +44,9 @@ right, and the firmware does the rest.
   levels) — both gameplay-tested end to end on the emulated console.
 - **A pleasant desktop app.** On-screen help overlay with a pictured TI
   keyboard, layout-independent typing (QWERTY/Dvorak/AZERTY all just work),
-  native file-chooser media mounting, save state with auto-save/resume,
-  screenshots, pause/frame-advance/fast-forward, and a live CPU inspector —
-  the overlays drawn by the app itself, no GUI toolkit.
+  native file-chooser media mounting, save states (auto-save/resume + named
+  snapshots), screenshots, pause/frame-advance/fast-forward, and a live CPU
+  inspector — the overlays drawn by the app itself, no GUI toolkit.
 
 ## Screenshots
 

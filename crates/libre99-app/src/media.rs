@@ -165,14 +165,137 @@ pub fn confirm_unload(name: &str) -> UnloadChoice {
     }
 }
 
-/// The host identity a disk image is remembered by — across ejects, in save
-/// states, and in the disk-memory overlay: the canonicalized absolute path
-/// when the file resolves (so case and relative-vs-absolute spellings of the
-/// same file collapse to one identity), else the path as given. Windows'
-/// canonical form carries the `\\?\` verbatim prefix; it is stripped so keys
-/// stay readable (the key is an identity and display string, never re-opened
-/// as a path).
-pub fn disk_key(path: &Path) -> String {
+/// Ask the OS where to write a snapshot — a user-named save state — with its
+/// **native save dialog**. As with [`save_dsk_file`], the dialog's own
+/// replace-prompt is the overwrite guarantee, and the returned path is
+/// written exactly as returned (no extension fix-ups afterwards).
+pub fn save_snapshot_file(start_dir: &Path, suggested_name: &str) -> Option<PathBuf> {
+    let mut dialog = rfd::FileDialog::new()
+        .add_filter("Libre99 save states (*.ti99)", &["ti99"])
+        .set_title("Save snapshot (.ti99)")
+        .set_file_name(suggested_name);
+    if start_dir.is_dir() {
+        dialog = dialog.set_directory(start_dir);
+    }
+    dialog.save_file()
+}
+
+/// Ask the OS for a snapshot file to load with its **native open dialog**
+/// (blocking, like [`pick_media_file`]).
+pub fn pick_snapshot_file(start_dir: &Path) -> Option<PathBuf> {
+    let mut dialog = rfd::FileDialog::new()
+        .add_filter("Libre99 save states (*.ti99)", &["ti99"])
+        .set_title("Load snapshot (.ti99)");
+    if start_dir.is_dir() {
+        dialog = dialog.set_directory(start_dir);
+    }
+    dialog.pick_file()
+}
+
+/// The warning shown before a snapshot load (pure, so it is unit-testable;
+/// the dialog itself is native): loading replaces the running machine *and*
+/// the resume state — plus what that costs when the session holds unexported
+/// disk changes the snapshot won't have.
+pub fn snapshot_load_warning(name: &str, dirty_disks: usize) -> String {
+    let mut text = format!(
+        "Load the snapshot {name}?\n\n\
+         It replaces the running machine and becomes the resume state — the \
+         automatic save Libre99 reloads at startup — so the session running \
+         now is overwritten."
+    );
+    if dirty_disks > 0 {
+        text.push_str(&format!(
+            "\n\nThis session holds {dirty_disks} in-memory disk image(s) with \
+             unexported changes; loading the snapshot discards them. Export \
+             them first (F4) to keep them."
+        ));
+    }
+    text
+}
+
+/// Confirm a snapshot load with the OS's **native message dialog**.
+pub fn confirm_snapshot_load(name: &str, dirty_disks: usize) -> bool {
+    rfd::MessageDialog::new()
+        .set_level(rfd::MessageLevel::Warning)
+        .set_title("Load snapshot")
+        .set_description(snapshot_load_warning(name, dirty_disks))
+        .set_buttons(rfd::MessageButtons::YesNo)
+        .show()
+        == rfd::MessageDialogResult::Yes
+}
+
+/// The warning shown before Load (`F8`) *only* when the session holds
+/// unexported in-memory disk changes that the resume state would roll back
+/// (pure, for tests). A clean session loads without a prompt.
+pub fn resume_load_warning(dirty_disks: usize) -> String {
+    format!(
+        "Load the resume state?\n\n\
+         This session holds {dirty_disks} in-memory disk image(s) with \
+         unexported changes; loading rolls every disk back to the resume \
+         state's copy. Export them first (F4) to keep them."
+    )
+}
+
+/// Confirm rolling back unexported disk changes with the OS's **native
+/// message dialog** (only shown when there are some — see
+/// [`resume_load_warning`]).
+pub fn confirm_resume_load(dirty_disks: usize) -> bool {
+    rfd::MessageDialog::new()
+        .set_level(rfd::MessageLevel::Warning)
+        .set_title("Load resume state")
+        .set_description(resume_load_warning(dirty_disks))
+        .set_buttons(rfd::MessageButtons::YesNo)
+        .show()
+        == rfd::MessageDialogResult::Yes
+}
+
+/// The warning shown before a fresh start (pure, for tests): the resume
+/// state is deleted permanently and the console restarts bare, spelling out
+/// exactly what is lost — every in-memory disk image, and unexported changes
+/// in particular. Host files are never touched.
+pub fn fresh_start_warning(disks: usize, dirty_disks: usize) -> String {
+    let mut text = String::from(
+        "Delete the resume state and start fresh?\n\n\
+         The resume state is deleted permanently, and the console restarts \
+         bare — no cartridge, no disk — as on a first run.",
+    );
+    if disks > 0 {
+        text.push_str(&format!(
+            "\n\nThe {disks} disk image(s) held in memory are unloaded"
+        ));
+        if dirty_disks > 0 {
+            text.push_str(&format!(
+                " — {dirty_disks} of them carry unexported changes that will be \
+                 lost. Export them first (F4) to keep them"
+            ));
+        }
+        text.push('.');
+    }
+    text.push_str(
+        "\n\nFiles on your computer (.dsk, .ctg, snapshot .ti99) are never touched.",
+    );
+    text
+}
+
+/// Confirm a fresh start with the OS's **native message dialog**.
+pub fn confirm_fresh_start(disks: usize, dirty_disks: usize) -> bool {
+    rfd::MessageDialog::new()
+        .set_level(rfd::MessageLevel::Warning)
+        .set_title("Fresh start")
+        .set_description(fresh_start_warning(disks, dirty_disks))
+        .set_buttons(rfd::MessageButtons::YesNo)
+        .show()
+        == rfd::MessageDialogResult::Yes
+}
+
+/// The host identity a media file is remembered by — disks across ejects, in
+/// save states, and in the disk-memory overlay; cartridges in save states
+/// (format v3): the canonicalized absolute path when the file resolves (so
+/// case and relative-vs-absolute spellings of the same file collapse to one
+/// identity), else the path as given. Windows' canonical form carries the
+/// `\\?\` verbatim prefix; it is stripped so keys stay readable (the key is
+/// an identity and display string, never re-opened as a path).
+pub fn file_key(path: &Path) -> String {
     let canon = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let s = canon.display().to_string();
     match s.strip_prefix(r"\\?\") {
@@ -252,20 +375,56 @@ mod tests {
     }
 
     #[test]
-    fn disk_key_collapses_spellings_of_the_same_file() {
+    fn file_key_collapses_spellings_of_the_same_file() {
         let dir = std::env::temp_dir();
         let path = dir.join("libre99-media-test-key.dsk");
         std::fs::write(&path, [0u8; 4]).unwrap();
-        let key = disk_key(&path);
+        let key = file_key(&path);
         // A redundant `.` component resolves to the same identity.
-        assert_eq!(disk_key(&dir.join(".").join("libre99-media-test-key.dsk")), key);
+        assert_eq!(file_key(&dir.join(".").join("libre99-media-test-key.dsk")), key);
         assert!(!key.starts_with(r"\\?\"), "verbatim prefix leaked into the key: {key}");
         let _ = std::fs::remove_file(&path);
         // A file that doesn't resolve still yields a stable identity.
         assert_eq!(
-            disk_key(Path::new("no/such.dsk")),
+            file_key(Path::new("no/such.dsk")),
             Path::new("no/such.dsk").display().to_string()
         );
+    }
+
+    #[test]
+    fn the_snapshot_warning_names_the_file_and_the_resume_state() {
+        let clean = snapshot_load_warning("parsec.ti99", 0);
+        assert!(clean.contains("parsec.ti99"), "{clean}");
+        assert!(clean.contains("resume state"), "{clean}");
+        assert!(!clean.contains("unexported"), "a clean session must not warn: {clean}");
+        let dirty = snapshot_load_warning("parsec.ti99", 2);
+        assert!(dirty.contains("2 in-memory disk image(s)"), "{dirty}");
+        assert!(dirty.contains("F4"), "{dirty}");
+    }
+
+    #[test]
+    fn the_fresh_start_warning_spells_out_what_is_lost() {
+        let bare = fresh_start_warning(0, 0);
+        assert!(bare.contains("deleted permanently"), "{bare}");
+        assert!(!bare.contains("disk image(s) held in memory"), "no disks, no disk line: {bare}");
+        assert!(bare.contains("never touched"), "{bare}");
+
+        let loaded = fresh_start_warning(3, 1);
+        assert!(loaded.contains("3 disk image(s)"), "{loaded}");
+        assert!(loaded.contains("1 of them carry unexported changes"), "{loaded}");
+        assert!(loaded.contains("F4"), "{loaded}");
+
+        // Disks in memory but none dirty: mention the unload, skip the alarm.
+        let clean = fresh_start_warning(2, 0);
+        assert!(clean.contains("2 disk image(s)"), "{clean}");
+        assert!(!clean.contains("unexported"), "{clean}");
+    }
+
+    #[test]
+    fn the_resume_load_warning_counts_the_dirty_disks() {
+        let text = resume_load_warning(1);
+        assert!(text.contains("1 in-memory disk image(s)"), "{text}");
+        assert!(text.contains("rolls every disk back"), "{text}");
     }
 
     #[test]

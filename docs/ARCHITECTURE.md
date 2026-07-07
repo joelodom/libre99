@@ -102,12 +102,12 @@ its tests run against.)
 |---|---|
 | `main` | Parses the CLI, loads config, initializes logging, stamps the system-info block, mounts media, optionally resumes the saved session, runs the window loop. |
 | `cli` | Hand-rolled parser: `--cartridge`/`--disk`/`--system-rom`/`--system-grom`/`--disk-dsr`/`--scale`/`--fullscreen`/`--log-level`/`--help` (media flags take file paths; nothing is embedded). |
-| `config` | The preferences TOML (resilient parse, clean rewrite); owns the data-dir/log/save-state/screenshot paths. |
+| `config` | The preferences TOML (resilient parse, clean rewrite); owns the data-dir/log/resume-state/screenshot paths and the atomic file write (`write_atomic`) every state/preferences save goes through. |
 | `assets` | The **clean-room firmware** embedded in the binary (console ROM/GROM + disk DSR) — and nothing else. |
-| `media` | Runtime media loading: the OS-native file chooser + export save dialog + unload confirmation (`rfd`), `.ctg`/`.dsk` type detection, size guard, disk identity keys (canonical paths), read-and-validate shared by the CLI and `F9`. |
+| `media` | Runtime media loading: the OS-native dialogs (`rfd`) — file chooser, disk-export and snapshot save/open, unload/snapshot/fresh-start warnings — `.ctg`/`.dsk` type detection, size guard, media identity keys (canonical paths), read-and-validate shared by the CLI and `F9`. |
 | `disks` | The `F4` disk-memory overlay: lists the in-memory disk images (mounted + shelved, `CHANGED`/`CLEAN`) and drives export/unload. |
 | `logging` | Leveled logging to terminal + run-log file. |
-| `app` | The winit application: window, ~60 Hz frame loop, input routing, hotkeys, overlays, save/load + auto-save on exit. |
+| `app` | The winit application: window, ~60 Hz frame loop, input routing, hotkeys, overlays; the resume state (save/load, exit auto-save, fresh start) and snapshot save/load. |
 | `pacing` | The frame-pacing arithmetic (pure, unit-tested). |
 | `video` | Scales/blits the core's framebuffer to the window via softbuffer. |
 | `audio` | A cpal output stream pulling PSG samples (lock-contention-safe callback). |
@@ -220,11 +220,17 @@ across that rebuild.
 ### Save states
 `state.rs` serializes a complete, self-contained snapshot (RAM, VRAM, GROM,
 cartridge ROM, every in-memory disk image — mounted drives and the eject shelf,
-writes and host identities included) behind a magic+version header (format v2;
-v1 files still load, with no identities/shelf). Loads are **staged** — the
-snapshot decodes into a scratch machine and is swapped in only on success, so a
-corrupt file can never half-corrupt a session — and per-device sanitizers clamp
-restored cursors/indices.
+writes and host identities included) behind a magic+version header (format v3,
+which added the cartridge's host identity; v2 added the disk identities/shelf;
+v1 files still load, with none of those). The format is portable across
+hosts: little-endian everywhere, and the identities are opaque labels never
+re-opened as paths. Loads are **staged** — the snapshot decodes into a scratch
+machine and is swapped in only on success, so a corrupt file can never
+half-corrupt a session — and per-device sanitizers clamp restored
+cursors/indices. The frontend keeps **one automatic state, the resume state**
+(`~/.libre99/resume.ti99`: exit auto-save, startup resume, `F6`/`F8`), plus
+user-named snapshot files (`Shift`+`F6`/`F8`, native dialogs); every state
+file is written atomically (temp file + rename) by `config::write_atomic`.
 
 ---
 

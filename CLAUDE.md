@@ -59,7 +59,8 @@ reproduce its behavior and add a focused regression test on our side.
 Everything user-specific lives in **`~/.libre99/`** (the frontend creates
 it at startup via `config::ensure_data_dir`): the preferences
 (`libre99.toml`), the run log (`libre99.log`, appended across
-runs), the single save state (`savestate.ti99`), and screenshots. Any new
+runs), the resume state (`resume.ti99`, the automatic save state), and
+screenshots. Any new
 user-specific file (TOML, logs, caches, exports, …) must go under this directory
 — derive its path from `config::data_dir()`, never write elsewhere in `$HOME`.
 The desktop binary is named `libre99`.

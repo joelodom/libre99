@@ -22,7 +22,7 @@ Windows/Linux; every other `Ctrl` chord still reaches the TI's own CTRL key.)
 - [Emulator hotkeys](#emulator-hotkeys)
 - [Mounting media (F9) and ejecting (F2/F3)](#mounting-media-f9-and-ejecting-f2f3)
 - [Disk persistence — your .dsk files are never modified](#disk-persistence--your-dsk-files-are-never-modified)
-- [Save state, auto-save, and resume](#save-state-auto-save-and-resume)
+- [Save states — the resume state and snapshots](#save-states--the-resume-state-and-snapshots)
 - [Screenshots](#screenshots)
 - [Speed control](#speed-control-pause-frame-advance-fast-forward)
 - [CPU inspector](#cpu-inspector)
@@ -49,7 +49,8 @@ The first build compiles the dependencies and takes a little while; subsequent
 runs are fast. `--release` is recommended so the emulator runs at full speed.
 A window opens at the **master title screen**; press any key for the selection
 menu. With no arguments the console boots **bare** — or resumes your previous
-session ([below](#save-state-auto-save-and-resume)). To run something, mount a
+session ([below](#save-states--the-resume-state-and-snapshots)). To run
+something, mount a
 `.ctg` cartridge or `.dsk` disk image with
 [`F9`](#mounting-media-f9-and-ejecting-f2f3) (your system's file chooser) or
 the [command line](#command-line-options).
@@ -195,9 +196,12 @@ overlay or media browser is open, except the keys that close those overlays.
 | `F3` | **Eject DSK1** (live — no reboot; the image stays in memory, see `F4`). |
 | `F4` | **Disk memory** overlay — list the in-memory disk images, **export** one to a `.dsk` file, or **unload** one from memory. |
 | `F5` | **Reset** the console. |
-| `F6` | **Save state** — snapshot the whole machine to the save file. |
+| `Shift`+`F5` | **Fresh start** — delete the [resume state](#save-states--the-resume-state-and-snapshots) and restart as a first run (native warning first). |
+| `F6` | **Save** — write the whole machine to the **resume state**. |
+| `Shift`+`F6` | **Save snapshot** — write the machine to a `.ti99` file you name (native Save dialog). |
 | `F7` | **Keyboard layout** — toggle positional ⇄ character. |
-| `F8` | **Load state** — restore the machine from the save file. |
+| `F8` | **Load** — restore the machine from the resume state. |
+| `Shift`+`F8` | **Load snapshot** — restore from a `.ti99` file you pick (replaces the resume state; native warning first). |
 | `F9` | **Mount media** — pick a `.ctg`/`.dsk` with the system file chooser. |
 | `F10` | **Pause / resume**. |
 | `F11` (macOS also `Ctrl`+`Cmd`+`F`) | Toggle **fullscreen** (see note). |
@@ -241,9 +245,10 @@ your host filesystem is never touched. In exchange:
   canonical path).
 - **A `*` in the window title** after the DSK1 name means the image has
   in-memory changes that haven't been exported.
-- **Save states carry all of it.** The save state (and the auto-save on quit)
-  includes every in-memory disk image — mounted or ejected — so changed disks
-  survive quitting and relaunching without you doing anything.
+- **Save states carry all of it.** Every save state — the resume state
+  (auto-saved on quit) and snapshots alike — includes every in-memory disk
+  image, mounted or ejected, so changed disks survive quitting and
+  relaunching without you doing anything.
 - **Export writes a `.dsk` when *you* choose.** The disk-memory overlay
   (below) exports the changed image through your OS's **native Save dialog**
   to any file you pick — a new file, or the original if you really want. The
@@ -264,38 +269,54 @@ is suspended while the overlay is open.
 | `U` or `Delete` | **Unload** — drop the image from memory, so the next mount of that file re-reads it fresh from your filesystem. If the image is `CHANGED`, a native dialog first offers **Yes** (export it, then unload), **No** (discard the changes), or **Cancel** (keep it in memory). Unloading a mounted disk also empties the drive. |
 | `Esc` / `F4` | Close the overlay. |
 
-## Save state, auto-save, and resume
+## Save states — the resume state and snapshots
 
-`F6` writes a **complete, self-contained snapshot** of the running machine —
-all RAM and VRAM, the GROM image, the cartridge ROM, and **every in-memory
-disk image** (mounted *and* ejected-but-remembered, written sectors included)
-— to a single file:
+A save state is a **complete, self-contained snapshot** of the running
+machine — all RAM and VRAM, the GROM image, the cartridge ROM, and **every
+in-memory disk image** (mounted *and* ejected-but-remembered, written sectors
+included) — in a single `.ti99` file. It carries the firmware, cartridge, and
+disk images inside itself, so loading one does not depend on which media are
+selected — or even on which computer it was written on. Every state file is
+written **atomically** (to a temp file, then renamed into place), so a crash
+or full disk mid-save can never destroy the previous one.
+
+There are two kinds:
+
+**The resume state** is the one automatic save state:
 
 ```
-~/.libre99/savestate.ti99
+~/.libre99/resume.ti99
 ```
 
-`F8` restores it. A toast confirms each action. The file is portable: it
-carries the firmware/cartridge/disk images itself, so a reload does not depend
-on which media are selected.
+- **Auto-save and resume:** on any exit the session is written here, and the
+  next launch loads it automatically — you pick up exactly where you left
+  off, window title and all. Launching with explicit media or firmware
+  (`--cartridge`, `--disk`, `--system-rom`, `--system-grom`) skips the resume
+  and boots fresh.
+- **`F6` saves and `F8` loads it live**, any time, with a toast confirming
+  each. If loading would roll back in-memory disk changes you haven't
+  exported, a native warning asks first; otherwise `F8` is instant.
+- **`Shift`+`F5` deletes it** — the **fresh start**. A native warning spells
+  out what goes (the resume state, plus every in-memory disk image — with a
+  count of any that carry unexported changes), then the console restarts
+  bare, exactly like a first run. Files on your computer are never touched.
 
-**Auto-save and resume.** On any exit the current state is written to this
-same file, and the next launch loads it automatically — you pick up exactly
-where you left off, with the window title restored to match. There is **one**
-save state: `F6`, `F8`, the exit auto-save, and the startup resume all share
-it. Launching with explicit media or firmware (`--cartridge`, `--disk`,
-`--system-rom`, `--system-grom`) skips the resume and boots fresh.
+**Snapshots** are save states in files *you* name, made with the OS's native
+dialogs:
 
-> The snapshot itself is self-contained, but the frontend also re-reads the
-> mounted *cartridge* file (recorded in the preferences) on resume, so a later
-> cartridge change keeps working. If that file has moved or gone, the resumed
-> session still runs; the log notes the miss. Disks need no re-read — their
-> images (and identities) travel inside the snapshot.
+- **`Shift`+`F6` saves a snapshot** wherever you choose (the Save dialog's
+  own replace-prompt guards against overwriting a file unasked — the same
+  guarantee as disk export).
+- **`Shift`+`F8` loads one.** A native warning first: loading a snapshot
+  replaces the running machine **and becomes the resume state** (the resume
+  state is rewritten immediately after a successful load, so quitting and
+  relaunching keeps you in the snapshot's world). The snapshot file itself is
+  read-only to the emulator — it is never modified after it's written.
 
 > **Disk writes never touch your `.dsk` files.** They live in the machine's
-> in-memory images, which the save state (and the exit auto-save) carries in
-> full — so changed disks survive a normal quit-and-resume automatically. To
-> get them onto the host filesystem, **export** from the
+> in-memory images, which every save state — resume state and snapshots —
+> carries in full, so changed disks survive a quit-and-resume automatically.
+> To get them onto the host filesystem, **export** from the
 > [disk-memory overlay (`F4`)](#the-disk-memory-overlay-f4).
 
 ## Screenshots
@@ -344,7 +365,7 @@ break startup.
 | Key | Type | Meaning |
 |---|---|---|
 | `log_level` | string | Logging verbosity: `error` / `warn` / `info` / `debug` / `trace`. |
-| `last_cartridge`, `last_disk` | string | File **paths** of the media mounted at exit. The cartridge is re-read on resume; the disk path is bookkeeping (its image travels inside the save state). Managed by the app; no need to edit. |
+| `last_cartridge`, `last_disk` | string | File **paths** of the media mounted at exit. The resume state names its own media since save format v3; these remain the fallback identities when resuming an older state file. Managed by the app; no need to edit. |
 | `browser_dir` | string | Where the `F9` file chooser opens — follows your last mount. Managed by the app. |
 | `window_scale` | integer | Integer upscale of the 256×192 image (`1`–`8`). |
 | `fullscreen` | bool | Start fullscreen. |
@@ -373,18 +394,19 @@ Everything user-specific lives under one directory, created on first run:
 ~/.libre99/
 ├─ libre99.toml      preferences (commented; see above)
 ├─ libre99.log       run log (appended across runs)
-├─ savestate.ti99           the single save state (F6/F8 + auto-save/resume)
+├─ resume.ti99              the resume state (F6/F8 + auto-save/resume)
 └─ screenshots/             libre99-<timestamp>.png
 ```
 
-Nothing is written anywhere else in your home directory. (On Windows, `~` is
-your user profile directory.)
+Snapshots (`Shift`+`F6`) live wherever you save them. Nothing is written
+anywhere else in your home directory. (On Windows, `~` is your user profile
+directory.)
 
 If you used a build from before the Libre99 rename, your old
 `~/.ti-99-emulator/` directory is adopted automatically on first launch — the
-directory and the preferences/log files are renamed in place, and the save
-state (including its `savestate.ti99` name, which refers to the machine, not
-the old project name) carries over untouched.
+directory and the preferences/log files are renamed in place. The save state
+carries over too: its pre-2026-07-07 `savestate.ti99` name is renamed once to
+`resume.ti99`.
 
 ## Known limitations
 
