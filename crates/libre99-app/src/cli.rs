@@ -55,7 +55,8 @@
 /// Parsed command line. Each `Option` is `None` when the flag was not given.
 #[derive(Debug, Default, PartialEq)]
 pub struct Args {
-    /// `Some(path)` to mount a `.ctg` cartridge image (e.g. libre99asm output).
+    /// `Some(path)` to mount a cartridge image — a `.ctg` container (e.g.
+    /// libre99asm output) or a raw `.bin` ROM dump.
     pub cartridge: Option<String>,
     /// `Some(path)` to boot a system GROM image from disk in place of the default
     /// clean-room GROM (e.g. an authentic `994AGROM.Bin`).
@@ -82,7 +83,7 @@ Usage: libre99 [options]
 The console boots bare (no media). Load media from these flags or in the app
 with the file browser (F9).
 
-  --cartridge <path>   Mount a .ctg cartridge image (e.g. libre99asm output)
+  --cartridge <path>   Mount a cartridge image: a .ctg container or a raw .bin ROM dump
   --disk <path>        Insert a .dsk disk image into DSK1
   --system-grom <path> Boot a system GROM image in place of the default (clean-room) GROM
   --system-rom <path>  Boot a console ROM image in place of the default (clean-room) ROM

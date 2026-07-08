@@ -31,11 +31,11 @@ clean-room firmware boots by default._
 | TMC0430 GROM array (prefetch, destructive address read, slot wrap) | ✅ complete |
 | TMS9918A VDP (all modes, sprites, beam-accurate scanline rendering) | ✅ complete |
 | TMS9901 + CRU + keyboard matrix | ✅ complete |
-| Cartridge loader (`.ctg`, byte-exact across a 137-image test corpus) + bank switching | ✅ complete |
+| Cartridge loader (`.ctg` container, byte-exact across a 137-image corpus, **and** raw `.bin` ROM dumps) + bank switching | ✅ complete |
 | TI Disk Controller (FD1771, clean-room DSR by default, VIB-aware geometry) | ✅ complete |
 | SN76489 PSG + host audio | ✅ complete |
 | Desktop app (window, input, audio, overlays, file chooser, config, logging, save states) | ✅ complete, playable |
-| Media model: **zero embedded media** — `.ctg`/`.dsk` load at run time (CLI paths / `F9` system file chooser) | ✅ complete (2026-07-06) |
+| Media model: **zero embedded media** — `.ctg`/`.bin`/`.dsk` load at run time (CLI paths / `F9` system file chooser) | ✅ complete (2026-07-06) |
 | Disk persistence: host `.dsk` never written — live mount/eject, in-memory images survive eject/remount and save states, `F4` export/unload | ✅ complete (2026-07-07) |
 | Save states: resume state (auto-save/resume, `F6`/`F8`, `Shift`+`F5` fresh start) + snapshot files (`Shift`+`F6`/`F8`, native dialogs), atomic writes, portable format v3 | ✅ complete (2026-07-07) |
 | macOS `.app` bundle (packaging) | ⬜ open — run via `cargo run` for now |

@@ -44,7 +44,8 @@
 // SOFTWARE.
 
 //! Media files loaded at run time — no cartridge or disk image is embedded in
-//! the binary. A cartridge (`.ctg`) or disk (`.dsk`) comes from an explicit
+//! the binary. A cartridge (`.ctg` container or raw `.bin` ROM dump) or disk
+//! (`.dsk`) comes from an explicit
 //! user-given path: the `--cartridge` / `--disk` command-line flags or the
 //! OS-native file chooser ([`pick_media_file`], on `F9`). This module owns the
 //! chooser, the file-type detection, the size guard, and the read-and-validate
@@ -102,10 +103,10 @@ impl MediaItem {
 /// media; opens in `start_dir`, the last directory a mount came from.
 pub fn pick_media_file(start_dir: &Path) -> Option<PathBuf> {
     let mut dialog = rfd::FileDialog::new()
-        .add_filter("TI media (*.ctg, *.dsk)", &["ctg", "dsk"])
-        .add_filter("Cartridges (*.ctg)", &["ctg"])
+        .add_filter("TI media (*.ctg, *.bin, *.dsk)", &["ctg", "bin", "dsk"])
+        .add_filter("Cartridges (*.ctg, *.bin)", &["ctg", "bin"])
         .add_filter("Disk images (*.dsk)", &["dsk"])
-        .set_title("Mount TI media — cartridge (.ctg) or disk (.dsk)");
+        .set_title("Mount TI media — cartridge (.ctg / .bin) or disk (.dsk)");
     if start_dir.is_dir() {
         dialog = dialog.set_directory(start_dir);
     }
@@ -304,11 +305,13 @@ pub fn file_key(path: &Path) -> String {
     }
 }
 
-/// The media kind of `path` by extension (case-insensitive): `.ctg` is a
-/// cartridge, `.dsk` a disk image; anything else is not mountable media.
+/// The media kind of `path` by extension (case-insensitive): `.ctg` and `.bin`
+/// are cartridges (the `ti99sim` container and a raw ROM dump — the parser tells
+/// them apart by content), `.dsk` a disk image; anything else is not mountable
+/// media.
 pub fn kind_of(path: &Path) -> Option<MediaKind> {
     let ext = path.extension()?.to_str()?;
-    if ext.eq_ignore_ascii_case("ctg") {
+    if ext.eq_ignore_ascii_case("ctg") || ext.eq_ignore_ascii_case("bin") {
         Some(MediaKind::Cartridge)
     } else if ext.eq_ignore_ascii_case("dsk") {
         Some(MediaKind::Disk)
@@ -362,6 +365,10 @@ mod tests {
     fn kind_is_judged_by_extension_case_insensitively() {
         assert_eq!(kind_of(Path::new("a/b/Game.ctg")), Some(MediaKind::Cartridge));
         assert_eq!(kind_of(Path::new("A.CTG")), Some(MediaKind::Cartridge));
+        // A raw ROM dump (`.bin`) is a cartridge too; the parser tells the two
+        // cartridge formats apart by content.
+        assert_eq!(kind_of(Path::new("copper8.bin")), Some(MediaKind::Cartridge));
+        assert_eq!(kind_of(Path::new("COPPER8.BIN")), Some(MediaKind::Cartridge));
         assert_eq!(kind_of(Path::new("Vol.Dsk")), Some(MediaKind::Disk));
         assert_eq!(kind_of(Path::new("vol.DSK")), Some(MediaKind::Disk));
         assert_eq!(kind_of(Path::new("readme.txt")), None);

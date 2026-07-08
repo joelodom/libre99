@@ -842,7 +842,7 @@ impl Screen<'_> {
             col_w,
             chip_w + 5.0,
             &[(
-                "opens the file chooser. Mount .ctg cartridges and .dsk floppies from anywhere on disk.",
+                "opens the file chooser. Mount .ctg/.bin cartridges and .dsk floppies from disk.",
                 MR,
                 MUTED,
             )],
@@ -1094,7 +1094,7 @@ impl Screen<'_> {
                 hr(&[KeyChip::Text("F9")], "file chooser"),
             ]),
             ("MEDIA", &[
-                hr(&[KeyChip::Text("F9")], "mount .ctg / .dsk"),
+                hr(&[KeyChip::Text("F9")], "mount cart / disk"),
                 hr(&[KeyChip::Text("F4")], "export disk writes"),
                 hr(&[KeyChip::Text("F2"), KeyChip::Text("F3")], "eject cart / disk"),
             ]),
@@ -1147,7 +1147,7 @@ impl Screen<'_> {
         let lines: [&[Run]; 4] = [
             &[
                 ("F9", MS, CHIP_INK),
-                (" mounts .ctg cartridge and .dsk floppy images. Nothing is embedded.", MR, MUTED),
+                (" mounts .ctg/.bin cartridge and .dsk floppy images. Nothing is embedded.", MR, MUTED),
             ],
             &[
                 ("Disk writes stay in memory until ", MR, MUTED),
@@ -1178,7 +1178,7 @@ impl Screen<'_> {
     fn tab_settings(&mut self) {
         // All flags and preference keys per docs/USER-GUIDE.md, all rows shown.
         let cli: [(&str, &str); 10] = [
-            ("--cartridge <path>", "mount a .ctg cartridge image (e.g. libre99asm output)"),
+            ("--cartridge <path>", "mount a .ctg or raw .bin cartridge image"),
             ("--disk <path>", "insert a .dsk disk image into DSK1"),
             ("--system-rom <path>", "boot a console ROM in place of the clean-room default"),
             ("--system-grom <path>", "boot a console GROM in place of the clean-room default"),

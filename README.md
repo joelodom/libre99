@@ -36,8 +36,9 @@ right, and the firmware does the rest.
   away (`--system-rom` / `--system-grom`) — still required only for TI BASIC
   itself ([why](docs/KNOWN-ISSUES.md)).
 - **Nothing embedded but our own firmware.** The binary carries zero
-  third-party bytes; cartridges (`.ctg`) and disks (`.dsk`) load at run time
-  from your own files — the command line or the system file chooser (`F9`).
+  third-party bytes; cartridges (`.ctg` containers or raw `.bin` ROM dumps) and
+  disks (`.dsk`) load at run time from your own files — the command line or the
+  system file chooser (`F9`).
 - **A complete author-to-screen toolchain.** `libre99asm` assembles
   Editor/Assembler-dialect TMS9900 source into bootable `.ctg` cartridges
   (`--cartridge <path>` closes the loop), `libre99gpl` builds GPL firmware, and
@@ -98,7 +99,7 @@ system's file chooser. Useful keys from the start:
 | Key | Action |
 |---|---|
 | `Esc` / `F1` | Help overlay — four tabs, including the full TI keyboard reference (a first run points you here with a `PRESS ESC FOR HELP` banner) |
-| `F9` | Mount media — pick any `.ctg` cartridge or `.dsk` disk image |
+| `F9` | Mount media — pick any `.ctg`/`.bin` cartridge or `.dsk` disk image |
 | `F5` | Reset the console |
 | `F10` | Pause / resume |
 | `Cmd`+`Q` (macOS) / `Alt`+`F4` | Quit — the session auto-saves and resumes on next launch |

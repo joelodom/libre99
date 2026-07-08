@@ -250,6 +250,74 @@ fn tunnels_of_doom_appears_on_the_selection_screen() {
     );
 }
 
+/// Build a raw CPU-ROM `.bin` dump (the loose-binary cartridge form, no `.ctg`
+/// container): `banks` 8 KiB banks, each opening with a standard `>AA` module
+/// header whose program list names the cartridge — the shape `copper8.bin` has.
+fn synth_raw_rom(title: &str, banks: usize) -> Vec<u8> {
+    let mut rom = vec![0u8; banks * 0x2000];
+    for b in 0..banks {
+        let base = b * 0x2000;
+        rom[base] = 0xAA; // valid module header, present in every bank
+        rom[base + 1] = 0x01; // version
+        rom[base + 6] = 0x60; // program list pointer -> >600C
+        rom[base + 7] = 0x0C;
+        rom[base + 0x0E] = 0x60; // program entry address -> >6016 (unused here)
+        rom[base + 0x0F] = 0x16;
+        rom[base + 0x10] = title.len() as u8;
+        rom[base + 0x11..base + 0x11 + title.len()].copy_from_slice(title.as_bytes());
+    }
+    rom
+}
+
+/// A raw ROM `.bin` dump parses to consecutive ROM banks with no GROM, and its
+/// title is lifted from the module header — no `.ctg` container required.
+#[test]
+fn raw_rom_bin_parses_without_a_container() {
+    let bytes = synth_raw_rom("RAW ROM CART", 2);
+    let c = Cartridge::parse(&bytes).unwrap();
+    assert_eq!(c.title, "RAW ROM CART");
+    assert_eq!(c.cru_base, 0);
+    assert_eq!(c.rom_banks, 2, "16 KiB dump = two 8 KiB banks");
+    assert_eq!(c.rom, bytes, "the raw dump is the ROM verbatim");
+    assert!(c.grom.is_empty(), "a raw ROM dump carries no GROM");
+}
+
+/// **A raw `.bin` ROM cartridge reaches the selection screen** exactly as a
+/// `.ctg` cartridge does: the console's power-up scan reads the module header
+/// from cartridge ROM (bank 0) and lists the cartridge's name. This is the
+/// `copper8.bin` path, exercised here with a synthesized raw ROM so no
+/// third-party image need be committed.
+#[test]
+fn a_raw_rom_cartridge_appears_on_the_selection_screen() {
+    let (Some(rom), Some(grom)) = (CONSOLE_ROM.as_deref(), CONSOLE_GROM.as_deref()) else {
+        eprintln!("SKIPPED: third-party console firmware not present");
+        return;
+    };
+    let cart = Cartridge::parse(&synth_raw_rom("RAW ROM CART", 2)).unwrap();
+
+    let mut m = Machine::new(rom, grom);
+    m.mount_cartridge(&cart);
+    m.reset();
+    for _ in 0..180 {
+        m.run_frame();
+    }
+    m.set_key(TiKey::Space, true);
+    for _ in 0..10 {
+        m.run_frame();
+    }
+    m.set_key(TiKey::Space, false);
+    for _ in 0..120 {
+        m.run_frame();
+    }
+
+    let text = screen_text(&m);
+    assert!(
+        text.contains("RAW ROM CART"),
+        "raw-ROM cartridge menu entry not on the selection screen; screen was:\n{}",
+        text
+    );
+}
+
 #[test]
 fn rejects_non_cartridge_data() {
     assert_eq!(

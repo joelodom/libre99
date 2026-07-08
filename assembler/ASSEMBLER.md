@@ -801,6 +801,9 @@ is requested (future, §9.10).
 The flat `>6000` image: bank 0 low (4 KiB) + bank 0 high (4 KiB), then each
 further bank, concatenated. Suitable for EPROM burning or other emulators/tools.
 No header beyond what your source/auto-header produced. Size is `banks × 8 KiB`.
+Libre99 mounts this raw form directly (`--cartridge out.bin`, or `F9`) — the
+emulator's cartridge loader detects a raw ROM dump by its leading `>AA` header,
+so a bootable `.bin` needs no repackaging into `.ctg`.
 
 ### 7.3 TI tagged-object file (`.obj`) — E/A interchange *(future — not implemented)*
 

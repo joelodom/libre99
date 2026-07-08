@@ -91,7 +91,7 @@ its tests run against.)
 | `grom` | TMC0430 GROM array: address counter, prefetch buffer, auto-increment, 8 KiB-slot wrap. |
 | `cru` | TMS9901 + the CRU bit bus: keyboard column/row scanning, the VDP interrupt line, the interval timer. |
 | `keyboard` | The 8×8 key/joystick matrix as pure state. |
-| `cartridge` | The `ti99sim` `.ctg` parser (RLE + region records) → CPU-ROM banks and GROM blobs; ROM bank switching. |
+| `cartridge` | The cartridge parser: the `ti99sim` `.ctg` container (RLE + region records) and raw `.bin` CPU-ROM dumps, both → CPU-ROM banks and GROM blobs; ROM bank switching. |
 | `disk` | The FD1771 controller registers, disk-image sector access (geometry from the VIB), DSR-ROM paging, and the disk-persistence model: keyed in-memory images, the eject shelf, dirty tracking, export/forget accessors. |
 | `state` | Versioned, `std`-only (de)serialization of a complete machine snapshot behind a magic+version header (no `serde`). |
 | `sysinfo` | The Libre99 emulator-identification block: the layout contract shared by the GROM build, the frontend's stamp, and the firmware gates. |
@@ -104,7 +104,7 @@ its tests run against.)
 | `cli` | Hand-rolled parser: `--cartridge`/`--disk`/`--system-rom`/`--system-grom`/`--disk-dsr`/`--scale`/`--fullscreen`/`--log-level`/`--version`/`--help` (media flags take file paths; nothing is embedded). |
 | `config` | The preferences TOML (resilient parse, clean rewrite); owns the data-dir/log/resume-state/screenshot paths and the atomic file write (`write_atomic`) every state/preferences save goes through. |
 | `assets` | The **clean-room firmware** embedded in the binary (console ROM/GROM + disk DSR) — and nothing else. |
-| `media` | Runtime media loading: the OS-native dialogs (`rfd`) — file chooser, disk-export and snapshot save/open, unload/snapshot/fresh-start warnings — `.ctg`/`.dsk` type detection, size guard, media identity keys (canonical paths), read-and-validate shared by the CLI and `F9`. |
+| `media` | Runtime media loading: the OS-native dialogs (`rfd`) — file chooser, disk-export and snapshot save/open, unload/snapshot/fresh-start warnings — `.ctg`/`.bin`/`.dsk` type detection, size guard, media identity keys (canonical paths), read-and-validate shared by the CLI and `F9`. |
 | `disks` | The `F4` disk-memory overlay: lists the in-memory disk images (mounted + shelved, `CHANGED`/`CLEAN`) and drives export/unload. |
 | `logging` | Leveled logging to terminal + run-log file. |
 | `app` | The winit application: window, ~60 Hz frame loop, input routing, hotkeys, overlays; the resume state (save/load, exit auto-save, fresh start) and snapshot save/load. |
@@ -187,14 +187,28 @@ those four are sound together; it is pinned by integration tests for both the
 clean-room and authentic firmware.
 
 ### Cartridges
-A `.ctg` file is the `ti99sim` format: an 80-byte banner, a version/CRU
+The parser accepts two on-disk formats and hands the machine the same parsed
+cartridge either way; the format is chosen by content, not extension.
+
+A **`.ctg`** file is the `ti99sim` format: an 80-byte banner, a version/CRU
 header, then RLE-compressed *region records* — each a 4 KiB CPU-ROM page
 (loaded into the >6000–7FFF window, possibly one of several banks) or an
-8 KiB GROM page (loaded into cartridge GROM space at >6000 and up). When a
-cartridge is mounted its GROMs join the GROM array and its ROM banks back the
-cartridge window (replacing any prior cartridge's state); the console's menu
-then lists it by its GROM-header name. *Tunnels of Doom* is pure GROM: five
-GROM pages holding the game engine, which loads scenario data from disk.
+8 KiB GROM page (loaded into cartridge GROM space at >6000 and up).
+
+A raw **`.bin`** file is a plain CPU-ROM dump with no container: just the
+>6000–7FFF window's bytes, one 8 KiB bank after another, opening with the
+standard `>AA` module header (the signature that tells a raw dump from junk).
+It is the loose-binary form MAME/Classic99 accept (the `…8.bin`/`…C.bin`
+naming). The dump is padded up to a power-of-two bank count so the console's
+`(addr >> 1) & (banks − 1)` bank-select mask stays clean. Supported: the
+standard non-inverted scheme where bank 0 is the boot bank; GROM-only dumps
+and the inverted scheme (header only in the last bank) ship as `.ctg` instead.
+
+When a cartridge is mounted its GROMs join the GROM array and its ROM banks
+back the cartridge window (replacing any prior cartridge's state); the
+console's menu then lists it by its header name. *Tunnels of Doom* is pure
+GROM: five GROM pages holding the game engine, which loads scenario data from
+disk. *Copper* is a 128 KiB raw ROM `.bin`: sixteen bank-switched 8 KiB banks.
 
 ### Disk
 The TI Disk Controller is emulated at the hardware level so the **real**

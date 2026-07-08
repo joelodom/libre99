@@ -51,7 +51,7 @@ A window opens at the **master title screen**; press any key for the selection
 menu. With no arguments the console boots **bare** — or resumes your previous
 session ([below](#save-states--the-resume-state-and-snapshots)). To run
 something, mount a
-`.ctg` cartridge or `.dsk` disk image with
+`.ctg`/`.bin` cartridge or `.dsk` disk image with
 [`F9`](#mounting-media-f9-and-ejecting-f2f3) (your system's file chooser) or
 the [command line](#command-line-options).
 
@@ -70,7 +70,7 @@ preferences file** for that run.
 
 | Option | Effect |
 |---|---|
-| `--cartridge <path>` | Mount a `.ctg` cartridge image (e.g. `libre99asm` output). `--cartridge-file` is accepted as an alias. |
+| `--cartridge <path>` | Mount a cartridge image — a `.ctg` container (e.g. `libre99asm` output) or a raw `.bin` ROM dump. `--cartridge-file` is accepted as an alias. |
 | `--disk <path>` | Insert a `.dsk` disk image into DSK1. |
 | `--system-rom <path>` | Boot a console ROM image from disk in place of the default clean-room ROM — e.g. an authentic `994aROM.Bin`. |
 | `--system-grom <path>` | Boot a console GROM image from disk in place of the default clean-room GROM — e.g. an authentic `994AGROM.Bin`. |
@@ -125,7 +125,7 @@ Nothing is embedded; the console boots bare until you mount media, two ways:
 1. **Command line** (`--cartridge <path>`, `--disk <path>`) — for a single
    run, e.g. straight out of `libre99asm`.
 2. **In-app**, while running: `F9` opens your **system's file chooser**; pick
-   any `.ctg` (cartridge port) or `.dsk` (DSK1) — the two are told apart by
+   any `.ctg`/`.bin` (cartridge port) or `.dsk` (DSK1) — the port is chosen by
    extension. `F2` ejects the cartridge, `F3` ejects DSK1. A **disk** mounts
    and ejects **live**, like a real floppy — the running session is untouched;
    a **cartridge** change reboots the console (it scans cartridge ROM at
@@ -214,7 +214,7 @@ those overlays.
 | `F7` | **Keyboard layout** — toggle positional ⇄ character. |
 | `F8` | **Load** — restore the machine from the resume state. |
 | `Shift`+`F8` | **Load snapshot** — restore from a `.ti99` file you pick (replaces the resume state; native warning first). |
-| `F9` | **Mount media** — pick a `.ctg`/`.dsk` with the system file chooser. |
+| `F9` | **Mount media** — pick a `.ctg`/`.bin` cartridge or `.dsk` disk with the system file chooser. |
 | `F10` | **Pause / resume**. |
 | `F11` (macOS also `Ctrl`+`Cmd`+`F`) | Toggle **fullscreen** (see note). |
 | `F12` | **Frame advance** — run a single frame (pauses if running). |
@@ -230,9 +230,11 @@ those overlays.
 ## Mounting media (`F9`) and ejecting (`F2`/`F3`)
 
 `F9` opens your **operating system's native file chooser** (the standard
-Open dialog on Windows and macOS), filtered to TI media. Pick any `.ctg`
-cartridge or `.dsk` disk image — the extension decides which port it goes to
-(cartridge slot vs. DSK1). The chooser opens in the folder you last mounted
+Open dialog on Windows and macOS), filtered to TI media. Pick any `.ctg` or
+`.bin` cartridge or `.dsk` disk image — the extension decides which port it
+goes to (cartridge slot vs. DSK1); a cartridge's actual format (`ti99sim`
+container vs. raw ROM dump) is then detected from its contents. The chooser
+opens in the folder you last mounted
 from (your home directory on first run) and remembers the spot across
 sessions. The emulation pauses while the dialog is up and resumes when it
 closes; canceling changes nothing.
