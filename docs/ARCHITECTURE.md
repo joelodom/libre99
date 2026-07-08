@@ -274,11 +274,154 @@ audio callback.
 
 ## 6. The clean-room firmware track
 
-The emulator boots original, from-scratch console firmware by default — the
-**Libre99** console GROM (title/menu/TI PYTHON/system-info) and console ROM
-(kernel, GPL interpreter, KSCAN, ISR, device linkage, floating point). It was
-built recon-first (empirically pinning the authentic interface contract),
-verified differentially against the authentic images executed side by side,
-and is guarded by byte-census, frozen-layout, and 137-cartridge sweep gates.
-That subproject has its own documentation tree — start at
+The emulator boots original, from-scratch console firmware by default — in the
+default configuration **no TI-copyrighted byte executes at all**, console or
+disk. Authentic TI images remain loadable (`--system-rom` / `--system-grom` /
+`--disk-dsr`, always user-supplied files — the repository carries none), and
+they double as the verification oracle the rewrite is tested against. This
+section is the architectural overview; the subproject's own documentation tree
+(interface dossiers, surface maps, debugging guides) starts at
 [original-content/system-roms/README.md](../original-content/system-roms/README.md).
+
+### What each image is
+
+**The console ROM** — 8 KiB of TMS9900 machine code at >0000–1FFF, from
+[`rom/console.asm`](../original-content/system-roms/rom/console.asm) — is the
+machine's actual operating system: the reset/boot kernel, the **GPL
+interpreter** that executes everything living in GROM, the VBLANK ISR
+(keyboard scan, sound-list player, timers), the KSCAN keyboard scanner, the
+device-linkage scan that finds and calls peripheral-card DSRs, the FMT
+screen-format sub-language, the cassette modem layer, and the radix-100
+floating-point package (bit-exact against the authentic implementation,
+garbage inputs included). The one part *not* rewritten is the ROM's TI BASIC
+half, deferred indefinitely by policy — with one justified exception, the
+**XB substrate**: the five BASIC-era helpers that Extended BASIC calls
+directly by address, reimplemented at those addresses, which is enough to run
+an Extended BASIC cartridge end-to-end on the clean-room pair.
+
+**The console GROM** — 24 KiB of GPL bytecode filling GROMs 0–2, from
+[`grom/console.gpl`](../original-content/system-roms/grom/console.gpl) — is
+the OS layer the interpreter runs: power-up (VDP and scratchpad setup, arming
+the VBLANK ISR), the master title screen, the selection-list menu (scan every
+GROM and cartridge header, list the programs, dispatch the chosen one), the
+GPL-side DSRLNK and GPLLNK service grid, the character-set loaders — and, in
+TI BASIC's menu slot, **TI PYTHON** (an original mini-language,
+[spec](TI-PYTHON.md)) plus a system-information screen.
+
+**The disk DSR** — 8 KiB, CRU-paged into the >4000–5FFF window — is the
+clean-room Device Service Routine for the TI Disk Controller: the TI file
+system implemented against our FD1771 model (§3 "Disk").
+
+### Method: recon → reimplement → verify differentially
+
+The build is clean-room but oracle-driven. First **recon**: the authentic
+firmware's *interface* was pinned empirically — with the emulator's GROM
+tracer, targeted probes, and disassembly used only to recover contracts
+(entry addresses, table geometry, register conventions, algorithms restated
+as behavioral specs) — into per-track dossiers (each track's `RECON.md`).
+Code was then written from the dossier, never from TI's expression. Then
+**differential verification**: the same GPL programs execute under the
+authentic image and under ours from identical machine state, and the complete
+observable state — scratchpad, VDP registers, VRAM, CRU — must match. The
+acceptance bar is bug-for-bug *behavior* compatibility, not resemblance. The
+differential suites load the authentic images at run time from the git-ignored
+`third-party/` (skipping green when absent), so the repository itself stays
+free of TI bytes.
+
+### How it compares with the TI original
+
+Side by side, the two consoles are hard to tell apart — until you look at
+exactly the places the project chose to differ. Power on the Libre99 firmware
+and you get the familiar startup screen: the same color bars, the same `TEXAS
+INSTRUMENTS HOME COMPUTER` banner, the same `READY-PRESS ANY KEY TO BEGIN`
+prompt, a power-on beep. But the stylized "TI" logo has become an original
+**Texas + 99 emblem** (a Texas outline around a stylized 99), the copyright
+line reads `© 2026 JOEL ODOM`, and the beep is an original tune. Press a key
+and the master selection menu appears, built the way the original builds it —
+by scanning every GROM and cartridge header and listing what it finds — except
+that slot 1 reads `1 FOR TI PYTHON` where TI BASIC used to live. Those are the
+only intentional visible differences, and their placement is the point: they
+are precisely the elements that were TI's creative expression rather than
+machine interface.
+
+Below the surface, the resemblance is contractual rather than cosmetic.
+Cartridges call console routines by absolute address and read console data
+from documented locations, so the rewrite pins both. Every public ROM entry —
+the vectors, the dispatch tables, the floating-point routines, the helpers
+Extended BASIC calls directly — sits at its authentic address (handler
+*bodies* float free, and the ROM track keeps a layout ledger of where each one
+landed). The functional data a compatible OS must present is byte-identical at
+its authentic home: the 8×8 and thin character sets, and the keyboard and
+joystick decode tables that KSCAN reads out of GROM to turn scan codes into
+characters. A cartridge that peeks at the font, jumps into the ROM, or expects
+a key table where the manual says one lives cannot tell the difference.
+
+Compatibility goes deeper than addresses — the bar is *bug-for-bug behavior*.
+The authentic ROM, for instance, deliberately exploits the fact that
+scratchpad bytes >83E0–>83FF *are* the GPL interpreter's workspace registers,
+reading a register's low byte as a memory cell and vice versa; software can
+observe that, so the rewrite reproduces the same habits. The limit of the
+principle is one documented residual: a garbage-corner parse of a malformed
+MOVE encoding that no real program emits, excluded on purpose with a tripwire
+test recording the exclusion. Every other divergence from the authentic images
+must be classified in the surface maps — an unclassified difference fails the
+build.
+
+What the rewrite deliberately does not reproduce is **TI BASIC** — roughly
+12 KiB of GPL plus the ROM's BASIC-support half, deferred indefinitely by
+policy (running it means supplying authentic images via the flags). That
+deferral is also what makes the ROM fit: the non-BASIC OS packs into the same
+8 KiB with its entries pinned only because the BASIC half's territory could
+absorb relocated code. The practical sting was pulled in the meantime — the
+XB substrate is enough for an Extended BASIC cartridge to run end-to-end on
+the clean-room pair.
+
+### Performance against the original
+
+A rewrite could easily have been *too fast*, and that would have been a bug.
+On this machine the OS's speed is set less by code quality than by a
+bottleneck: nearly the whole OS is GPL bytecode pulled one byte at a time
+through the GROM ports, and every port access stalls the CPU 13–22 cycles
+(§4). The rewrite deliberately keeps the authentic access pattern — per-byte
+GROM addressing, no streaming shortcuts — so GPL executes at the authentic
+pace under either firmware, and anything timed against the OS behaves the
+same.
+
+Parity is enforced by a performance gate (`rom_perf.rs`) holding both of its
+metrics to ×1.25 of the authentic firmware, with a fixed 30-frame allowance on
+the boot metric. Measured: host wall-clock per emulated frame is ~0.22 ms
+under either firmware (ratio 0.99–1.04), and the boot reaches a settled title
+screen in 32 frames against the authentic 22 — a fixed ~10-frame offset in
+the boot path, about a sixth of a second, after which the two run at
+frame-for-frame parity. As predicted at design time, the per-byte GROM
+addressing dominates the cost; the code around it is noise.
+
+### The gate architecture
+
+The comparison above is measured, not asserted — every guarantee is a cargo
+test over committed artifacts. Staleness gates fail the suite if a committed
+`.bin` lags its source. Byte-census gates classify every divergence from the
+authentic images against the surface maps. Entry-census tripwires fail if a
+pinned address moves (one of them enforces the TI BASIC deferral paperwork).
+The differential suites — per-element microtests, the exhaustive 256-opcode
+GPL sweep, random-program fuzz with deep soaks, fetch-stream lockstep — run
+the same code under both firmwares and diff the observable state. And the
+cartridge sweep runs the 137-cartridge corpus through our menu, with a
+differential health panel that launches each cartridge under both GROMs and
+asserts ours is never *less alive* afterward (display on, ISR ticking):
+**137/137, zero waivers**.
+
+### Toolchain wiring
+
+The firmware is built by the workspace's own tools, deterministically:
+`libre99asm rom` assembles `console.asm`; `libre99gpl console` assembles
+`console.gpl` and splices in the Rust-generated data blocks (the character
+sets from `font.rs`, the emblem from `logo.rs`, the key tables from
+`keymap.rs`, the system-info block). Tests never read the committed images —
+they rebuild the firmware in memory from the embedded sources — while the
+desktop binary embeds the committed images via `libre99-app`'s `assets`
+module. The system-information screen shows the cross-crate wiring in
+miniature: `libre99-core`'s `sysinfo` module defines the block layout once,
+the GROM build bakes the block and version strings into the image, and the
+frontend stamps build/host fields into its in-memory copy at launch — run the
+same GROM on another emulator and those rows degrade to `UNKNOWN` by design.
